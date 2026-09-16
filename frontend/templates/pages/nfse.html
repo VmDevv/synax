@@ -1,0 +1,31 @@
+{% extends "layout/base.html" %}
+{% block title %}Notas de Serviço | Synax | Auditor Fiscal Inteligente{% endblock %}
+
+{% block content %}
+<main class="w-full">
+
+    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-3">
+        <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h2 class="syn-h2 text-xl font-bold flex items-center gap-2.5">
+                <i class="fa-solid fa-file-invoice text-base" style="color: var(--syn-700);"></i>
+                Notas de Serviço
+            </h2>
+            <p class="text-[13px] text-slate-500">NFS-e recebidas, com retenções e situação.</p>
+        </div>
+
+        <button type="button"
+                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg text-white shadow-sm transition"
+                style="background: var(--syn-700);"
+                onmouseover="this.style.background='var(--syn-900)'"
+                onmouseout="this.style.background='var(--syn-700)'"
+                hx-get="/nfse/drawer" hx-target="#drawer-container" hx-swap="innerHTML">
+            <i class="fa-solid fa-file-import text-[12px]"></i> Importar NFS-e
+        </button>
+    </div>
+
+    {% include "partials/nfse/tabela.html" %}
+
+    <!-- Drawer lateral injetado aqui -->
+    <div id="drawer-container"></div>
+</main>
+{% endblock %}

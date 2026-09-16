@@ -1,0 +1,189 @@
+<div id="admin-content">
+    
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+        <div>
+            <h3 class="text-lg font-bold text-slate-800">Regras de Auditoria por Empresa</h3>
+            <p class="text-sm text-slate-500">Selecione uma empresa para visualizar e gerenciar as regras de auditoria.</p>
+        </div>
+        
+        <!-- Seletor de Tenant (dispara HTMX on change) -->
+        <div class="flex items-center gap-3">
+            <span class="text-sm font-semibold text-slate-600">Empresa:</span>
+            <select class="select select-bordered select-sm bg-white border-slate-300 text-slate-900 shadow-sm"
+                    hx-get="/admin/rules" hx-target="#admin-content" hx-swap="outerHTML" name="tenant_id">
+                <option disabled {% if not tenant_id %}selected{% endif %}>Selecione uma Empresa</option>
+                {% for t in tenants %}
+                <option value="{{ t.id }}" {% if tenant_id == (t.id | string) %}selected{% endif %}>{{ t.name }} ({{ t.cnpj }})</option>
+                {% endfor %}
+            </select>
+        </div>
+    
+    {% include 'partials/admin/modals/modal_add_cfop.html' %}
+    {% include 'partials/admin/modals/modal_add_icms.html' %}
+    {% include 'partials/admin/modals/modal_add_ipi.html' %}
+    {% include 'partials/admin/modals/modal_add_pis_cofins.html' %}
+    {% include 'partials/admin/modals/modal_add_anticipation.html' %}
+</div>
+
+    {% if tenant_id %}
+
+    {# Busca única para as seis tabelas.
+
+       A BUSCA É NO BANCO, não no navegador. Cada tabela é paginada de 10 em 10
+       no servidor: um filtro em JavaScript enxergaria só as dez linhas abertas e
+       diria "nada encontrado" sobre uma regra que está na página 40. É o mesmo
+       defeito que a exportação do Relatório de NFs tinha.
+
+       O campo não dispara requisição própria: ele avisa `buscaRegras` no body, e
+       cada tabela se recarrega sozinha incluindo este input pelo id. As seis vão
+       em paralelo. O seletor é POR ID de propósito — `hx-include` varre o
+       documento inteiro, e um seletor por name pegaria também os campos das
+       linhas das tabelas. #}
+    <div class="mb-6">
+        <div class="relative">
+            <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"></i>
+            <input type="search" id="busca-regras" name="busca" autocomplete="off"
+                   placeholder="Buscar em todas as regras — CFOP, CST, descrição, código do produto, CNPJ, UF..."
+                   class="input input-bordered w-full h-11 pl-11 pr-28 bg-white border-slate-300 text-slate-900 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+            <button type="button" id="limpar-busca-regras"
+                    class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 btn btn-xs btn-ghost text-slate-500 hover:bg-slate-100">
+                <i class="fa-solid fa-xmark mr-1"></i> Limpar
+            </button>
+        </div>
+        <p class="text-xs text-slate-500 mt-1.5 ml-1">
+            Procura ao mesmo tempo nos seis quadros abaixo e em todas as páginas de cada um.
+            CNPJ pode ser digitado com ponto e barra.
+        </p>
+    </div>
+
+    <script>
+    // Debounce: sem ele, cada tecla dispararia seis requisições ao Supabase.
+    (function () {
+        var campo = document.getElementById('busca-regras');
+        var limpar = document.getElementById('limpar-busca-regras');
+        if (!campo || !limpar || campo.dataset.ligado) return;
+        campo.dataset.ligado = '1';
+
+        var timer = null;
+        function avisar() {
+            limpar.classList.toggle('hidden', !campo.value);
+            clearTimeout(timer);
+            timer = setTimeout(function () {
+                htmx.trigger(document.body, 'buscaRegras');
+            }, 350);
+        }
+
+        campo.addEventListener('input', avisar);
+        // O "x" nativo do input[type=search] dispara `search`, não `input`.
+        campo.addEventListener('search', avisar);
+        limpar.addEventListener('click', function () {
+            campo.value = '';
+            campo.focus();
+            avisar();
+        });
+    })();
+    </script>
+
+    <!-- CARD 1: CFOP Classification (ICMS) -->
+    <div class="bg-white border border-slate-200 shadow-sm rounded-xl mb-6">
+        <div class="px-4 py-3 border-b border-slate-200 bg-blue-50 flex justify-between items-center">
+            <h4 class="font-bold text-blue-800"><i class="fa-solid fa-tags mr-2"></i> Mapeamento de CFOP (Entrada)</h4>
+            <button class="btn btn-sm bg-blue-600 hover:bg-blue-700 text-white border-none" onclick="document.getElementById('modal-add-cfop').showModal()"><i class="fa-solid fa-plus"></i> Nova Regra</button>
+        </div>
+        <div id="table-container-cfop" hx-get="/admin/rules/cfop?tenant_id={{ tenant_id }}&page=1&per_page=10" hx-trigger="load, ruleAdded-cfop from:body">
+            <div class="flex flex-col items-center justify-center py-12">
+                <span class="loading loading-spinner text-blue-600 loading-lg"></span>
+                <span class="text-slate-400 mt-2 font-medium">Carregando regras...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- CARD 1.5: Regras de Frete (CT-e) -->
+    <div class="bg-white border border-slate-200 shadow-sm rounded-xl mb-6">
+        <div class="px-4 py-3 border-b border-slate-200 bg-indigo-50 flex justify-between items-center">
+            <h4 class="font-bold text-indigo-800"><i class="fa-solid fa-truck mr-2"></i> Regras de CFOP de Frete (CT-e)</h4>
+        </div>
+        <div id="table-container-cte" hx-get="/admin/rules/cte?tenant_id={{ tenant_id }}&page=1&per_page=10" hx-trigger="load, ruleAdded-cte from:body">
+            <div class="flex flex-col items-center justify-center py-12">
+                <span class="loading loading-spinner text-indigo-600 loading-lg"></span>
+                <span class="text-slate-400 mt-2 font-medium">Carregando regras de CT-e...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- CARD 2: Regras ICMS (Permissão de Crédito) -->
+    <div class="bg-white border border-slate-200 shadow-sm rounded-xl mb-6">
+        <div class="px-4 py-3 border-b border-slate-200 bg-emerald-50 flex justify-between items-center">
+            <h4 class="font-bold text-emerald-800"><i class="fa-solid fa-check-double mr-2"></i> Regras de Crédito ICMS</h4>
+            <button class="btn btn-sm bg-emerald-600 hover:bg-emerald-700 text-white border-none" onclick="document.getElementById('modal-add-icms').showModal()"><i class="fa-solid fa-plus"></i> Nova Regra</button>
+        </div>
+        <div id="table-container-icms" hx-get="/admin/rules/icms?tenant_id={{ tenant_id }}&page=1&per_page=10" hx-trigger="load, ruleAdded-icms from:body">
+            <div class="flex flex-col items-center justify-center py-12">
+                <span class="loading loading-spinner text-emerald-600 loading-lg"></span>
+                <span class="text-slate-400 mt-2 font-medium">Carregando regras...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- CARD 3: Regras IPI (Permissão de Crédito) -->
+    <div class="bg-white border border-slate-200 shadow-sm rounded-xl mb-6">
+        <div class="px-4 py-3 border-b border-slate-200 bg-orange-50 flex justify-between items-center">
+            <h4 class="font-bold text-orange-800"><i class="fa-solid fa-industry mr-2"></i> Regras de Crédito IPI</h4>
+            <button class="btn btn-sm bg-orange-600 hover:bg-orange-700 text-white border-none" onclick="document.getElementById('modal-add-ipi').showModal()"><i class="fa-solid fa-plus"></i> Nova Regra</button>
+        </div>
+        <div id="table-container-ipi" hx-get="/admin/rules/ipi?tenant_id={{ tenant_id }}&page=1&per_page=10" hx-trigger="load, ruleAdded-ipi from:body">
+            <div class="flex flex-col items-center justify-center py-12">
+                <span class="loading loading-spinner text-orange-600 loading-lg"></span>
+                <span class="text-slate-400 mt-2 font-medium">Carregando regras...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- CARD 4: Regras PIS/COFINS (Permissão de Crédito) -->
+    <div class="bg-white border border-slate-200 shadow-sm rounded-xl mb-6">
+        <div class="px-4 py-3 border-b border-slate-200 bg-indigo-50 flex justify-between items-center">
+            <h4 class="font-bold text-indigo-800"><i class="fa-solid fa-scale-balanced mr-2"></i> Regras de Crédito PIS/COFINS</h4>
+            <button class="btn btn-sm bg-indigo-600 hover:bg-indigo-700 text-white border-none" onclick="document.getElementById('modal-add-pis-cofins').showModal()"><i class="fa-solid fa-plus"></i> Nova Regra</button>
+        </div>
+        <div id="table-container-pis-cofins" hx-get="/admin/rules/pis_cofins?tenant_id={{ tenant_id }}&page=1&per_page=10" hx-trigger="load, ruleAdded-pis_cofins from:body">
+            <div class="flex flex-col items-center justify-center py-12">
+                <span class="loading loading-spinner text-indigo-600 loading-lg"></span>
+                <span class="text-slate-400 mt-2 font-medium">Carregando regras...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- CARD 5: Cálculo Antecipação -->
+    <div class="bg-white border border-slate-200 shadow-sm rounded-xl mb-6">
+        <div class="px-4 py-3 border-b border-slate-200 bg-rose-50 flex justify-between items-center">
+            <h4 class="font-bold text-rose-800"><i class="fa-solid fa-calculator mr-2"></i> Cálculo Antecipação ICMS</h4>
+            <button class="btn btn-sm bg-rose-600 hover:bg-rose-700 text-white border-none" onclick="document.getElementById('modal-add-anticipation').showModal()"><i class="fa-solid fa-plus"></i> Nova Regra</button>
+        </div>
+        <div id="table-container-anticipation" hx-get="/admin/rules/anticipation?tenant_id={{ tenant_id }}&page=1&per_page=10" hx-trigger="load, ruleAdded-anticipation from:body">
+            <div class="flex flex-col items-center justify-center py-12">
+                <span class="loading loading-spinner text-rose-600 loading-lg"></span>
+                <span class="text-slate-400 mt-2 font-medium">Carregando regras...</span>
+            </div>
+        </div>
+    </div>
+    
+    {% else %}
+    <!-- Placeholder Select Tenant -->
+    <div class="flex flex-col items-center justify-center py-20 bg-slate-50 rounded-xl border border-slate-200 border-dashed">
+        <i class="fa-solid fa-building text-4xl text-slate-300 mb-4"></i>
+        <h3 class="text-lg font-bold text-slate-600">Nenhuma empresa selecionada</h3>
+        <p class="text-sm text-slate-500">Selecione uma empresa no topo da página para gerenciar as regras de auditoria vinculadas a ela.</p>
+    </div>
+    {% endif %}
+
+    <!-- Container for toasts -->
+    {% if toast_message %}
+    <div class="toast toast-end">
+        <div class="alert alert-success shadow-lg">
+            <span>{{ toast_message }}</span>
+        </div>
+    </div>
+    <script>setTimeout(() => { document.querySelector('.toast').remove(); }, 3000);</script>
+    {% endif %}
+
+</div>

@@ -1,0 +1,216 @@
+{# Correções que esta auditoria autoriza aplicar no arquivo SPED.
+
+   A lista é montada conferindo cada divergência CONTRA O ARQUIVO (ver
+   services/sped_rewriter/ponte.py), então o "de → para" de cada linha é o que
+   está no arquivo hoje — não o que a auditoria lembrava.
+
+   As impedidas aparecem no fim, com o motivo. Sumir com elas deixaria a tela
+   dizendo que a nota está resolvida quando ninguém resolveu nada. #}
+
+{% if sem_arquivo %}
+<div class="alert bg-amber-50 border border-amber-200 text-amber-900 rounded-xl">
+    <i class="fa-solid fa-triangle-exclamation text-amber-600"></i>
+    <span class="text-sm">{{ sem_arquivo }}</span>
+</div>
+{% else %}
+
+<div class="bg-white border border-slate-200 rounded-xl p-5 shadow-2xs mb-5">
+    <h3 class="text-lg font-bold text-[#015282] flex items-center gap-2">
+        <i class="fa-solid fa-file-pen text-[#037fb5]"></i> Gerar SPED corrigido
+    </h3>
+    <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+        Marque o que deve entrar no arquivo retificado. Nada é gravado agora: o
+        próximo passo é a <strong>prévia</strong>, que mostra o que será
+        aplicado, o que o PVA recusaria e o que muda junto por obrigação do
+        leiaute. O arquivo original desta auditoria não é alterado.
+    </p>
+</div>
+
+{% if geracoes %}
+{# Rodar a mesma competência de novo é rotina. Sem este aviso, a segunda pessoa
+   a abrir a aba não tem como saber que o arquivo já foi corrigido e entregue. #}
+<div class="bg-white border border-amber-200 rounded-xl p-4 mb-5 shadow-2xs">
+    <h4 class="font-bold text-sm text-amber-900 mb-2">
+        <i class="fa-solid fa-clock-rotate-left mr-1"></i>
+        Este SPED já foi corrigido {{ geracoes | length }} vez(es)
+    </h4>
+    <table class="table table-xs w-full">
+        <tbody>
+            {% for g in geracoes %}
+            <tr class="text-xs">
+                <td class="whitespace-nowrap">{{ g.created_at | hora_br }}</td>
+                <td>{{ g.user_email }}</td>
+                <td class="font-mono text-[11px]">{{ g.file_name }}</td>
+                <td class="text-right">{{ g.alteracoes }} alteração(ões)</td>
+                <td class="text-right whitespace-nowrap">ICMS R$ {{ g.icms_diferenca | moeda_br }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if not grupos and not impedidas %}
+<div class="alert bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl">
+    <i class="fa-solid fa-circle-check text-emerald-600"></i>
+    <span class="text-sm">Esta auditoria não apontou nenhuma divergência que possa
+        ser corrigida no arquivo.</span>
+</div>
+{% else %}
+
+{# Sem `action`: este form existe para o htmx LER os campos marcados
+   (hx-include). O `hx-boost="false"` impede que um submit acidental —
+   Enter numa caixa — seja capturado pelo boost do <body> e recarregue
+   a tela de resultado por baixo. #}
+<form id="form-correcao-sped" hx-boost="false">
+    {% if grupos %}
+    {# A apuração é uma decisão À PARTE da de corrigir documento, e por isso tem
+       caixa própria: corrigir C170/C190/C100 é aritmética conferível, mexer no
+       E110 muda o imposto a recolher da competência. Vem marcada porque, uma
+       vez corrigido o crédito nos documentos, deixar o E110 velho entrega um
+       arquivo que se contradiz — mas desmarcar é um clique, e a prévia mostra
+       linha a linha o que vai ser reescrito. #}
+    <label class="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 cursor-pointer">
+        <input type="checkbox" name="atualizar_e110" value="true" checked
+               class="checkbox checkbox-sm checkbox-warning mt-0.5">
+        <span class="text-xs leading-relaxed">
+            <strong class="text-amber-900">Atualizar também a apuração do ICMS (E110)</strong><br>
+            <span class="text-slate-600">
+                Leva a diferença de crédito para o campo 06 e refaz o saldo do
+                período (campos 11, 13 e 14). <strong>Isto muda o imposto a
+                recolher.</strong> O sistema confere antes se a apuração do
+                arquivo fecha pela fórmula do Guia; se não fechar, ele não
+                grava e avisa. Ajustes (E111) e o saldo credor anterior não são
+                tocados.
+            </span>
+        </span>
+    </label>
+    {% endif %}
+    {% if grupos %}
+    <div class="flex items-center justify-between gap-3 mb-3">
+        <label class="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer">
+            <input type="checkbox" class="checkbox checkbox-sm checkbox-primary"
+                   onchange="marcarTodasCorrecoes(this.checked)">
+            Marcar todas ({{ total_aplicaveis }})
+        </label>
+        <button type="button"
+                class="btn btn-sm bg-[#037fb5] hover:bg-[#026a9e] text-white border-none gap-1.5 shadow-2xs rounded-lg"
+                hx-post="/api/audit/{{ task_id }}/correcao/previa"
+                hx-include="#form-correcao-sped"
+                hx-target="#previa-correcao-sped"
+                hx-swap="innerHTML"
+                hx-indicator="#spinner-previa">
+            <i class="fa-solid fa-magnifying-glass-chart"></i> Ver prévia
+        </button>
+    </div>
+
+    {% for grupo in grupos %}
+    <div class="bg-white border border-slate-200 rounded-xl mb-4 overflow-hidden shadow-2xs">
+        <div class="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center justify-between">
+            <span class="font-bold text-sm text-[#015282]">{{ grupo.opcao.rotulo }}</span>
+            <span class="badge badge-sm badge-ghost font-bold">{{ grupo.propostas | length }}</span>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="table table-sm w-full">
+                <thead>
+                    <tr class="text-[11px] uppercase text-slate-500">
+                        <th class="w-8"></th>
+                        <th>Documento</th>
+                        <th>Alvo</th>
+                        <th>O que muda no arquivo</th>
+                        <th class="text-right">Crédito</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in grupo.propostas %}
+                    <tr class="hover:bg-slate-50 align-top">
+                        <td>
+                            <input type="checkbox" name="aceitas" value="{{ p.id }}"
+                                   class="checkbox checkbox-sm checkbox-primary correcao-check">
+                        </td>
+                        <td class="text-xs">
+                            <div class="font-bold text-slate-700">NF {{ p.num_doc or "—" }}</div>
+                            <div class="text-slate-500">{{ p.fornecedor }}</div>
+                            <div class="text-[10px] text-slate-400 font-mono">{{ p.documento }}</div>
+                        </td>
+                        <td class="text-xs">
+                            <div class="font-bold text-slate-700">{{ p.alvo }}</div>
+                            <div class="text-slate-500">{{ p.descricao }}</div>
+                        </td>
+                        <td class="text-xs">
+                            {% for campo, de, para in p.mudancas %}
+                            <div class="font-mono">
+                                <span class="text-slate-500">{{ campo }}</span>
+                                <span class="text-rose-600">{{ de if de else "(vazio)" }}</span>
+                                <i class="fa-solid fa-arrow-right text-slate-300 mx-1"></i>
+                                <span class="text-emerald-700 font-bold">{{ para if para else "(vazio)" }}</span>
+                            </div>
+                            {% endfor %}
+                            {# O motivo é o texto da própria auditoria: é ele que
+                               justifica a correção no relatório final. #}
+                            <div class="text-[11px] text-slate-500 mt-1">{{ p.motivo }}</div>
+                        </td>
+                        <td class="text-right text-xs font-bold whitespace-nowrap
+                                   {% if p.delta > 0 %}text-emerald-700{% elif p.delta < 0 %}text-rose-600{% else %}text-slate-400{% endif %}">
+                            {% if p.delta %}
+                            {{ "+" if p.delta > 0 else "" }}R$ {{ p.delta | moeda_br }}
+                            {% else %}—{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if impedidas %}
+    <div class="bg-white border border-amber-200 rounded-xl mb-4 overflow-hidden shadow-2xs">
+        <div class="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between">
+            <span class="font-bold text-sm text-amber-900">
+                <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+                Apontamentos que não dá para corrigir por aqui
+            </span>
+            <span class="badge badge-sm badge-warning text-white font-bold">{{ impedidas | length }}</span>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="table table-sm w-full">
+                <tbody>
+                    {% for p in impedidas %}
+                    <tr class="align-top">
+                        <td class="text-xs w-1/3">
+                            <div class="font-bold text-slate-700">NF {{ p.num_doc or "—" }} · {{ p.alvo }}</div>
+                            <div class="text-slate-500">{{ p.fornecedor }}</div>
+                        </td>
+                        <td class="text-xs">
+                            <span class="badge badge-sm badge-ghost mr-1">{{ p.rotulo }}</span>
+                            {{ p.impedimento }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</form>
+
+<div id="spinner-previa" class="htmx-indicator text-center py-4">
+    <span class="loading loading-spinner loading-md text-[#037fb5]"></span>
+    <span class="text-xs text-slate-500 ml-2">Aplicando numa cópia para ver o resultado…</span>
+</div>
+
+<div id="previa-correcao-sped"></div>
+
+<script>
+    function marcarTodasCorrecoes(marcar) {
+        // Só as caixas DESTA tela: `document.querySelectorAll('[name=aceitas]')`
+        // pegaria qualquer campo homônimo de outra aba da página.
+        var form = document.getElementById('form-correcao-sped');
+        if (!form) return;
+        form.querySelectorAll('.correcao-check').forEach(function (c) { c.checked = marcar; });
+    }
+</script>
+{% endif %}
+{% endif %}

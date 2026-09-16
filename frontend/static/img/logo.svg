@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%" fill="none">
+  <defs>
+    <filter id="subtle-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#015282" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+  <g filter="url(#subtle-shadow)">
+    <!-- Top Crown Diamond (Destaque sutil) -->
+    <polygon points="50,8 68,15 50,28 32,15" fill="#9fdbee" stroke="#9fdbee" stroke-width="0.3" stroke-linejoin="round"/>
+    
+    <!-- Left Top Facet (Médio / Transição) -->
+    <polygon points="50,28 32,15 15,36 50,55" fill="#50a8cd" stroke="#50a8cd" stroke-width="0.3" stroke-linejoin="round"/>
+    
+    <!-- Right Top Facet (Claro / Brilho) -->
+    <polygon points="50,28 68,15 85,36 50,55" fill="#6dc4ec" stroke="#6dc4ec" stroke-width="0.3" stroke-linejoin="round"/>
+    
+    <!-- Left Bottom Facet (Escuro / Sombra) -->
+    <polygon points="50,55 15,36 15,72 50,92" fill="#015282" stroke="#015282" stroke-width="0.3" stroke-linejoin="round"/>
+    
+    <!-- Right Bottom Facet (Principal) -->
+    <polygon points="50,55 85,36 85,72 50,92" fill="#037fb5" stroke="#037fb5" stroke-width="0.3" stroke-linejoin="round"/>
+  </g>
+</svg>

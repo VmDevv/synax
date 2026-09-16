@@ -1,0 +1,102 @@
+{# `hx-trigger="buscaRegras from:body"` fica NESTE div, e não no invólucro que o
+   rules_list.html monta: a paginação troca o invólucro por outerHTML, então
+   qualquer listener declarado lá some no primeiro clique de "Próximo". Aqui ele
+   volta a cada renderização. #}
+<div id="table-container-icms"
+     hx-get="/admin/rules/icms?tenant_id={{ tenant_id }}&page=1&per_page={{ per_page }}&status={{ status }}"
+     hx-trigger="buscaRegras from:body"
+     hx-include="#busca-regras"
+     hx-target="this" hx-swap="outerHTML">
+    {% if busca %}
+    <div class="px-4 py-2 bg-blue-50 border-b border-blue-100 text-xs text-blue-800 flex items-center gap-2">
+        <i class="fa-solid fa-filter"></i>
+        <span><b>{{ total }}</b> resultado(s) para "<b>{{ busca }}</b>"</span>
+    </div>
+    {% endif %}
+    <div class="overflow-x-auto">
+        <table class="table w-full text-sm table-pin-rows [&_th]:py-3.5 [&_th]:px-4 [&_td]:py-3 [&_td]:px-4">
+            <thead class="bg-slate-50 text-slate-500">
+                <tr>
+                    <th>CFOP Lançado no SPED</th>
+                    <th>Descrição da Regra</th>
+                    <th>Permite Crédito?</th>
+                    <th>Status</th>
+                    <th class="text-right">Ações</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for r in credit_rules %}
+                <tr class="hover:bg-slate-50 transition-colors" id="row-icms-{{ loop.index }}">
+                    <td class="font-mono font-bold text-emerald-700">{{ r.cfop }}</td>
+                    <td class="text-slate-600">{{ r.description }}</td>
+                    <td>
+                        <input type="checkbox" class="toggle toggle-success" {% if r.allow_credit %}checked{% endif %}
+                               hx-patch="/admin/rules/icms/toggle"
+                               hx-vals='{"tenant_id": "{{ tenant_id }}", "cfop": "{{ r.cfop }}"}'
+                               hx-swap="none" />
+                    </td>
+                    <td>
+                        {% if r.status == 'pendente_revisao' %}
+                        <span class="badge badge-warning badge-sm font-bold text-white">Pendente</span>
+                        {% else %}
+                        <span class="badge badge-success badge-sm font-bold text-white">Aprovado</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-right gap-1 flex justify-end items-center">
+                        {% if r.status == 'pendente_revisao' %}
+                        <button class="btn btn-xs bg-emerald-600 hover:bg-emerald-700 text-white border-none gap-1"
+                                hx-post="/admin/rules/icms/approve"
+                                hx-vals='{"tenant_id": "{{ tenant_id }}", "cfop": "{{ r.cfop }}"}'>
+                            <i class="fa-solid fa-check"></i> Aprovar
+                        </button>
+                        {% endif %}
+                        <button class="btn btn-xs btn-ghost text-red-400 hover:bg-red-50 hover:text-red-600"
+                                hx-delete="/admin/rules/icms/delete?tenant_id={{ tenant_id }}&cfop={{ r.cfop }}"
+                                hx-confirm="Tem certeza que deseja excluir esta regra?"
+                                hx-target="#row-icms-{{ loop.index }}" hx-swap="outerHTML swap:0.5s">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="py-8 text-center text-slate-500">{% if busca %}Nenhuma regra de crédito ICMS casa com “{{ busca }}”.{% else %}Nenhuma regra de crédito ICMS encontrada.{% endif %}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Paginação -->
+    <div class="px-4 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-sm">
+        <div class="flex items-center gap-4" id="filters-icms">
+            <div class="flex items-center gap-2 text-slate-500">
+                <input type="hidden" name="tenant_id" value="{{ tenant_id }}">
+                <span>Mostrar</span>
+                <select class="select select-bordered select-xs bg-white text-slate-700" 
+                    hx-get="/admin/rules/icms" hx-target="#table-container-icms" hx-swap="outerHTML" 
+                    name="per_page" hx-include="#filters-icms [name='tenant_id'], #filters-icms select, #busca-regras">
+                <option value="10" {% if per_page == 10 %}selected{% endif %}>10</option>
+                <option value="25" {% if per_page == 25 %}selected{% endif %}>25</option>
+                <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+                <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
+            </select>
+            <input type="hidden" name="tenant_id" value="{{ tenant_id }}">
+            <span class="htmx-indicator loading loading-spinner loading-xs text-emerald-500 ml-2"></span>
+        </div>
+        
+        <div class="join">
+            <button class="join-item btn btn-xs {% if page <= 1 %}btn-disabled{% else %}bg-white border-slate-300 text-slate-700 hover:bg-slate-100{% endif %}"
+                    hx-get="/admin/rules/icms" hx-target="#table-container-icms" hx-swap="outerHTML"
+                    hx-include="#busca-regras" hx-vals='{"tenant_id": "{{ tenant_id }}", "page": "{{ page - 1 }}", "per_page": "{{ per_page }}", "status": "{{ status }}"}'>
+                <i class="fa-solid fa-chevron-left"></i> Anterior
+            </button>
+            <button class="join-item btn btn-xs bg-white border-slate-300 text-slate-700 pointer-events-none">
+                Página {{ page }} de {{ total_pages }}
+            </button>
+            <button class="join-item btn btn-xs {% if page >= total_pages %}btn-disabled{% else %}bg-white border-slate-300 text-slate-700 hover:bg-slate-100{% endif %}"
+                    hx-get="/admin/rules/icms" hx-target="#table-container-icms" hx-swap="outerHTML"
+                    hx-include="#busca-regras" hx-vals='{"tenant_id": "{{ tenant_id }}", "page": "{{ page + 1 }}", "per_page": "{{ per_page }}", "status": "{{ status }}"}'>
+                Próximo <i class="fa-solid fa-chevron-right"></i>
+            </button>
+        </div>
+    </div>
+</div>

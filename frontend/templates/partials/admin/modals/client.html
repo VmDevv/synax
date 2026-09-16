@@ -1,0 +1,64 @@
+<dialog class="modal modal-open">
+    <div class="modal-box bg-white text-slate-800 max-w-2xl">
+        <h3 class="font-bold text-lg mb-4 text-blue-900 border-b pb-2 border-slate-100">
+            <i class="fa-solid fa-user-plus mr-2"></i> Provisionar Novo Cliente (SaaS)
+        </h3>
+        
+        <!-- O formulário posta para a nova rota e faz swap nele mesmo para exibir os alertas de validação -->
+        <form hx-post="/admin/clients/create" hx-target="closest dialog" hx-swap="outerHTML">
+            
+            {% if error_msg %}
+            <div class="alert alert-error shadow-sm mb-4 bg-red-50 text-red-700 border-red-200">
+                <i class="fa-solid fa-circle-exclamation text-xl"></i>
+                <span>{{ error_msg }}</span>
+            </div>
+            {% endif %}
+
+            {% if success_msg %}
+            <div class="alert alert-success shadow-sm mb-4 bg-emerald-50 text-emerald-700 border-emerald-200">
+                <i class="fa-solid fa-circle-check text-xl"></i>
+                <span>{{ success_msg }}</span>
+            </div>
+            <!-- Atualiza a lista de tenants no background por OOB se tivermos sucesso -->
+            <div hx-get="/admin/tenants/list" hx-trigger="load" hx-target="#admin-content" hx-swap="outerHTML" class="hidden"></div>
+            {% endif %}
+
+            <div class="grid grid-cols-2 gap-4 mb-3">
+                <div class="form-control">
+                    <label class="label"><span class="label-text font-semibold text-slate-600">Empresa / Razão Social</span></label>
+                    <input type="text" name="nome_empresa" required class="input input-bordered bg-slate-50 border-slate-300 w-full text-slate-900" placeholder="Acme Inc." {% if success_msg %}disabled{% endif %} />
+                </div>
+                <div class="form-control">
+                    <label class="label"><span class="label-text font-semibold text-slate-600">CNPJ</span></label>
+                    <input type="text" name="cnpj" required class="input input-bordered bg-slate-50 border-slate-300 w-full text-slate-900" placeholder="00.000.000/0001-00" {% if success_msg %}disabled{% endif %} />
+                </div>
+            </div>
+
+            <div class="border-t border-slate-100 pt-3 mb-3">
+                <h4 class="text-sm font-bold text-slate-500 mb-2 uppercase tracking-wide">Acesso do Administrador da Empresa</h4>
+                <div class="form-control mb-3">
+                    <label class="label"><span class="label-text font-semibold text-slate-600">E-mail de Login</span></label>
+                    <input type="email" name="email" required class="input input-bordered bg-slate-50 border-slate-300 w-full text-slate-900" placeholder="admin@empresa.com.br" {% if success_msg %}disabled{% endif %} />
+                </div>
+                <div class="form-control mb-5">
+                    <label class="label"><span class="label-text font-semibold text-slate-600">Senha Inicial</span></label>
+                    <input type="password" name="password" required class="input input-bordered bg-slate-50 border-slate-300 w-full text-slate-900" placeholder="••••••••" minlength="6" {% if success_msg %}disabled{% endif %} />
+                </div>
+            </div>
+
+            <div class="modal-action">
+                <!-- Se for sucesso, o botão fechar vira "Concluir", se não, "Cancelar" -->
+                <button type="button" class="btn btn-ghost text-slate-600" onclick="document.getElementById('modal-container').innerHTML = ''">
+                    {% if success_msg %}Concluir e Fechar{% else %}Cancelar{% endif %}
+                </button>
+                {% if not success_msg %}
+                <button type="submit" class="btn btn-primary bg-blue-600 hover:bg-blue-700 border-none text-white shadow-sm">
+                    <i class="fa-solid fa-cloud-arrow-up"></i> Provisionar Cliente
+                </button>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+    <!-- Clicar fora fecha a modal -->
+    <div class="modal-backdrop bg-slate-900/40" onclick="document.getElementById('modal-container').innerHTML = ''"></div>
+</dialog>

@@ -1,0 +1,20 @@
+<div class="bg-surface backdrop-blur-md border border-white/10 rounded-2xl p-8 text-center mt-6 shadow-[0_10px_30px_-10px_rgba(0,0,0,0.5)]"
+     hx-get="/api/audit/status/{{ task_id }}" 
+     hx-trigger="every 3s" 
+     hx-swap="outerHTML">
+    
+    <div class="mb-5">
+        <i class="fa-solid fa-circle-notch fa-spin text-4xl text-primary drop-shadow-[0_0_15px_rgba(139,92,246,0.3)]"></i>
+    </div>
+    
+    <h3 class="text-xl font-semibold text-gray-100 mb-3">Processando Auditoria...</h3>
+    <p class="text-gray-400 max-w-lg mx-auto text-sm leading-relaxed">
+        Estamos analisando o SPED e cruzando com os XMLs fornecidos. Dependendo do volume de dados, isso pode levar alguns instantes.
+    </p>
+    
+    <!-- Barra de Progresso Básica -->
+    <div class="w-full max-w-lg mx-auto bg-white/10 rounded-full h-2.5 mt-8 mb-3 overflow-hidden relative">
+        <div class="w-[70%] h-full bg-primary rounded-full absolute left-0 top-0 animate-[pulse_2s_ease-in-out_infinite] shadow-[0_0_10px_rgba(139,92,246,0.5)]"></div>
+    </div>
+    <span class="text-xs text-gray-500 font-medium">Por favor, não feche ou atualize esta aba.</span>
+</div>

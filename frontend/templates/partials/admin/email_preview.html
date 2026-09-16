@@ -1,0 +1,89 @@
+<div class="bg-slate-50 border-2 border-blue-200 rounded-xl p-6 shadow-md transition-all duration-300">
+    <div class="flex justify-between items-center border-b border-slate-200 pb-4 mb-4">
+        <div>
+            <h4 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <i class="fa-solid fa-check-circle text-emerald-600"></i> Modelo de E-mail Gerado com Sucesso!
+            </h4>
+            <span class="text-xs text-slate-500">Pronto para envio para o cliente <b>{{ tenant_name }}</b> (Período: {{ period }}).</span>
+        </div>
+        <div class="flex flex-wrap gap-2">
+            <button type="button" 
+                    onclick="abrirEmailClienteNoWindows('{{ task_id }}')" 
+                    class="btn btn-sm bg-purple-600 hover:bg-purple-700 text-white font-bold shadow-sm"
+                    title="Abre nativamente no Mozilla Thunderbird (ou cliente padrão Windows) com Assunto e Corpo preenchidos">
+                <i class="fa-solid fa-paper-plane mr-1.5"></i> Abrir no Thunderbird / E-mail
+            </button>
+            <button type="button" 
+                    onclick="navigator.clipboard.writeText(document.getElementById('email-text-content').value); Swal.fire({title: 'Copiado!', text: 'Texto do e-mail copiado para a área de transferência.', icon: 'success', timer: 2000, showConfirmButton: false});" 
+                    class="btn btn-sm btn-success text-white shadow-sm font-bold">
+                <i class="fa-solid fa-copy mr-1"></i> Copiar Texto
+            </button>
+        </div>
+    </div>
+
+    <!-- Assunto -->
+    <div class="mb-4">
+        <label class="block text-xs font-bold uppercase text-slate-600 mb-1">
+            <i class="fa-solid fa-heading mr-1"></i> Assunto do E-mail (Subject)
+        </label>
+        <div class="flex gap-2">
+            <input type="text" id="email-subject-val" class="input input-bordered input-sm w-full font-mono text-sm bg-white font-semibold text-slate-800" value="{{ subject }}" readonly />
+            <button type="button" 
+                    onclick="navigator.clipboard.writeText(document.getElementById('email-subject-val').value); Swal.fire({title: 'Assunto Copiado!', icon: 'success', timer: 1500, showConfirmButton: false});" 
+                    class="btn btn-sm btn-outline btn-primary">
+                <i class="fa-solid fa-copy"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Abas HTML vs Texto Plano -->
+    <div role="tablist" class="tabs tabs-boxed bg-slate-200 p-1 mb-3 w-fit">
+        <a role="tab" class="tab tab-active font-semibold" onclick="document.getElementById('view-html').classList.remove('hidden'); document.getElementById('view-text').classList.add('hidden'); document.querySelectorAll('.tab-view-btn').forEach(b => b.classList.remove('tab-active')); this.classList.add('tab-active');">
+            <i class="fa-solid fa-eye mr-1.5"></i> Visualização (HTML)
+        </a>
+        <a role="tab" class="tab tab-view-btn font-semibold" onclick="document.getElementById('view-html').classList.add('hidden'); document.getElementById('view-text').classList.remove('hidden'); document.querySelectorAll('.tab-view-btn').forEach(b => b.classList.remove('tab-active')); this.classList.add('tab-active');">
+            <i class="fa-solid fa-code mr-1.5"></i> Texto Plano (Para WhatsApp / Texto)
+        </a>
+    </div>
+
+    <!-- Conteúdo HTML -->
+    <div id="view-html" class="bg-white p-6 rounded-lg border border-slate-200 shadow-inner">
+        {{ html_body | safe }}
+    </div>
+
+    <!-- Conteúdo Texto Plano -->
+    <div id="view-text" class="hidden">
+        <textarea id="email-text-content" rows="14" class="textarea textarea-bordered w-full font-mono text-sm bg-white p-4 leading-relaxed" readonly>{{ text_body }}</textarea>
+    </div>
+</div>
+
+<script>
+function abrirEmailClienteNoWindows(taskId) {
+    // O cliente de e-mail é aberto no NAVEGADOR do usuário, via mailto:.
+    // A versão anterior pedia ao servidor que abrisse o Thunderbird — o que só
+    // funcionaria se o servidor fosse a máquina do próprio usuário.
+    const subjectContent = document.getElementById('email-subject-val') ? document.getElementById('email-subject-val').value : '';
+    let textContent = document.getElementById('email-text-content') ? document.getElementById('email-text-content').value : '';
+
+    // Navegadores truncam mailto: muito longos; o texto completo segue disponível para cópia.
+    const LIMITE = 1800;
+    let truncado = false;
+    if (textContent.length > LIMITE) {
+        textContent = textContent.slice(0, LIMITE) + '\n\n...(texto truncado — use "Copiar" para o conteúdo completo.)';
+        truncado = true;
+    }
+
+    const href = `mailto:?subject=${encodeURIComponent(subjectContent)}&body=${encodeURIComponent(textContent)}`;
+    window.location.href = href;
+
+    Swal.fire({
+        title: 'Abrindo seu cliente de e-mail...',
+        text: truncado
+            ? 'O texto foi truncado pelo limite do mailto:. Use "Copiar" para enviar o conteúdo completo.'
+            : 'Se nada abrir, use a opção de copiar o texto.',
+        icon: truncado ? 'warning' : 'success',
+        timer: 4000,
+        showConfirmButton: false
+    });
+}
+</script>

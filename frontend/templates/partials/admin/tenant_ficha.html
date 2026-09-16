@@ -1,0 +1,560 @@
+{# Ficha da empresa — painel lateral.
+
+   Todos os números chegam prontos de services/ficha_empresa.py; aqui só se
+   desenha. As barras são div com largura/altura em %, sem biblioteca: o htmx
+   troca este bloco inteiro a cada abertura, e gráfico de canvas precisaria ser
+   reinicializado por JS toda vez — mesma decisão do painel do Radar.
+
+   ATENÇÃO às datas: elas já vêm convertidas para o horário de Brasília pelo
+   serviço (`hora_local`). Passar `| hora_br` aqui subtrairia três horas UMA
+   SEGUNDA VEZ. #}
+
+{% macro fechar() %}document.getElementById('drawer-container').innerHTML = ''{% endmacro %}
+
+<div id="ficha-drawer" x-data @keydown.escape.window="{{ fechar() }}">
+
+    <div class="fixed inset-0 z-40 bg-slate-900/25 backdrop-blur-[1px]"
+         onclick="{{ fechar() }}" title="Fechar"></div>
+
+    <aside class="ficha-painel fixed top-0 right-0 z-50 h-full w-full sm:w-[560px]
+                  bg-white shadow-2xl flex flex-col"
+           style="border-left: 3px solid var(--syn-700);"
+           role="dialog" aria-label="Ficha da empresa">
+
+    {% if not f %}
+        {# 200 com aviso, não 404: em 4xx o htmx não troca o alvo e o clique
+           não faria nada na tela. #}
+        <div class="flex-1 grid place-items-center p-8 text-center">
+            <div>
+                <i class="fa-solid fa-building-circle-exclamation text-4xl text-slate-300 mb-3"></i>
+                <h3 class="font-bold text-slate-700">Empresa não encontrada</h3>
+                <p class="text-[13px] text-slate-500 mt-1">
+                    Ela pode ter sido excluída enquanto esta lista estava aberta.
+                </p>
+                <button class="btn btn-sm mt-4" onclick="{{ fechar() }}">Fechar</button>
+            </div>
+        </div>
+    {% else %}
+
+        <!-- ============ CABEÇALHO ============ -->
+        <header class="px-5 py-4 shrink-0" style="background: var(--syn-tint-05);
+                border-bottom: 1px solid rgba(113,188,219,.35);">
+            <div class="flex items-start gap-3">
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <h3 class="text-[17px] font-bold leading-tight" style="color: var(--syn-900);">
+                            {{ f.empresa.nome }}
+                        </h3>
+                        {% if not f.empresa.ativo %}
+                        <span class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide
+                                     bg-slate-100 text-slate-500 border border-slate-300">Inativa</span>
+                        {% endif %}
+                    </div>
+                    <div class="flex items-center gap-2 mt-1.5 text-[12px] text-slate-500 flex-wrap">
+                        <span class="font-mono">{{ f.empresa.cnpj }}</span>
+                        <span class="text-slate-300">|</span>
+                        {% if f.empresa.uf %}
+                        <span class="font-mono font-bold" style="color: var(--syn-900);">{{ f.empresa.uf }}</span>
+                        {% else %}
+                        <span class="text-amber-700 font-semibold">SEM UF</span>
+                        {% endif %}
+                        {% if f.empresa.criada_em %}
+                        <span class="text-slate-300">|</span>
+                        <span>cadastrada em {{ f.empresa.criada_em.strftime('%d/%m/%Y') }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <button class="w-8 h-8 shrink-0 grid place-items-center rounded-lg text-slate-400
+                               hover:bg-white hover:text-slate-700 transition-colors"
+                        onclick="{{ fechar() }}" title="Fechar (Esc)">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- ============ CORPO ROLÁVEL ============ -->
+        <div class="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+
+            {# ---------- ALERTAS: só o que dá para agir hoje ---------- #}
+            {% if f.alertas %}
+            <div class="space-y-2">
+                {# Classe escrita por extenso, e não montada com o nível dentro:
+                   é a convenção do resto do admin (ver certificados_list) e a
+                   única forma que sobrevive a um Tailwind compilado, que só
+                   enxerga o nome literal no arquivo. #}
+                {% for a in f.alertas %}
+                {% if a.nivel == 'problema' %}
+                {% set caixa = 'border-red-200 bg-red-50' %}
+                {% set icone = 'text-red-500' %}
+                {% set titulo = 'text-red-900' %}
+                {% set corpo = 'text-red-800' %}
+                {% elif a.nivel == 'alerta' %}
+                {% set caixa = 'border-amber-200 bg-amber-50' %}
+                {% set icone = 'text-amber-500' %}
+                {% set titulo = 'text-amber-900' %}
+                {% set corpo = 'text-amber-800' %}
+                {% else %}
+                {% set caixa = 'border-slate-200 bg-slate-50' %}
+                {% set icone = 'text-slate-400' %}
+                {% set titulo = 'text-slate-700' %}
+                {% set corpo = 'text-slate-500' %}
+                {% endif %}
+                <div class="flex items-start gap-2.5 rounded-lg px-3 py-2 border {{ caixa }}">
+                    <i class="fa-solid {{ a.icone }} {{ icone }} text-[13px] mt-0.5"></i>
+                    <div class="min-w-0">
+                        <div class="text-[13px] font-semibold {{ titulo }}">{{ a.texto }}</div>
+                        <div class="text-[11.5px] {{ corpo }} leading-snug">{{ a.detalhe }}</div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {# ---------- ÚLTIMA AUDITORIA ---------- #}
+            <section class="syn-card syn-card-accent p-4">
+                <div class="flex items-baseline justify-between gap-2 mb-3">
+                    <h4 class="text-[13px] font-bold uppercase tracking-wide text-slate-500">
+                        Última auditoria
+                    </h4>
+                    {% if f.auditoria.dias_desde_ultima is not none %}
+                    <span class="text-[11px] text-slate-400"
+                          title="Contado da data do upload — o sistema ainda não guarda a competência do SPED.">
+                        há {{ f.auditoria.dias_desde_ultima }} dia(s)
+                    </span>
+                    {% endif %}
+                </div>
+
+                {% set u = f.auditoria.ultima %}
+                {% if not u %}
+                <p class="text-[13px] text-slate-500 py-2">
+                    <i class="fa-regular fa-folder-open mr-1.5 text-slate-300"></i>
+                    Esta empresa nunca passou pelo motor.
+                </p>
+                {% else %}
+                <div class="flex items-center gap-2 text-[12.5px] text-slate-600 mb-3 flex-wrap">
+                    {% if u.status == 'concluido' %}
+                    <span class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200">concluída</span>
+                    {% elif u.status == 'erro' %}
+                    <span class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-red-50 text-red-700 border border-red-200">com erro</span>
+                    {% else %}
+                    <span class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-50 text-amber-700 border border-amber-200">{{ u.status }}</span>
+                    {% endif %}
+                    <span>{{ u.quando.strftime('%d/%m/%Y às %H:%M') }}</span>
+                    <span class="text-slate-300">|</span>
+                    <span class="font-medium text-slate-700">{{ u.quem }}</span>
+                </div>
+
+                {% if u.medida %}
+                <div class="grid grid-cols-3 gap-2">
+                    <div class="rounded-lg px-3 py-2" style="background: var(--syn-tint-05);">
+                        <div class="text-[10px] font-bold uppercase tracking-wide text-slate-500">Notas</div>
+                        <div class="text-xl font-black text-slate-700">{{ u.notas | num_br }}</div>
+                    </div>
+                    <div class="rounded-lg px-3 py-2" style="background: var(--syn-tint-05);">
+                        <div class="text-[10px] font-bold uppercase tracking-wide text-slate-500">Inconsist.</div>
+                        <div class="text-xl font-black {{ 'text-red-600' if u.inconsistencias else 'text-emerald-600' }}">
+                            {{ u.inconsistencias | num_br }}
+                        </div>
+                    </div>
+                    <div class="rounded-lg px-3 py-2" style="background: var(--syn-tint-05);">
+                        <div class="text-[10px] font-bold uppercase tracking-wide text-slate-500">A cada 100</div>
+                        <div class="text-xl font-black text-slate-700">
+                            {{ u.taxa if u.taxa is not none else '—' }}
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <p class="text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    Execução sem contadores gravados (anterior a 02/09/2026). Ela conta como
+                    execução, mas não entra nas somas — <code class="font-mono">backfill_resumo_auditoria.py</code>
+                    preenche o histórico.
+                </p>
+                {% endif %}
+
+                {# Minigráfico: taxa por 100 notas, do mais antigo ao mais recente. #}
+                {% if f.auditoria.spark | length > 1 %}
+                <div class="mt-4 pt-3 border-t border-slate-100">
+                    <div class="flex items-baseline justify-between mb-2">
+                        <span class="text-[11px] font-semibold text-slate-500">
+                            Inconsistências por 100 notas · últimas {{ f.auditoria.spark | length }} medições
+                        </span>
+                        {% set t = f.auditoria.tendencia %}
+                        {% if t and t.direcao != 'estavel' %}
+                        <span class="text-[11px] font-bold {{ 'text-emerald-600' if t.direcao == 'queda' else 'text-red-600' }}">
+                            <i class="fa-solid {{ 'fa-arrow-trend-down' if t.direcao == 'queda' else 'fa-arrow-trend-up' }}"></i>
+                            {{ t.de }} → {{ t.para }}
+                        </span>
+                        {% endif %}
+                    </div>
+                    {# Coluna com altura DEFINIDA (h-full de um pai h-16) e barra
+                       em %: é assim que o Radar desenha, e é o único jeito de a
+                       porcentagem resolver — dentro de pai de altura automática
+                       ela vale zero e o gráfico some. Rótulos em linha à parte. #}
+                    <div class="flex items-end gap-1.5 h-16 border-b border-slate-100">
+                        {% for s in f.auditoria.spark %}
+                        <div class="flex-1 min-w-0 h-full flex flex-col justify-end"
+                             title="{{ s.rotulo }} — {{ s.inconsistencias }} em {{ s.notas }} notas ({{ s.taxa }} por 100)">
+                            <div class="w-full rounded-t-sm"
+                                 style="height: {{ s.altura }}%;
+                                        background: {{ 'var(--syn-700)' if s.taxa else '#34d399' }};"></div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="flex gap-1.5 mt-1">
+                        {% for s in f.auditoria.spark %}
+                        <span class="flex-1 min-w-0 text-center text-[9px] text-slate-400 tabular-nums">{{ s.rotulo }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+                {% endif %}
+            </section>
+
+            {# ---------- TRÊS CONTADORES ---------- #}
+            <div class="grid grid-cols-3 gap-3">
+                <div class="syn-card p-3">
+                    <div class="text-[10px] font-bold uppercase tracking-wide text-slate-500">Execuções</div>
+                    <div class="text-2xl font-black" style="color: var(--syn-900);">{{ f.auditoria.total | num_br }}</div>
+                    <div class="text-[10.5px] text-slate-500 leading-tight mt-0.5">
+                        {{ f.auditoria.concluidas }} ok
+                        {%- if f.auditoria.erros %} · <span class="text-red-600 font-semibold">{{ f.auditoria.erros }} erro</span>{% endif %}
+                        {%- if f.auditoria.em_andamento %} · {{ f.auditoria.em_andamento }} em curso{% endif %}
+                    </div>
+                </div>
+                <div class="syn-card p-3">
+                    <div class="text-[10px] font-bold uppercase tracking-wide text-slate-500">Represado</div>
+                    <div class="text-2xl font-black {{ 'text-amber-600' if f.curadoria.pendentes else 'text-slate-400' }}">
+                        {{ f.curadoria.pendentes | num_br }}
+                    </div>
+                    <div class="text-[10.5px] text-slate-500 leading-tight mt-0.5">
+                        {% if f.curadoria.dias_parada is not none %}mais antiga há {{ f.curadoria.dias_parada }}d{% else %}nada aguardando{% endif %}
+                    </div>
+                </div>
+                <div class="syn-card p-3">
+                    <div class="text-[10px] font-bold uppercase tracking-wide text-slate-500">Mapeado</div>
+                    <div class="text-2xl font-black text-slate-700">{{ f.curadoria.aprovadas | num_br }}</div>
+                    <div class="text-[10.5px] text-slate-500 leading-tight mt-0.5">
+                        regra(s) em {{ f.curadoria.tipos_mapeados }} tipo(s)
+                    </div>
+                </div>
+            </div>
+
+            {# ---------- COMPETÊNCIAS ---------- #}
+            {% set cp = f.competencias %}
+            <section class="syn-card p-4">
+                <div class="flex items-baseline justify-between gap-2 mb-3">
+                    <h4 class="text-[13px] font-bold uppercase tracking-wide text-slate-500">
+                        Competências auditadas
+                    </h4>
+                    {% if cp.auditadas %}
+                    <span class="text-[11px] text-slate-400">
+                        {{ cp.auditadas }} mês(es) · {{ cp.primeira }} a {{ cp.ultima }}
+                    </span>
+                    {% endif %}
+                </div>
+
+                {% if cp.sem_registro %}
+                {# O histórico é anterior à coluna `competencia`. Sem ela, dizer
+                   "abril em aberto" seria inventar atraso a partir de um banco
+                   onde o mês nunca foi gravado. #}
+                <div class="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <i class="fa-solid fa-circle-info text-slate-400 text-[13px] mt-0.5"></i>
+                    <div class="text-[11.5px] text-slate-600 leading-snug">
+                        As auditorias desta empresa são anteriores a 03/09/2026 e não têm a
+                        competência gravada — por isso a régua não afirma nada aqui. Para
+                        preencher o histórico:
+                        <code class="px-1 py-0.5 rounded bg-slate-200 font-mono text-[11px]">backfill_resumo_auditoria.py --aplicar</code>
+                    </div>
+                </div>
+                {% elif not cp.regua %}
+                <p class="text-[13px] text-slate-500">
+                    Nenhuma competência conferida até agora.
+                </p>
+                {% else %}
+                <div class="grid grid-cols-12 gap-1">
+                    {% for m in cp.regua %}
+                    {% if not m.esperada %}
+                    {% set celula = 'border border-dashed border-slate-200 text-slate-300' %}
+                    {% set dica = 'fora do período da empresa' %}
+                    {% elif m.em_aberto %}
+                    {% set celula = 'border border-amber-300 bg-amber-50 text-amber-700' %}
+                    {% set dica = 'sem auditoria' %}
+                    {% elif m.nivel == 'limpo' %}
+                    {% set celula = 'bg-emerald-500 text-white' %}
+                    {% set dica = 'sem inconsistência' %}
+                    {% elif m.nivel == 'baixo' %}
+                    {% set celula = 'bg-emerald-200 text-emerald-900' %}
+                    {% set dica = 'poucas inconsistências' %}
+                    {% elif m.nivel == 'medio' %}
+                    {% set celula = 'bg-amber-300 text-amber-900' %}
+                    {% set dica = 'atenção' %}
+                    {% elif m.nivel == 'alto' %}
+                    {% set celula = 'bg-red-400 text-white' %}
+                    {% set dica = 'muitas inconsistências' %}
+                    {% else %}
+                    {% set celula = 'bg-slate-200 text-slate-500' %}
+                    {% set dica = 'conferida, sem contador gravado' %}
+                    {% endif %}
+                    <div class="flex flex-col items-center gap-0.5">
+                        <div class="w-full aspect-square rounded grid place-items-center text-[9px] font-bold tabular-nums {{ celula }}"
+                             title="{{ m.rotulo }} — {% if m.auditada %}{{ m.inconsistencias if m.inconsistencias is not none else '?' }} inconsistência(s) em {{ m.notas if m.notas is not none else '?' }} notas ({{ dica }}){% else %}{{ dica }}{% endif %}">
+                            {% if m.taxa is not none %}{{ m.taxa | round(0) | int }}{% elif m.em_aberto %}!{% endif %}
+                        </div>
+                        <span class="text-[9px] text-slate-400">{{ m.curto }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="flex items-center gap-3 mt-2.5 text-[10px] text-slate-400 flex-wrap">
+                    <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span> sem inconsistência</span>
+                    <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-amber-300"></span> atenção</span>
+                    <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm bg-red-400"></span> alta</span>
+                    <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm border border-amber-300 bg-amber-50"></span> em aberto</span>
+                    <span class="ml-auto">número = inconsistências por 100 notas</span>
+                </div>
+                {% if cp.em_aberto %}
+                <p class="mt-2 text-[11.5px] text-amber-800">
+                    Em aberto: <b>{{ cp.em_aberto | join(', ') }}</b>.
+                    O mês corrente não é cobrado — o SPED dele ainda nem venceu.
+                </p>
+                {% endif %}
+                {% endif %}
+            </section>
+
+            {# ---------- CURADORIA REPRESADA ---------- #}
+            <section class="syn-card p-4">
+                <div class="flex items-baseline justify-between gap-2 mb-3">
+                    <h4 class="text-[13px] font-bold uppercase tracking-wide text-slate-500">
+                        Curadoria represada
+                    </h4>
+                    {% if f.curadoria.mais_antiga_em %}
+                    <span class="text-[11px] text-slate-400">
+                        desde {{ f.curadoria.mais_antiga_em.strftime('%d/%m/%Y') }}
+                    </span>
+                    {% endif %}
+                </div>
+
+                {% if not f.curadoria.por_tipo %}
+                <p class="text-[13px] text-emerald-700">
+                    <i class="fa-solid fa-check mr-1.5"></i>
+                    Nada aguardando aprovação.
+                </p>
+                {% else %}
+                <p class="text-[11.5px] text-slate-500 mb-3 leading-snug">
+                    Enquanto um admin não aprova, o motor <b>ignora</b> estas regras e o item
+                    continua caindo na tela de curadoria.
+                </p>
+                <div class="space-y-2">
+                    {% for r in f.curadoria.por_tipo %}
+                    <div class="flex items-center gap-2.5">
+                        <span class="text-[12px] text-slate-600 w-[112px] shrink-0 truncate" title="{{ r.tipo }}">{{ r.tipo }}</span>
+                        <div class="flex-1 h-2.5 rounded-full bg-slate-100 overflow-hidden">
+                            <div class="h-full rounded-full" style="width: {{ r.pct }}%; background: #f59e0b;"></div>
+                        </div>
+                        <span class="text-[12px] font-bold text-slate-700 w-8 text-right tabular-nums">{{ r.qtd }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if f.curadoria.aprovadas_por_tipo %}
+                <div class="mt-4 pt-3 border-t border-slate-100">
+                    <div class="text-[11px] font-semibold text-slate-500 mb-2">Já aprovadas nesta empresa</div>
+                    <div class="flex flex-wrap gap-1.5">
+                        {% for r in f.curadoria.aprovadas_por_tipo %}
+                        <span class="px-2 py-0.5 rounded-full text-[11px] font-medium border"
+                              style="background: var(--syn-tint-05); border-color: var(--syn-200); color: var(--syn-900);">
+                            {{ r.tipo }} <b class="tabular-nums">{{ r.qtd | num_br }}</b>
+                        </span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+            </section>
+
+            {# ---------- CERTIFICADO ---------- #}
+            {% set c = f.certificado %}
+            <section class="syn-card p-4">
+                <h4 class="text-[13px] font-bold uppercase tracking-wide text-slate-500 mb-3">
+                    Certificado A1
+                </h4>
+                {% if c.validade.cor == 'emerald' %}
+                {% set selo = 'bg-emerald-50 text-emerald-600' %}{% set rotulo = 'text-emerald-700' %}
+                {% elif c.validade.cor == 'amber' %}
+                {% set selo = 'bg-amber-50 text-amber-600' %}{% set rotulo = 'text-amber-800' %}
+                {% elif c.validade.cor == 'red' %}
+                {% set selo = 'bg-red-50 text-red-600' %}{% set rotulo = 'text-red-700' %}
+                {% else %}
+                {% set selo = 'bg-slate-100 text-slate-500' %}{% set rotulo = 'text-slate-600' %}
+                {% endif %}
+                <div class="flex items-center gap-3">
+                    <span class="w-9 h-9 shrink-0 grid place-items-center rounded-lg {{ selo }}">
+                        <i class="fa-solid fa-file-shield"></i>
+                    </span>
+                    <div class="min-w-0">
+                        <div class="text-[13px] font-semibold {{ rotulo }}">{{ c.validade.rotulo }}</div>
+                        <div class="text-[11.5px] text-slate-500 truncate">
+                            {% if c.validade.validade %}
+                                válido até {{ c.validade.validade.strftime('%d/%m/%Y') }}
+                            {% elif c.arquivo %}
+                                {{ c.apelido or 'arquivo vinculado' }}
+                            {% else %}
+                                nenhum arquivo vinculado
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% if c.ultimo_erro %}
+                <p class="mt-2 text-[11.5px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1">
+                    Último erro: {{ c.ultimo_erro }}
+                </p>
+                {% endif %}
+            </section>
+
+            {# ---------- CADASTRO ---------- #}
+            <section class="syn-card p-4">
+                <div class="flex items-baseline justify-between gap-2 mb-3">
+                    <h4 class="text-[13px] font-bold uppercase tracking-wide text-slate-500">Cadastro</h4>
+                    <span class="text-[11px] font-bold {{ 'text-emerald-600' if f.cadastro.completos == f.cadastro.de else 'text-amber-600' }}">
+                        {{ f.cadastro.completos }}/{{ f.cadastro.de }}
+                    </span>
+                </div>
+                <div class="space-y-1.5">
+                    {% for i in f.cadastro.itens %}
+                    <div class="flex items-start gap-2">
+                        {% if i.ok %}
+                        <i class="fa-solid fa-circle-check text-emerald-500 text-[12px] mt-[3px]"></i>
+                        <span class="text-[12.5px] text-slate-600">{{ i.rotulo }}</span>
+                        {% else %}
+                        <i class="fa-solid fa-circle-xmark text-slate-300 text-[12px] mt-[3px]"></i>
+                        <span class="text-[12.5px] text-slate-500">
+                            {{ i.rotulo }}
+                            <span class="block text-[11px] text-amber-700 leading-snug">{{ i.falta }}</span>
+                        </span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+
+            {# ---------- EQUIPE ---------- #}
+            <section class="syn-card p-4">
+                <div class="flex items-baseline justify-between gap-2 mb-3">
+                    <h4 class="text-[13px] font-bold uppercase tracking-wide text-slate-500">Quem tem acesso</h4>
+                    <button class="text-[11px] font-semibold hover:underline" style="color: var(--syn-700);"
+                            hx-get="/admin/modals/user?tenant_id={{ f.empresa.id }}"
+                            hx-target="#modal-container" hx-swap="innerHTML">
+                        <i class="fa-solid fa-user-plus mr-1"></i> vincular
+                    </button>
+                </div>
+                {% if not f.equipe %}
+                <p class="text-[12.5px] text-slate-500">
+                    Nenhum usuário vinculado — só administradores enxergam esta empresa.
+                </p>
+                {% else %}
+                <div class="space-y-1.5">
+                    {% for p in f.equipe %}
+                    <div class="flex items-center gap-2 text-[12.5px]">
+                        <i class="fa-regular fa-user text-slate-300 text-[11px]"></i>
+                        <span class="font-medium text-slate-700">{{ p.nome }}</span>
+                        <span class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide"
+                              style="background: var(--syn-tint-12); color: var(--syn-900);">{{ p.papel }}</span>
+                        <span class="text-[11px] text-slate-400">{{ p.vinculo }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </section>
+
+            {# ---------- HISTÓRICO ---------- #}
+            <section class="syn-card overflow-hidden">
+                <div class="syn-toolbar px-4 py-2.5 flex items-baseline justify-between">
+                    <h4 class="text-[13px] font-bold uppercase tracking-wide text-slate-500">
+                        Últimas execuções
+                    </h4>
+                    {# hx-get explícito, e não <a href>: o body tem hx-boost, e um
+                       link boostado jogaria este PARCIAL no lugar da página
+                       inteira. O alvo é o mesmo das abas do admin. #}
+                    <button class="text-[11px] font-semibold hover:underline" style="color: var(--syn-700);"
+                            hx-get="/admin/activity?search={{ f.empresa.nome | urlencode }}"
+                            hx-target="#admin-content" hx-swap="outerHTML"
+                            onclick="{{ fechar() }}">
+                        ver tudo <i class="fa-solid fa-arrow-right text-[9px]"></i>
+                    </button>
+                </div>
+                {% if not f.auditoria.historico %}
+                <p class="px-4 py-4 text-[12.5px] text-slate-500">Nenhuma execução registrada.</p>
+                {% else %}
+                <table class="w-full text-[12px]">
+                    <tbody class="divide-y divide-slate-100">
+                        {% for h in f.auditoria.historico %}
+                        <tr class="hover:bg-slate-50/70">
+                            <td class="px-4 py-2 whitespace-nowrap text-slate-600">
+                                {{ h.quando.strftime('%d/%m %H:%M') }}
+                            </td>
+                            <td class="py-2">
+                                {% if h.status == 'concluido' %}
+                                <span class="w-2 h-2 inline-block rounded-full bg-emerald-500" title="concluída"></span>
+                                {% elif h.status == 'erro' %}
+                                <span class="w-2 h-2 inline-block rounded-full bg-red-500" title="com erro"></span>
+                                {% else %}
+                                <span class="w-2 h-2 inline-block rounded-full bg-amber-400" title="{{ h.status }}"></span>
+                                {% endif %}
+                            </td>
+                            <td class="py-2 text-slate-500 truncate max-w-[110px]" title="{{ h.quem }}">{{ h.quem }}</td>
+                            <td class="py-2 text-right tabular-nums text-slate-600">
+                                {{ h.notas | num_br if h.medida else '—' }}
+                            </td>
+                            <td class="px-4 py-2 text-right tabular-nums font-semibold
+                                       {{ 'text-red-600' if h.medida and h.inconsistencias else 'text-slate-400' }}">
+                                {{ h.inconsistencias | num_br if h.medida else '—' }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                <div class="px-4 py-2 text-[10.5px] text-slate-400 border-t border-slate-100">
+                    colunas: quando · status · quem · notas · inconsistências
+                    {%- if f.auditoria.primeira_em %} · auditada desde {{ f.auditoria.primeira_em.strftime('%d/%m/%Y') }}{% endif %}
+                    {%- if f.auditoria.sem_contador %} · {{ f.auditoria.sem_contador }} execução(ões) sem contador gravado{% endif %}
+                </div>
+                {% endif %}
+            </section>
+
+            <p class="text-[10.5px] text-slate-400 text-center pb-1">
+                Gerado em {{ f.gerado_em.strftime('%d/%m/%Y às %H:%M') }} (horário de Brasília).
+                A ficha não abre o relatório das auditorias — os números vêm dos contadores gravados.
+            </p>
+        </div>
+
+        <!-- ============ AÇÕES ============ -->
+        <footer class="shrink-0 px-4 py-3 border-t border-slate-200 bg-white flex flex-wrap gap-2">
+            <button class="btn btn-sm bg-white border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm"
+                    hx-get="/admin/modals/tenant/edit/{{ f.empresa.id }}"
+                    hx-target="#modal-container" hx-swap="innerHTML">
+                <i class="fa-solid fa-pen-to-square"></i> Editar
+            </button>
+            <button class="btn btn-sm bg-white border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm"
+                    hx-get="/admin/modals/tenant/import/{{ f.empresa.id }}"
+                    hx-target="#modal-container" hx-swap="innerHTML">
+                <i class="fa-solid fa-file-import"></i> Importar regras
+            </button>
+            <button class="btn btn-sm border-none text-white shadow-sm ml-auto"
+                    style="background: var(--syn-700);"
+                    hx-get="/admin/rules?tenant_id={{ f.empresa.id }}"
+                    hx-target="#admin-content" hx-swap="outerHTML"
+                    onclick="{{ fechar() }}">
+                <i class="fa-solid fa-scale-balanced"></i> Regras da empresa
+            </button>
+        </footer>
+    {% endif %}
+    </aside>
+</div>
+
+<style>
+    /* Entrada do painel. Sem isso ele aparece estalando na lateral. */
+    .ficha-painel { animation: ficha-entra .18s ease-out; }
+    @keyframes ficha-entra {
+        from { transform: translateX(16px); opacity: .4; }
+        to   { transform: translateX(0);    opacity: 1; }
+    }
+</style>

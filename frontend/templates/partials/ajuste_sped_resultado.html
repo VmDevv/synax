@@ -1,0 +1,156 @@
+{# O resultado do ajuste: o que foi encontrado e o que foi inserido, antes do
+   botão de baixar — mesma regra das outras ferramentas de SPED: a pessoa vê o
+   que aconteceu antes de levar o arquivo para o Domínio/PVA. #}
+
+{% if erro %}
+<div class="alert bg-amber-50 border border-amber-200 text-amber-900 rounded-xl">
+    <i class="fa-solid fa-triangle-exclamation text-amber-600"></i>
+    <span class="text-sm">{{ erro }}</span>
+</div>
+{% if resultado and resultado.avisos %}
+<div class="mt-3 bg-white border border-slate-200 rounded-xl p-4">
+    <h4 class="font-bold text-sm text-slate-700 mb-2">Avisos</h4>
+    <ul class="text-xs text-slate-600 space-y-1 list-disc list-inside">
+        {% for aviso in resultado.avisos %}<li>{{ aviso }}</li>{% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+{% else %}
+<div class="bg-white border-2 border-emerald-500 rounded-xl overflow-hidden shadow-sm">
+    <div class="bg-emerald-600 text-white px-5 py-3 flex items-center justify-between flex-wrap gap-2">
+        <h4 class="font-bold flex items-center gap-2">
+            <i class="fa-solid fa-file-circle-check"></i>
+            Ajuste aplicado
+        </h4>
+        <span class="text-xs font-bold">{{ linhas }} linhas no arquivo</span>
+    </div>
+
+    <div class="p-5 space-y-5">
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <div class="text-2xl font-bold text-[#015282]">{{ resultado.aplicados | length }}</div>
+                <div class="text-[11px] text-slate-500 uppercase tracking-wide">C195/C197 inseridos</div>
+            </div>
+            {% if resultado.ja_existiam %}
+            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <div class="text-2xl font-bold text-slate-500">{{ resultado.ja_existiam | length }}</div>
+                <div class="text-[11px] text-slate-500 uppercase tracking-wide">já tinham o ajuste</div>
+            </div>
+            {% endif %}
+            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <div class="text-2xl font-bold text-[#015282]">{{ resultado.ajustes | length }}</div>
+                <div class="text-[11px] text-slate-500 uppercase tracking-wide">C190 com CFOP 5106/6106</div>
+            </div>
+        </div>
+
+        <div>
+            <h5 class="font-bold text-sm text-slate-700 mb-2">
+                <i class="fa-solid fa-list-check mr-1 text-[#037fb5]"></i>
+                Registros ajustados
+            </h5>
+            <div class="overflow-x-auto">
+                <table class="table table-xs w-full border border-slate-200">
+                    <thead>
+                        <tr class="text-[11px] uppercase text-slate-500 bg-slate-50">
+                            <th>Documento</th><th>Nº</th><th>CFOP</th>
+                            <th class="text-right">Base ICMS</th>
+                            <th class="text-right">Alíquota</th>
+                            <th class="text-right">ICMS</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for a in resultado.ajustes %}
+                        <tr class="align-top {% if a.ja_existia %}opacity-60{% endif %}">
+                            <td class="font-mono text-[11px]">{{ a.documento }}</td>
+                            <td class="font-mono text-xs">{{ a.num }}</td>
+                            <td class="font-mono text-xs font-bold text-orange-600">{{ a.cfop }}</td>
+                            <td class="text-right text-xs">{{ a.base }}</td>
+                            <td class="text-right text-xs">{{ a.aliquota }}</td>
+                            <td class="text-right text-xs">{{ a.icms }}</td>
+                            <td class="text-xs whitespace-nowrap">
+                                {% if a.ja_existia %}
+                                <span class="badge badge-sm badge-ghost">já existia</span>
+                                {% else %}
+                                <span class="badge badge-sm badge-success text-white">inserido</span>
+                                {% endif %}
+                                {# Valor somado não é valor de linha do arquivo:
+                                   é conta nossa, e quem confere precisa saber. #}
+                                {% if a.agrupados > 1 %}
+                                <span class="badge badge-sm badge-warning text-white"
+                                      title="A nota tem {{ a.agrupados }} registros C190 deste CFOP e alíquota. A chave COD_AJ + COD_ITEM não pode repetir dentro do C195, então eles foram somados num único C197.">
+                                    soma de {{ a.agrupados }} C190
+                                </span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {# A sub-apuração MOVE imposto entre apurações: o débito sai do E110 e
+           entra no 1920. Isso é dinheiro, e tem de ser visível antes do
+           download — não só dentro do arquivo que alguém vai transmitir. #}
+        {% if resultado.apuracao %}
+        <div>
+            <h5 class="font-bold text-sm text-slate-700 mb-2">
+                <i class="fa-solid fa-scale-balanced mr-1 text-[#037fb5]"></i>
+                Apuração e Bloco 1
+            </h5>
+            <div class="overflow-x-auto">
+                <table class="table table-xs w-full border border-slate-200">
+                    <thead>
+                        <tr class="text-[11px] uppercase text-slate-500 bg-slate-50">
+                            <th>Registro</th><th>Campo</th>
+                            <th class="text-right">De</th>
+                            <th class="text-right">Para</th>
+                            <th>Motivo</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for a in resultado.apuracao %}
+                        <tr class="align-top">
+                            <td class="font-mono text-xs font-bold">{{ a.registro }}</td>
+                            <td class="font-mono text-[11px]">{{ a.campo }}</td>
+                            <td class="text-right text-xs text-slate-500">{{ a.de or "—" }}</td>
+                            <td class="text-right text-xs font-bold">{{ a.para }}</td>
+                            <td class="text-[11px] text-slate-600">{{ a.motivo }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if resultado.avisos %}
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-3">
+            <h5 class="font-bold text-xs text-amber-900 mb-1 uppercase tracking-wide">
+                <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+                Confira antes de transmitir
+            </h5>
+            <ul class="text-xs text-amber-900 space-y-1 list-disc list-inside">
+                {% for aviso in resultado.avisos %}<li>{{ aviso }}</li>{% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <div class="border-t border-slate-200 pt-4 flex flex-wrap items-center gap-3">
+            {# Download nativo, fora do boost do <body>: com o htmx no meio, o
+               conteúdo do SPED seria injetado na página em vez de baixado
+               (mesmo defeito já corrigido em Corrigir SPED e Gerar SPED). #}
+            <a href="/api/ajuste-sped/{{ processo }}/arquivo" hx-boost="false"
+               class="btn btn-sm bg-emerald-600 hover:bg-emerald-700 text-white border-none gap-1.5 shadow-2xs rounded-lg">
+                <i class="fa-solid fa-file-arrow-down"></i> Baixar o SPED ajustado
+            </a>
+            <span class="text-[11px] text-slate-500">
+                O arquivo original enviado não foi alterado. O ajustado fica no
+                servidor por 7 dias.
+            </span>
+        </div>
+    </div>
+</div>
+{% endif %}

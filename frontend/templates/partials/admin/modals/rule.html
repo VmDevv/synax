@@ -1,0 +1,68 @@
+<dialog class="modal modal-open">
+    <div class="modal-box bg-white text-slate-800 max-w-3xl">
+        <h3 class="font-bold text-lg mb-4">Cadastrar Nova Regra (Forçada)</h3>
+        
+        <form hx-post="/admin/rules" hx-target="#admin-content" hx-swap="outerHTML">
+            <input type="hidden" name="tenant_id" value="{{ tenant_id }}" />
+            
+            <div class="form-control mb-4">
+                <label class="label"><span class="label-text font-semibold text-slate-600">Tipo de Regra</span></label>
+                <select name="rule_type" id="ruleTypeSelect" class="select select-bordered bg-slate-50 border-slate-300 text-slate-900 w-full"
+                        onchange="document.getElementById('classificationFields').style.display = (this.value == 'classification') ? 'block' : 'none';
+                                  document.getElementById('creditFields').style.display = (this.value == 'credit') ? 'block' : 'none';">
+                    <option value="classification">Classificação de CFOP de Entrada (Mapeamento)</option>
+                    <option value="credit">Regra de Crédito de ICMS (Por CFOP)</option>
+                </select>
+            </div>
+
+            <!-- Campos Classification -->
+            <div id="classificationFields">
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div class="form-control">
+                        <label class="label"><span class="label-text text-slate-600">CNPJ Fornecedor</span></label>
+                        <input type="text" name="supplier_cnpj" class="input input-sm input-bordered bg-slate-50 border-slate-300 w-full text-slate-900" />
+                    </div>
+                    <div class="form-control">
+                        <label class="label"><span class="label-text text-slate-600">CFOP da Nota</span></label>
+                        <input type="text" name="supplier_cfop" class="input input-sm input-bordered bg-slate-50 border-slate-300 w-full text-slate-900" />
+                    </div>
+                    <div class="form-control">
+                        <label class="label"><span class="label-text text-slate-600">Código Produto</span></label>
+                        <input type="text" name="product_code" class="input input-sm input-bordered bg-slate-50 border-slate-300 w-full text-slate-900" />
+                    </div>
+                    <div class="form-control">
+                        <label class="label"><span class="label-text font-bold text-blue-600">CFOP de Entrada (Destino)</span></label>
+                        <input type="text" name="entry_cfop" class="input input-sm input-bordered bg-slate-50 border-blue-300 w-full text-slate-900 font-bold" />
+                    </div>
+                </div>
+            </div>
+
+            <!-- Campos Credit -->
+            <div id="creditFields" style="display: none;">
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div class="form-control">
+                        <label class="label"><span class="label-text text-slate-600">CFOP (Ex: 1102)</span></label>
+                        <input type="text" name="cfop" class="input input-sm input-bordered bg-slate-50 border-slate-300 w-full text-slate-900" />
+                    </div>
+                    <div class="form-control">
+                        <label class="label"><span class="label-text text-slate-600">Permite Crédito de ICMS?</span></label>
+                        <select name="allow_credit" class="select select-sm select-bordered bg-slate-50 border-slate-300 text-slate-900 w-full">
+                            <option value="True">Sim</option>
+                            <option value="False">Não</option>
+                        </select>
+                    </div>
+                    <div class="form-control col-span-2">
+                        <label class="label"><span class="label-text text-slate-600">Descrição (Opcional)</span></label>
+                        <input type="text" name="description" class="input input-sm input-bordered bg-slate-50 border-slate-300 w-full text-slate-900" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-action">
+                <button type="button" class="btn btn-ghost text-slate-600" onclick="document.getElementById('modal-container').innerHTML = ''">Cancelar</button>
+                <button type="submit" class="btn btn-primary bg-blue-600 hover:bg-blue-700 border-none text-white">Salvar Regra</button>
+            </div>
+        </form>
+    </div>
+    <div class="modal-backdrop bg-slate-900/40" onclick="document.getElementById('modal-container').innerHTML = ''"></div>
+</dialog>

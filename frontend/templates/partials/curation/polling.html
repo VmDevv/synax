@@ -1,0 +1,17 @@
+<div class="flex flex-col items-center justify-center p-12 bg-white border border-slate-200 rounded-2xl shadow-sm text-center" 
+     hx-get="/api/status/{{ task_id }}" 
+     hx-trigger="every 1.5s" 
+     hx-target="#process-status" 
+     hx-swap="innerHTML">
+    
+    <span class="loading loading-spinner loading-lg text-blue-600 mb-4"></span>
+    
+    <h3 class="text-xl font-bold text-slate-800 mb-2">Processando Auditoria Fiscal</h3>
+    <p class="text-sm text-slate-500 max-w-md mx-auto">
+        Estamos cruzando as notas fiscais do arquivo SPED com o pacote de XMLs utilizando as regras tributárias cadastradas. Por favor, aguarde...
+    </p>
+    
+    <div class="mt-6 flex items-center justify-center gap-2 text-xs font-semibold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-200">
+        <i class="fa-solid fa-bolt animate-pulse"></i> Task ID: {{ task_id }}
+    </div>
+</div>

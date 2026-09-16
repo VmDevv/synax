@@ -1,0 +1,291 @@
+{# A prévia: o que vai acontecer, antes de gerar o arquivo.
+
+   Ela não é uma simulação escrita à parte — o patch é aplicado numa cópia
+   descartável e o que aparece aqui é o que aconteceu de verdade (ver
+   services/sped_rewriter/previa.py). Por isso o botão de gerar só existe
+   DENTRO desta resposta: quem chega ao arquivo passou por aqui. #}
+
+{% if erro %}
+<div class="alert bg-amber-50 border border-amber-200 text-amber-900 rounded-xl mt-4">
+    <i class="fa-solid fa-triangle-exclamation text-amber-600"></i>
+    <span class="text-sm">{{ erro }}</span>
+</div>
+{% else %}
+
+<div class="bg-white border-2 border-[#037fb5] rounded-xl mt-5 overflow-hidden shadow-sm">
+    <div class="bg-[#037fb5] text-white px-5 py-3 flex items-center justify-between">
+        <h4 class="font-bold flex items-center gap-2">
+            <i class="fa-solid fa-magnifying-glass-chart"></i>
+            Prévia da correção — nada foi gravado ainda
+        </h4>
+        <div class="text-xs font-bold flex gap-3">
+            <span>{{ previa.aceitas | length }} aplicável(is)</span>
+            {% if previa.recusadas %}<span class="text-rose-100">{{ previa.recusadas | length }} recusada(s)</span>{% endif %}
+            {% if previa.sem_efeito %}<span class="text-slate-100">{{ previa.sem_efeito | length }} sem efeito</span>{% endif %}
+        </div>
+    </div>
+
+    <div class="p-5 space-y-5">
+
+        {% if previa.recusadas %}
+        <div>
+            <h5 class="font-bold text-sm text-rose-700 mb-2">
+                <i class="fa-solid fa-ban mr-1"></i> Não serão aplicadas
+            </h5>
+            <div class="space-y-2">
+                {% for item in previa.recusadas %}
+                <div class="bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 text-xs">
+                    <div class="font-bold text-rose-900">{{ item.alvo }}
+                        <span class="font-mono text-[10px] text-rose-400">{{ item.documento }}</span>
+                    </div>
+                    <div class="text-rose-800">{{ item.motivo }}</div>
+                </div>
+                {% endfor %}
+            </div>
+            {# Recusa vale para o DOCUMENTO inteiro, e é preciso dizer por quê:
+               aplicar metade de uma nota a deixa inconsistente no PVA. #}
+            <p class="text-[11px] text-slate-500 mt-2">
+                A recusa vale para o documento inteiro — aplicar só parte dele
+                deixaria a nota inconsistente no PVA.
+            </p>
+        </div>
+        {% endif %}
+
+        {% if previa.sem_efeito %}
+        <div>
+            <h5 class="font-bold text-sm text-slate-600 mb-2">
+                <i class="fa-solid fa-equals mr-1"></i> Sem efeito (o arquivo já está assim)
+            </h5>
+            <div class="text-xs text-slate-500 space-y-1">
+                {% for item in previa.sem_efeito %}
+                <div>{{ item.alvo }} — {{ item.campos | join(", ") }}: {{ item.motivo }}</div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if previa.aceitas %}
+        <div>
+            <h5 class="font-bold text-sm text-emerald-700 mb-2">
+                <i class="fa-solid fa-check mr-1"></i> Serão aplicadas
+            </h5>
+            <div class="overflow-x-auto">
+                <table class="table table-xs w-full">
+                    <tbody>
+                        {% for item in previa.aceitas %}
+                        <tr class="align-top">
+                            <td class="text-xs font-bold text-slate-700 whitespace-nowrap">{{ item.alvo }}</td>
+                            <td class="text-xs">
+                                {% for m in item.mudancas %}
+                                <div class="font-mono">
+                                    <span class="text-slate-500">{{ m.campo }}</span>
+                                    <span class="text-rose-600">{{ m.de if m.de else "(vazio)" }}</span>
+                                    <i class="fa-solid fa-arrow-right text-slate-300 mx-1"></i>
+                                    <span class="text-emerald-700 font-bold">{{ m.para if m.para else "(vazio)" }}</span>
+                                </div>
+                                {% endfor %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if previa.efeitos.houve %}
+        <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+            <h5 class="font-bold text-sm text-slate-700 mb-2">
+                <i class="fa-solid fa-diagram-project mr-1"></i>
+                Muda junto, por obrigação do leiaute
+            </h5>
+            <ul class="text-xs text-slate-600 space-y-1 list-disc list-inside">
+                {% if previa.efeitos.c190_criados %}
+                <li>{{ previa.efeitos.c190_criados }} registro(s) C190 criado(s) — os itens
+                    passaram a existir em outra combinação de CST/CFOP/alíquota</li>
+                {% endif %}
+                {% if previa.efeitos.c190_removidos %}
+                <li>{{ previa.efeitos.c190_removidos }} registro(s) C190 removido(s) — não
+                    restou item naquela combinação</li>
+                {% endif %}
+                {% if previa.efeitos.cst_ajustados %}
+                <li>{{ previa.efeitos.cst_ajustados }} CST ajustado(s) para acompanhar o
+                    imposto do item — o arquivo não pode dizer "tributada" num item sem
+                    imposto, nem afirmar isenção num item que passou a ter crédito</li>
+                {% endif %}
+                {% if previa.efeitos.valor_migrado %}
+                <li>R$ {{ previa.efeitos.valor_migrado | moeda_br }} de imposto glosado
+                    entra(m) no valor da mercadoria (custo)</li>
+                {% endif %}
+                {% if previa.efeitos.linhas %}
+                <li>o arquivo fica com {{ previa.efeitos.linhas | abs }} linha(s)
+                    {{ "a mais" if previa.efeitos.linhas > 0 else "a menos" }}</li>
+                {% endif %}
+                {% if previa.efeitos.contadores %}
+                <li>{{ previa.efeitos.contadores }} contador(es) de bloco recalculado(s)</li>
+                {% endif %}
+            </ul>
+        </div>
+        {% endif %}
+
+        {% if previa.relatorio %}
+        {% set imp = previa.relatorio.impacto %}
+        <div>
+            <h5 class="font-bold text-sm text-[#015282] mb-2">
+                <i class="fa-solid fa-scale-balanced mr-1"></i> Impacto na apuração
+            </h5>
+            <div class="overflow-x-auto">
+                <table class="table table-xs w-full">
+                    <thead>
+                        <tr class="text-[11px] uppercase text-slate-500">
+                            <th>Crédito</th><th class="text-right">Antes</th>
+                            <th class="text-right">Depois</th><th class="text-right">Diferença</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="text-xs">ICMS — soma dos analíticos de entrada</td>
+                            <td class="text-right text-xs">R$ {{ imp.icms_creditos_antes | moeda_br }}</td>
+                            <td class="text-right text-xs">R$ {{ imp.icms_creditos_depois | moeda_br }}</td>
+                            <td class="text-right text-xs font-bold {% if imp.icms_diferenca > 0 %}text-emerald-700{% elif imp.icms_diferenca < 0 %}text-rose-600{% endif %}">
+                                R$ {{ imp.icms_diferenca | moeda_br }}</td>
+                        </tr>
+                        <tr>
+                            <td class="text-xs">IPI — soma dos analíticos de entrada</td>
+                            <td class="text-right text-xs">R$ {{ imp.ipi_creditos_antes | moeda_br }}</td>
+                            <td class="text-right text-xs">R$ {{ imp.ipi_creditos_depois | moeda_br }}</td>
+                            <td class="text-right text-xs font-bold {% if imp.ipi_diferenca > 0 %}text-emerald-700{% elif imp.ipi_diferenca < 0 %}text-rose-600{% endif %}">
+                                R$ {{ imp.ipi_diferenca | moeda_br }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            {% if previa.relatorio.apuracao %}
+            {# Quando o E110 É reescrito, a tela precisa mostrar exatamente quais
+               campos mudam: é a única parte do arquivo que altera imposto a
+               recolher, e ninguém deve descobrir isso só ao abrir o PVA. #}
+            <div class="border border-amber-300 bg-amber-50 rounded-lg p-3 mt-3">
+                <h6 class="font-bold text-xs text-amber-900 mb-2">
+                    <i class="fa-solid fa-file-invoice-dollar mr-1"></i>
+                    A apuração do ICMS (E110) será reescrita
+                </h6>
+                <div class="overflow-x-auto">
+                    <table class="table table-xs w-full">
+                        <tbody>
+                            {% for a in previa.relatorio.apuracao %}
+                            <tr class="align-top">
+                                <td class="font-mono text-xs whitespace-nowrap">{{ a.campo }}</td>
+                                <td class="font-mono text-xs whitespace-nowrap">
+                                    <span class="text-rose-600">{{ a.de or "0,00" }}</span>
+                                    <i class="fa-solid fa-arrow-right text-slate-300 mx-1"></i>
+                                    <span class="text-emerald-700 font-bold">{{ a.para }}</span>
+                                </td>
+                                <td class="text-[11px] text-slate-600">{{ a.motivo }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <p class="text-[11px] text-amber-900 mt-2">
+                    Ajustes (E111) e o saldo credor anterior não foram tocados.
+                    O IPI (E520) também não — se o crédito de IPI mudou, ajuste a
+                    apuração dele no PVA.
+                </p>
+            </div>
+            {% else %}
+            {# Sem a caixa marcada, o Bloco E fica como estava — e a tela tem de
+               dizer isso, senão alguém entrega o arquivo achando que a guia veio
+               junto. #}
+            <p class="text-[11px] text-slate-500 mt-2">
+                A apuração (E110{% if imp.ipi_declarado_e520 is not none %}/E520{% endif %})
+                <strong>não</strong> foi reescrita nesta prévia.
+                {% if imp.icms_declarado_e110 is not none %}
+                O arquivo declara hoje R$ {{ imp.icms_declarado_e110 | moeda_br }} de crédito
+                de ICMS no E110 — marque a caixa da apuração para levar a diferença até lá.
+                {% endif %}
+            </p>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if previa.avisos %}
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-3">
+            <h5 class="font-bold text-sm text-amber-900 mb-1">
+                <i class="fa-solid fa-triangle-exclamation mr-1"></i> Atenção
+            </h5>
+            <ul class="text-xs text-amber-900 space-y-1 list-disc list-inside">
+                {% for aviso in previa.avisos %}<li>{{ aviso }}</li>{% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        {# Sem nada aplicável não há botão: gerar devolveria uma cópia do próprio
+           arquivo, e "sucesso" com zero correção é a mentira que esta tela toda
+           existe para não contar. #}
+        {% if previa.pronto_para_gerar %}
+        {# O resumo fica atrás de um botão: a prévia é reaberta a cada ajuste da
+           seleção, e cada geração é uma chamada paga ao modelo. O texto gerado
+           aqui é o mesmo que vai para a planilha e para o registro da geração. #}
+        <div>
+            <button type="button"
+                    class="btn btn-sm btn-outline border-violet-300 text-violet-700 gap-1.5 rounded-lg"
+                    hx-post="/api/audit/{{ task_id }}/correcao/resumo"
+                    hx-include="#form-correcao-sped"
+                    hx-vals='{"atualizar_e110": "{{ "true" if atualizar_e110 else "false" }}"}'
+                    hx-target="#resumo-correcao-sped" hx-swap="innerHTML"
+                    hx-indicator="#spinner-resumo">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Gerar resumo
+            </button>
+            <span id="spinner-resumo" class="htmx-indicator text-xs text-slate-500 ml-2">
+                <span class="loading loading-spinner loading-xs"></span> escrevendo…
+            </span>
+            <div id="resumo-correcao-sped" class="mt-3"></div>
+        </div>
+
+        {# `hx-boost="false"` NÃO é opcional: o <body> tem `hx-boost="true"`
+           (layout/base.html), e o boost intercepta o submit deste form, busca a
+           resposta por AJAX e a injeta na página. Com uma resposta que é um
+           arquivo, o resultado é o SPED inteiro do cliente despejado na tela em
+           vez de baixado — foi exatamente o que aconteceu em 09/09/2026. Os
+           cabeçalhos `attachment` + `octet-stream` da rota não têm efeito
+           nenhum nesse caminho: quem lê a resposta é o htmx, não o navegador.
+
+           `target="_blank"`: com o download nativo restabelecido, a aba nova
+           nem chega a pintar, e a tela de resultado — com a prévia que a pessoa
+           acabou de ler — continua no lugar. Sem isso, um erro devolvido pela
+           rota levaria a página inteira para uma tela de JSON. #}
+        <form method="post" action="/api/audit/{{ task_id }}/correcao/gerar"
+              target="_blank" hx-boost="false"
+              class="border-t border-slate-200 pt-4 flex flex-wrap items-center gap-3">
+            {% for id in ids %}
+            <input type="hidden" name="aceitas" value="{{ id }}">
+            {% endfor %}
+            {# A decisão sobre a apuração vem da tela anterior e precisa chegar
+               igual ao arquivo: sem este campo, a prévia mostraria o E110 sendo
+               reescrito e o download sairia sem ele. #}
+            {% if atualizar_e110 %}
+            <input type="hidden" name="atualizar_e110" value="true">
+            {% endif %}
+            <button type="submit"
+                    class="btn btn-sm bg-emerald-600 hover:bg-emerald-700 text-white border-none gap-1.5 shadow-2xs rounded-lg">
+                <i class="fa-solid fa-file-arrow-down"></i>
+                Gerar SPED corrigido ({{ previa.aceitas | length }})
+            </button>
+            <button type="submit" formaction="/api/audit/{{ task_id }}/correcao/relatorio"
+                    class="btn btn-sm btn-outline border-slate-300 text-slate-600 gap-1.5 rounded-lg">
+                <i class="fa-solid fa-file-excel"></i> Baixar relatório de modificações
+            </button>
+            <span class="text-[11px] text-slate-500">
+                O arquivo original desta auditoria continua intocado.
+            </span>
+        </form>
+        {% else %}
+        <div class="alert bg-amber-50 border border-amber-200 text-amber-900 rounded-lg">
+            <i class="fa-solid fa-circle-exclamation text-amber-600"></i>
+            <span class="text-sm">Nada a gerar: nenhuma das correções marcadas pode ser
+                aplicada. O arquivo sairia idêntico ao original.</span>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}

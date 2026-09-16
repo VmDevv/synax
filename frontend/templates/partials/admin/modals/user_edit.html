@@ -1,0 +1,220 @@
+<dialog class="modal modal-open">
+  <div class="modal-box bg-white text-slate-800 max-w-3xl p-0 overflow-hidden">
+
+    <div class="px-6 py-4 border-b border-slate-200 bg-slate-50/70 flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-[#037fb5]/10 text-[#037fb5] grid place-items-center">
+        <i class="fa-solid fa-user-pen"></i>
+      </div>
+      <div class="min-w-0">
+        <h3 class="font-bold text-lg leading-tight text-[#026a9e]">Editar Usuário</h3>
+        <p class="text-[13px] text-slate-500 truncate">{{ perfil.name or 'Sem nome' }}</p>
+      </div>
+    </div>
+
+    <form hx-post="/admin/users/{{ perfil.id }}/edit" hx-target="#admin-content" hx-swap="outerHTML"
+          x-data="userEditForm()" @submit="if (!validate()) $event.preventDefault()">
+
+      <div class="px-6 py-5 max-h-[65vh] overflow-y-auto">
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-[13px] font-semibold text-slate-600 mb-1.5">Nome completo</label>
+            <input type="text" name="name" required value="{{ perfil.name or '' }}"
+                   class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white
+                          focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition">
+          </div>
+
+          <div>
+            <label class="block text-[13px] font-semibold text-slate-600 mb-1.5">
+              E-mail de acesso
+              {% if email_atual %}<span class="text-[11px] font-normal text-slate-400">(login do usuário)</span>{% endif %}
+            </label>
+            {% if email_atual %}
+            <input type="email" name="email" required value="{{ email_atual }}" x-model="email"
+                   class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white
+                          focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition">
+            <p x-show="email.trim().toLowerCase() !== emailOriginal" x-cloak
+               class="mt-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-800">
+              <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+              O usuário passará a entrar com o novo endereço. Avise-o antes de salvar.
+            </p>
+            {% else %}
+            <div class="px-3 py-2 text-sm rounded-lg border border-slate-200 bg-slate-50 text-slate-400 italic">
+              Indisponível no momento
+            </div>
+            <p class="text-[11px] text-slate-400 mt-1">
+              Não foi possível consultar o provedor de login. Recarregue para tentar de novo.
+            </p>
+            {% endif %}
+          </div>
+
+          <div class="sm:col-span-2">
+            <label class="block text-[13px] font-semibold text-slate-600 mb-1.5">Nível de acesso</label>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {% set roles = [
+                  ('cliente',  'Cliente',  'fa-building',      'Vê apenas a própria empresa.'),
+                  ('operador', 'Operador', 'fa-user-gear',     'Audita as empresas marcadas. Regras vão para curadoria.'),
+                  ('admin',    'Admin',    'fa-shield-halved', 'Acesso total, aprova a curadoria.')
+              ] %}
+              {% for value, label, icon, hint in roles %}
+              <label class="role-card relative cursor-pointer">
+                <input type="radio" name="role" value="{{ value }}" class="sr-only"
+                       x-model="role" {% if perfil.role == value %}checked{% endif %}
+                       {% if ultimo_admin and value != 'admin' %}disabled{% endif %}>
+                <div class="card-body h-full p-3 rounded-lg border-2 border-slate-200 bg-white transition hover:border-slate-300
+                            {% if ultimo_admin and value != 'admin' %}opacity-40 cursor-not-allowed{% endif %}">
+                  <div class="flex items-center gap-2 mb-1">
+                    <i class="rc-icon fa-solid {{ icon }} text-[13px] text-slate-400"></i>
+                    <span class="text-[13px] font-bold text-slate-700">{{ label }}</span>
+                  </div>
+                  <p class="text-[11px] text-slate-500 leading-snug">{{ hint }}</p>
+                </div>
+              </label>
+              {% endfor %}
+            </div>
+            {% if ultimo_admin %}
+            <p class="mt-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-[12px] text-amber-800">
+              <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+              Este é o <strong>único administrador</strong> do sistema. Promova outro usuário a admin antes de rebaixá-lo —
+              caso contrário ninguém conseguiria acessar o painel.
+            </p>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="mt-6 pt-5 border-t border-slate-200">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div>
+              <h4 class="text-[14px] font-bold text-slate-700 flex items-center gap-2">
+                <i class="fa-solid fa-building-user text-[#037fb5]"></i> Empresas vinculadas
+              </h4>
+              <p class="text-[12px] text-slate-500" x-text="role === 'admin'
+                    ? 'Admin enxerga todas as empresas — o vínculo é opcional.'
+                    : 'Marque as empresas que este usuário poderá auditar.'"></p>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="px-2 py-1 rounded-full bg-[#9fdbee]/25 text-[#026a9e] text-[12px] font-bold tabular-nums"
+                    x-text="selected.length + ' selecionada(s)'"></span>
+              <button type="button" @click="selectAll()" class="px-2 py-1 text-[12px] font-medium text-[#037fb5] hover:bg-[#9fdbee]/20 rounded transition">Todas</button>
+              <button type="button" @click="selected = []" class="px-2 py-1 text-[12px] font-medium text-slate-500 hover:bg-slate-100 rounded transition">Limpar</button>
+            </div>
+          </div>
+
+          {% if tenants %}
+          <div class="relative mb-3">
+            <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400"></i>
+            <input type="text" x-model="search" placeholder="Buscar empresa por nome ou CNPJ..."
+                   class="w-full pl-8 pr-3 py-2 text-[13px] rounded-lg border border-slate-200 bg-slate-50
+                          focus:bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition">
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[240px] overflow-y-auto pr-1">
+            {% for t in tenants %}
+            <label class="tenant-card relative cursor-pointer"
+                   x-show="matches({{ (t.name ~ ' ' ~ (t.cnpj or ''))|tojson }})">
+              <input type="checkbox" name="tenant_ids" value="{{ t.id }}" class="sr-only" x-model="selected">
+              <div class="card-body flex items-center gap-3 p-3 rounded-lg border-2 border-slate-200 bg-white transition-all hover:border-slate-300">
+                <div class="tc-avatar w-8 h-8 shrink-0 rounded-md grid place-items-center text-[12px] font-bold
+                            bg-slate-100 text-slate-500 transition-colors">
+                  {{ t.name[:2]|upper }}
+                </div>
+                <div class="min-w-0 flex-1">
+                  <p class="text-[13px] font-semibold text-slate-700 truncate">{{ t.name }}</p>
+                  <p class="text-[11px] text-slate-400 font-mono truncate">{{ t.cnpj or 'sem CNPJ' }}</p>
+                </div>
+                <i class="tc-check fa-solid fa-circle-check text-[#037fb5] opacity-0 transition-opacity"></i>
+              </div>
+            </label>
+            {% endfor %}
+          </div>
+          {% else %}
+          <div class="p-6 text-center rounded-lg border border-dashed border-slate-300 bg-slate-50">
+            <p class="text-[13px] text-slate-500">Nenhuma empresa cadastrada.</p>
+          </div>
+          {% endif %}
+
+          <p x-show="error" x-cloak class="mt-3 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-[13px] text-red-700">
+            <i class="fa-solid fa-triangle-exclamation mr-1"></i><span x-text="error"></span>
+          </p>
+        </div>
+
+        <div class="mt-5 pt-4 border-t border-slate-200">
+          <div class="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg border border-slate-200 bg-slate-50">
+            <div class="min-w-0">
+              <p class="text-[13px] font-semibold text-slate-700">
+                <i class="fa-solid fa-key mr-1 text-[#037fb5]"></i> Redefinição de senha
+              </p>
+              <p class="text-[12px] text-slate-500 mt-0.5">
+                Envia um link para a caixa do próprio usuário. Você não define nem visualiza a senha dele.
+              </p>
+            </div>
+            <button type="button"
+                    class="shrink-0 inline-flex items-center gap-2 px-3 py-2 text-[13px] font-semibold rounded-lg
+                           border border-[#6dc4ec] text-[#026a9e] hover:bg-[#9fdbee]/25 transition
+                           disabled:opacity-40 disabled:cursor-not-allowed"
+                    {% if not email_atual %}disabled title="E-mail indisponível"{% endif %}
+                    hx-post="/admin/users/{{ perfil.id }}/reset-password"
+                    hx-target="#admin-content" hx-swap="outerHTML"
+                    hx-confirm="Enviar link de redefinição de senha para {{ email_atual or 'este usuário' }}?">
+              <i class="fa-solid fa-paper-plane text-[12px]"></i> Enviar link
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-6 py-4 border-t border-slate-200 bg-slate-50/70 flex items-center justify-between gap-2">
+        <button type="button"
+                class="inline-flex items-center gap-2 px-3 py-2 text-[13px] font-semibold rounded-lg text-red-600 hover:bg-red-50 transition"
+                hx-post="/admin/users/{{ perfil.id }}/delete"
+                hx-target="#admin-content" hx-swap="outerHTML"
+                hx-confirm="Excluir {{ perfil.name or 'este usuário' }}? A conta de acesso será removida em definitivo e esta ação não pode ser desfeita.">
+          <i class="fa-solid fa-trash-can text-[12px]"></i> Excluir usuário
+        </button>
+        <div class="flex items-center gap-2">
+          <button type="button" class="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-200 rounded-lg transition"
+                  onclick="document.getElementById('modal-container').innerHTML = ''">Cancelar</button>
+          <button type="submit"
+                  class="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-lg bg-[#037fb5] text-white shadow-sm hover:bg-[#026a9e] transition">
+            <i class="fa-solid fa-check text-[12px]"></i> Salvar
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+  <div class="modal-backdrop bg-slate-900/40" onclick="document.getElementById('modal-container').innerHTML = ''"></div>
+</dialog>
+
+<style>
+  [x-cloak]{display:none!important}
+  .tenant-card input:checked ~ .card-body,
+  .role-card   input:checked ~ .card-body { border-color:#037fb5; background:rgba(159,219,238,.18); }
+  .tenant-card input:checked ~ .card-body .tc-avatar { background:#037fb5; color:#fff; }
+  .tenant-card input:checked ~ .card-body .tc-check  { opacity:1; }
+  .role-card   input:checked ~ .card-body .rc-icon   { color:#037fb5; }
+</style>
+<script>
+  function userEditForm() {
+    return {
+      role: {{ (perfil.role or 'cliente')|tojson }},
+      selected: {{ (vinculados|list)|tojson }},
+      email: {{ (email_atual or '')|tojson }},
+      emailOriginal: {{ ((email_atual or '')|lower)|tojson }},
+      search: '',
+      error: '',
+      allIds: [{% for t in tenants %}{{ t.id|string|tojson }}{% if not loop.last %},{% endif %}{% endfor %}],
+      matches(haystack) {
+        if (!this.search) return true;
+        return haystack.toLowerCase().includes(this.search.toLowerCase());
+      },
+      selectAll() { this.selected = [...this.allIds]; },
+      validate() {
+        this.error = '';
+        if (this.role !== 'admin' && this.selected.length === 0) {
+          this.error = 'Selecione ao menos uma empresa para este usuário.';
+          return false;
+        }
+        return true;
+      }
+    };
+  }
+</script>

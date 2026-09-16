@@ -1,0 +1,39 @@
+{# Opções do seletor de CFOP de entrada, em três grupos por relevância.
+   Reutilizado pelo endpoint HTMX e pelas linhas renderizadas no servidor. #}
+{# O placeholder NÃO é `disabled`: com ele travado, quem escolhia um CFOP por
+   engano não tinha caminho de volta — a opção vazia ficava inalcançável e não
+   dava para desfazer a escolha. Submeter vazio continua barrado pelo `required`
+   do próprio <select>, que é onde essa trava tem de estar. #}
+<option value="" {% if not selecionado %}selected{% endif %}>— Selecione o CFOP de entrada…</option>
+
+{# Se a sugestão desta linha não estiver em nenhum grupo, ela ainda precisa
+   aparecer — caso contrário o seletor cairia no placeholder e o operador
+   perderia a sugestão do motor. #}
+{% set _codigos = (sugeridos|map(attribute=0)|list) + (recorrentes|map(attribute=0)|list) + (padrao|map(attribute=0)|list) %}
+{% if selecionado and selecionado not in _codigos %}
+<option value="{{ selecionado }}" selected>{{ selecionado }} — sugerido para este item</option>
+{% endif %}
+
+{% if sugeridos %}
+<optgroup label="Sugerido nesta auditoria">
+    {% for cfop, rotulo in sugeridos %}
+    <option value="{{ cfop }}" {% if selecionado == cfop %}selected{% endif %}>{{ rotulo }}</option>
+    {% endfor %}
+</optgroup>
+{% endif %}
+
+{% if recorrentes %}
+<optgroup label="Já usados nesta empresa">
+    {% for cfop, rotulo in recorrentes %}
+    <option value="{{ cfop }}" {% if selecionado == cfop %}selected{% endif %}>{{ rotulo }}</option>
+    {% endfor %}
+</optgroup>
+{% endif %}
+
+{% if padrao %}
+<optgroup label="Tabela de CFOPs de entrada">
+    {% for cfop, rotulo in padrao %}
+    <option value="{{ cfop }}" {% if selecionado == cfop %}selected{% endif %}>{{ rotulo }}</option>
+    {% endfor %}
+</optgroup>
+{% endif %}

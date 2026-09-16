@@ -1,0 +1,144 @@
+{# Resultado da leitura do PDF pela IA. O JSON volta em campo oculto: os
+   downloads reenviam por POST, então não há estado de servidor entre um passo
+   e outro (ver o cabeçalho de api/routes/auditoria_pdf.py). #}
+
+<div class="grid gap-3 sm:grid-cols-5 mb-4">
+    <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <h4 class="text-2xl font-bold text-slate-800">{{ resumo.total }}</h4>
+        <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Notas lidas</span>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <h4 class="text-2xl font-bold text-emerald-700">{{ resumo.internas }}</h4>
+        <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">CFOP 1933 — interna</span>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <h4 class="text-2xl font-bold text-sky-700">{{ resumo.interestaduais }}</h4>
+        <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">CFOP 2933 — interestadual</span>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-4 {% if resumo.presumidas %}ring-2 ring-amber-300{% endif %}">
+        <h4 class="text-2xl font-bold {% if resumo.presumidas %}text-amber-700{% else %}text-slate-800{% endif %}">
+            {{ resumo.presumidas }}
+        </h4>
+        <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">CFOP presumido</span>
+    </div>
+    <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <h4 class="text-2xl font-bold {% if divergencias %}text-red-700{% else %}text-slate-800{% endif %}">
+            {{ divergencias | length }}
+        </h4>
+        <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Divergências</span>
+    </div>
+</div>
+
+{% if resumo.presumidas %}
+<div class="rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800 text-sm mb-4">
+    <i class="fa-solid fa-triangle-exclamation mr-2"></i>
+    <b>{{ resumo.presumidas }} nota(s) com CFOP presumido como 1933.</b>
+    A IA não conseguiu ler a UF do prestador ou a do tomador nessas notas, então o CFOP
+    não foi calculado — foi assumido. Elas <b>entram no arquivo do Domínio</b> assim mesmo,
+    e estão destacadas abaixo e na coluna "Observação" da planilha. Confira antes de importar.
+</div>
+{% endif %}
+
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <p class="text-sm text-slate-600">
+            Total lido: <b>R$ {{ "%.2f"|format(resumo.valor_total|float) }}</b>
+            {% if resumo.tomadores %}
+            — tomador(es) identificado(s): <b>{{ resumo.tomadores | join(', ') }}</b>
+            {% endif %}
+        </p>
+
+        <form method="post" class="flex gap-2">
+            <input type="hidden" name="payload" value="{{ payload }}">
+            <button type="submit" formaction="/api/auditoria-pdf/txt"
+                    class="btn btn-sm text-white shadow-sm" style="background: var(--syn-700);"
+                    {% if not linhas %}disabled{% endif %}>
+                <i class="fa-solid fa-file-arrow-down"></i> Arquivo do Domínio (.txt)
+            </button>
+            <button type="submit" formaction="/api/auditoria-pdf/excel"
+                    class="btn btn-sm btn-outline">
+                <i class="fa-solid fa-file-excel"></i> Planilha de conferência
+            </button>
+        </form>
+    </div>
+
+    {% if linhas %}
+    <div class="overflow-x-auto w-full border border-slate-200 rounded-lg">
+        <table class="table table-zebra w-full text-sm text-slate-700 [&_th]:py-3 [&_th]:px-3 [&_td]:py-2.5 [&_td]:px-3">
+            <thead class="bg-slate-50 text-slate-500">
+                <tr>
+                    <th class="whitespace-nowrap">Nº Nota</th>
+                    <th class="whitespace-nowrap">Emissão</th>
+                    <th>Prestador</th>
+                    <th class="whitespace-nowrap">UF Prest.</th>
+                    <th class="whitespace-nowrap">CNPJ Tomador</th>
+                    <th class="whitespace-nowrap">UF Tom.</th>
+                    <th class="whitespace-nowrap text-right">Valor</th>
+                    <th class="whitespace-nowrap text-right">Retenções</th>
+                    <th class="whitespace-nowrap">CFOP</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for l in linhas %}
+                <tr {% if l.presumido %}class="bg-amber-50" title="{{ l.aviso }}"{% endif %}>
+                    <td class="font-mono font-bold whitespace-nowrap">{{ l.num_nota }}</td>
+                    <td class="whitespace-nowrap">{{ l.data_emissao }}</td>
+                    <td>
+                        <div>{{ l.fornecedor }}</div>
+                        <div class="font-mono text-[11px] text-slate-400">{{ l.cnpj }}</div>
+                    </td>
+                    <td class="font-mono font-bold whitespace-nowrap">
+                        {% if l.uf_prestador %}{{ l.uf_prestador }}{% else %}
+                        <span class="text-amber-700 text-[11px] font-sans">não lida</span>{% endif %}
+                    </td>
+                    <td class="font-mono text-xs whitespace-nowrap">{{ l.cnpj_tomador }}</td>
+                    <td class="font-mono font-bold whitespace-nowrap">
+                        {% if l.uf_tomador %}{{ l.uf_tomador }}{% else %}
+                        <span class="text-amber-700 text-[11px] font-sans">não lida</span>{% endif %}
+                    </td>
+                    <td class="text-right whitespace-nowrap">{{ "%.2f"|format(l.valor|float) }}</td>
+                    <td class="text-right whitespace-nowrap">{{ "%.2f"|format(l.retencoes|float) }}</td>
+                    <td class="whitespace-nowrap">
+                        <span class="px-2 py-0.5 rounded font-mono font-bold text-xs
+                                     {% if l.presumido %}bg-amber-100 text-amber-800 border border-amber-300
+                                     {% elif l.interna %}bg-emerald-50 text-emerald-700 border border-emerald-200
+                                     {% else %}bg-sky-50 text-sky-700 border border-sky-200{% endif %}">
+                            {{ l.cfop }}{% if l.presumido %} ?{% endif %}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-sm text-slate-500 py-6 text-center">A IA não encontrou notas neste PDF.</p>
+    {% endif %}
+
+    {% if divergencias %}
+    <div class="mt-6">
+        <h3 class="text-sm font-bold text-red-800 mb-2">
+            <i class="fa-solid fa-circle-xmark mr-1"></i>
+            {{ divergencias | length }} divergência(s) entre o resumo e a nota detalhada
+        </h3>
+        <div class="overflow-x-auto w-full border border-red-200 rounded-lg">
+            <table class="table w-full text-sm text-slate-700 [&_th]:py-3 [&_th]:px-4 [&_td]:py-2.5 [&_td]:px-4">
+                <thead class="bg-red-50 text-red-800">
+                    <tr><th>Nº Nota</th><th>Emissão</th><th>CNPJ Prestador</th><th>O que não bateu</th></tr>
+                </thead>
+                <tbody>
+                    {% for d in divergencias %}
+                    <tr>
+                        <td class="font-mono font-bold whitespace-nowrap">{{ d.num_nota or "—" }}</td>
+                        <td class="whitespace-nowrap">{{ d.data_emissao }}</td>
+                        <td class="font-mono text-xs whitespace-nowrap">{{ d.cnpj_prestador or d.cnpj or "" }}</td>
+                        <td class="text-[13px]">{{ d.motivo_divergencia }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>

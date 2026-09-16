@@ -1,0 +1,28 @@
+{% extends "layout/base.html" %}
+{% block title %}Curadoria de Regras | Synax | Auditor Fiscal Inteligente{% endblock %}
+
+{% block content %}
+<main class="w-full">
+
+    <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-3">
+        <h2 class="syn-h2 text-xl font-bold flex items-center gap-2.5">
+            <i class="fa-solid fa-graduation-cap text-base" style="color: var(--syn-700);"></i>
+            Curadoria de Regras
+        </h2>
+        <p class="text-[13px] text-slate-500">
+            Regras deduzidas pelo sistema ou sugeridas por operadores, aguardando sua revisão.
+        </p>
+    </div>
+
+    <!-- PENDING RULES INJECTED VIA HTMX -->
+    <div id="curation-list-container" hx-get="/api/curation/list" hx-trigger="load" hx-swap="outerHTML">
+        <div class="syn-card syn-card-accent flex justify-center py-20">
+            <div class="flex flex-col items-center gap-3">
+                <span class="loading loading-spinner text-[#037fb5] loading-md"></span>
+                <span class="text-[13px] text-slate-500 font-medium">Carregando fila de curadoria...</span>
+            </div>
+        </div>
+    </div>
+
+</main>
+{% endblock %}

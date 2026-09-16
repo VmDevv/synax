@@ -1,0 +1,42 @@
+{# Resumo executivo da correção.
+
+   O texto é marcado quando veio de IA — mesma regra do par casado por IA na
+   curadoria: o que a máquina escreveu aparece identificado, nunca misturado ao
+   que o motor apurou. Os NÚMEROS são sempre do motor; o modelo só redige, e
+   texto com número que ninguém mandou é descartado antes de chegar aqui. #}
+
+{% if erro %}
+<div class="alert bg-amber-50 border border-amber-200 text-amber-900 rounded-lg text-sm">
+    <i class="fa-solid fa-triangle-exclamation text-amber-600"></i> {{ erro }}
+</div>
+{% else %}
+<div class="bg-slate-50 border border-slate-200 rounded-lg p-4">
+    <div class="flex items-center justify-between mb-2">
+        <h5 class="font-bold text-sm text-slate-700">
+            <i class="fa-solid fa-file-lines mr-1"></i> Resumo executivo
+        </h5>
+        {% if da_ia %}
+        <span class="badge badge-sm bg-violet-100 text-violet-700 border-violet-200 font-bold gap-1"
+              title="Redigido por IA a partir dos números apurados pelo sistema. Nenhum número foi calculado pelo modelo.">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> escrito por IA
+        </span>
+        {% else %}
+        <span class="badge badge-sm badge-ghost font-bold">gerado pelo sistema</span>
+        {% endif %}
+    </div>
+    <p class="text-sm text-slate-700 leading-relaxed">{{ resumo }}</p>
+    {% if motivo %}
+    {# O motivo aparece na TELA, e não só no log: sem ele, descobrir que a conta
+       da Anthropic está sem crédito exige abrir o log do servidor — e quem está
+       aqui é a equipe do escritório, que resolve isso em dois cliques. #}
+    <p class="text-[11px] text-slate-500 mt-2">
+        <i class="fa-solid fa-circle-info text-slate-400"></i>
+        A IA não escreveu este resumo: {{ motivo }}.
+    </p>
+    {% endif %}
+    <p class="text-[11px] text-slate-500 mt-2">
+        Este texto acompanha a planilha de modificações e fica gravado junto com
+        o registro desta geração.
+    </p>
+</div>
+{% endif %}

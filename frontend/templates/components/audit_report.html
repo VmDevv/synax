@@ -1,0 +1,187 @@
+<div id="audit-results-container" class="mt-8">
+
+    <!-- TABS NAVIGATION (DaisyUI) -->
+    <div role="tablist" class="tabs tabs-bordered mb-6">
+        <input type="radio" name="audit_tabs" role="tab" class="tab font-medium text-slate-600" aria-label="XMLs Faltantes ({{ data.missing_xmls | length }})" checked="checked" />
+        <div role="tabpanel" class="tab-content pt-6">
+            <!-- TAB 1: MISSING XMLS -->
+            <div class="bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden mb-6">
+                <div class="px-4 py-3 border-b border-slate-200 bg-slate-50/50">
+                    <h4 class="font-bold text-slate-700"><i class="fa-solid fa-file-circle-xmark text-red-500 mr-2"></i> XMLs Faltantes na Pasta</h4>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="table w-full text-sm table-pin-rows [&_th]:py-3.5 [&_th]:px-4 [&_td]:py-3 [&_td]:px-4">
+                        <thead class="bg-slate-50 text-slate-500">
+                            <tr>
+                                <th>Modelo</th>
+                                <th>Número</th>
+                                <th>Participante</th>
+                                <th>Valor SPED</th>
+                                <th class="text-center">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            {% for item in data.missing_xmls %}
+                            <tr class="hover:bg-slate-50 transition-colors">
+                                <td class="text-slate-600">{{ item.mod }}</td>
+                                <td class="font-bold text-slate-700">{{ item.num }}</td>
+                                <td class="text-slate-600">{{ item.emit }}</td>
+                                <td class="text-red-500 font-semibold">R$ {{ "%.2f"|format(item.vl_doc) }}</td>
+                                <td class="text-center">
+                                    <span class="badge badge-sm bg-red-100 text-red-700 border-red-200 font-medium">Faltante</span>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="5" class="py-12">
+                                    <div class="flex flex-col items-center justify-center text-center">
+                                        <i class="fa-solid fa-check-circle text-5xl text-emerald-200 mb-4"></i>
+                                        <h4 class="text-lg font-bold text-slate-600 mb-1">Nenhum XML Faltante</h4>
+                                        <p class="text-sm text-slate-500 mb-4">Todos os documentos do SPED foram encontrados nos arquivos XML.</p>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <input type="radio" name="audit_tabs" role="tab" class="tab font-medium text-slate-600" aria-label="Divergências" />
+        <div role="tabpanel" class="tab-content pt-6">
+            <!-- TAB 2: VALUE DISCREPANCIES -->
+            <div class="bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden mb-6">
+                <div class="px-4 py-3 border-b border-slate-200 bg-slate-50/50">
+                    <h4 class="font-bold text-slate-700"><i class="fa-solid fa-triangle-exclamation text-amber-500 mr-2"></i> Divergências de Valores (XML vs SPED)</h4>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="table w-full text-sm table-pin-rows [&_th]:py-3.5 [&_th]:px-4 [&_td]:py-3 [&_td]:px-4">
+                        <thead class="bg-slate-50 text-slate-500">
+                            <tr>
+                                <th>Número</th>
+                                <th>Participante</th>
+                                <th>Valor SPED</th>
+                                <th>Valor XML</th>
+                                <th>Diferença</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            {% for item in data.value_discrepancies %}
+                            <tr class="hover:bg-slate-50 transition-colors">
+                                <td class="font-bold text-slate-700">{{ item.num }}</td>
+                                <td class="text-slate-600">{{ item.emit_name }}</td>
+                                <td class="text-slate-600">R$ {{ "%.2f"|format(item.sped_val) }}</td>
+                                <td class="text-slate-600">R$ {{ "%.2f"|format(item.xml_val) }}</td>
+                                <td class="text-amber-500 font-semibold">R$ {{ "%.2f"|format(item.diff) }}</td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="5" class="py-12">
+                                    <div class="flex flex-col items-center justify-center text-center">
+                                        <i class="fa-solid fa-clipboard-check text-5xl text-emerald-200 mb-4"></i>
+                                        <h4 class="text-lg font-bold text-slate-600 mb-1">Valores Batendo 100%</h4>
+                                        <p class="text-sm text-slate-500 mb-4">Nenhuma diferença de valores detectada entre SPED e XMLs.</p>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <input type="radio" name="audit_tabs" role="tab" class="tab font-medium text-slate-600" aria-label="CFOP (Produto)" />
+        <div role="tabpanel" class="tab-content pt-6">
+            <!-- TAB 3: CFOP PRODUCT ISSUES -->
+            <div class="bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden mb-6">
+                <div class="px-4 py-3 border-b border-slate-200 bg-slate-50/50 flex justify-between items-center">
+                    <h4 class="font-bold text-slate-700"><i class="fa-solid fa-tags text-cyan-500 mr-2"></i> Classificação CFOP Divergente</h4>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="table w-full text-sm table-pin-rows [&_th]:py-3.5 [&_th]:px-4 [&_td]:py-3 [&_td]:px-4">
+                        <thead class="bg-slate-50 text-slate-500">
+                            <tr>
+                                <th>NF-e</th>
+                                <th>Produto</th>
+                                <th>CFOP Origem (XML)</th>
+                                <th>CFOP Lançado (SPED)</th>
+                                <th>CFOP Esperado (Regra)</th>
+                                <th class="text-right">Ação Rápida</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            {% for item in data.cfop_classifications_issues %}
+                            <tr class="hover:bg-slate-50 transition-colors">
+                                <td class="font-bold text-slate-700">{{ item.num }}</td>
+                                <td class="text-slate-600">{{ item.product_description }}</td>
+                                <td class="text-slate-500">{{ item.supplier_cfop }}</td>
+                                <td class="text-red-500 font-semibold">{{ item.sped_cfop }}</td>
+                                <td class="text-emerald-500 font-semibold">{{ item.expected_cfop }}</td>
+                                <td class="text-right">
+                                    <button class="btn btn-xs btn-outline btn-primary text-blue-600 hover:bg-blue-50 border-blue-200 shadow-sm">
+                                        Criar Regra
+                                    </button>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="6" class="py-12">
+                                    <div class="flex flex-col items-center justify-center text-center">
+                                        <i class="fa-solid fa-clipboard-check text-5xl text-slate-200 mb-4"></i>
+                                        <h4 class="text-lg font-bold text-slate-600 mb-1">Nenhum Erro de CFOP</h4>
+                                        <p class="text-sm text-slate-500 mb-4">Todas as classificações do SPED estão de acordo com as regras ativas.</p>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <input type="radio" name="audit_tabs" role="tab" class="tab font-medium text-slate-600" aria-label="Relatório NF-e" />
+        <div role="tabpanel" class="tab-content pt-6">
+            <!-- TAB 4: NFE REPORT -->
+            <div class="bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden mb-6">
+                <div class="px-4 py-3 border-b border-slate-200 bg-slate-50/50">
+                    <h4 class="font-bold text-slate-700"><i class="fa-solid fa-file-lines text-blue-500 mr-2"></i> Relatório Geral de Notas Processadas</h4>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="table w-full text-sm table-pin-rows [&_th]:py-3.5 [&_th]:px-4 [&_td]:py-3 [&_td]:px-4">
+                        <thead class="bg-slate-50 text-slate-500">
+                            <tr>
+                                <th>NF-e</th>
+                                <th>Emitente</th>
+                                <th>Valor da NF</th>
+                                <th>ICMS ST Retido</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            {% for item in data.nfe_xml_list %}
+                            <tr class="hover:bg-slate-50 transition-colors">
+                                <td class="font-bold text-slate-700">{{ item.num_nf }}</td>
+                                <td class="text-slate-600">{{ item.emit_name }}</td>
+                                <td class="text-slate-600">R$ {{ "%.2f"|format(item.vl_item) }}</td>
+                                <td class="text-slate-600">R$ {{ "%.2f"|format(item.vl_icms_st) }}</td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="4" class="py-12">
+                                    <div class="flex flex-col items-center justify-center text-center">
+                                        <i class="fa-solid fa-box-open text-5xl text-slate-200 mb-4"></i>
+                                        <h4 class="text-lg font-bold text-slate-600 mb-1">Nenhuma NF-e Lida</h4>
+                                        <p class="text-sm text-slate-500 mb-4">Não foram encontrados arquivos XML de NF-e na pasta processada.</p>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,68 @@
+<dialog id="modal-import-rules" class="modal" open onclick="if(event.target === this) this.close()">
+    <div class="modal-box p-0 overflow-hidden bg-white max-w-2xl">
+        <div class="bg-indigo-600 px-6 py-4 flex justify-between items-center text-white">
+            <h3 class="font-bold text-lg flex items-center gap-2">
+                <i class="fa-solid fa-file-import"></i> Importar Regras Tributárias
+            </h3>
+            <button class="btn btn-sm btn-circle btn-ghost text-white" onclick="document.getElementById('modal-import-rules').close()">✕</button>
+        </div>
+        
+        <form hx-post="/admin/tenants/{{ target_tenant.id }}/import-rules" hx-swap="none" hx-indicator="#import-indicator">
+            <div class="p-6 space-y-5">
+                <div class="alert alert-info shadow-sm bg-indigo-50 border-indigo-200 text-indigo-800 text-sm py-3">
+                    <div>
+                        <i class="fa-solid fa-circle-info mr-2"></i>
+                        Clonando matriz tributária para a empresa <strong>{{ target_tenant.name }}</strong>. Regras duplicadas serão ignoradas silenciosamente.
+                    </div>
+                </div>
+
+                <div class="form-control w-full">
+                    <label class="label"><span class="label-text font-bold text-slate-700">Empresa de Origem (Copiar de)</span></label>
+                    <select name="source_tenant_id" class="select select-bordered w-full bg-slate-50" required>
+                        <option value="" disabled selected>Selecione uma empresa...</option>
+                        {% for t in other_tenants %}
+                        <option value="{{ t.id }}">{{ t.name }} ({{ t.cnpj }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="divider text-slate-400 text-xs font-semibold uppercase tracking-wider">Módulos a Importar</div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <label class="cursor-pointer label justify-start gap-3 border border-slate-200 p-3 rounded-lg hover:bg-slate-50 transition-colors">
+                        <input type="checkbox" name="import_cfop" class="checkbox checkbox-sm checkbox-indigo" checked />
+                        <span class="label-text font-medium text-slate-700">Mapeamento CFOP</span>
+                    </label>
+
+                    <label class="cursor-pointer label justify-start gap-3 border border-slate-200 p-3 rounded-lg hover:bg-slate-50 transition-colors">
+                        <input type="checkbox" name="import_icms" class="checkbox checkbox-sm checkbox-indigo" checked />
+                        <span class="label-text font-medium text-slate-700">Regras ICMS</span>
+                    </label>
+
+                    <label class="cursor-pointer label justify-start gap-3 border border-slate-200 p-3 rounded-lg hover:bg-slate-50 transition-colors">
+                        <input type="checkbox" name="import_ipi" class="checkbox checkbox-sm checkbox-indigo" checked />
+                        <span class="label-text font-medium text-slate-700">Regras IPI</span>
+                    </label>
+
+                    <label class="cursor-pointer label justify-start gap-3 border border-slate-200 p-3 rounded-lg hover:bg-slate-50 transition-colors">
+                        <input type="checkbox" name="import_pis_cofins" class="checkbox checkbox-sm checkbox-indigo" checked />
+                        <span class="label-text font-medium text-slate-700">Regras PIS/COFINS</span>
+                    </label>
+
+                    <label class="cursor-pointer label justify-start gap-3 border border-slate-200 p-3 rounded-lg hover:bg-slate-50 transition-colors md:col-span-2">
+                        <input type="checkbox" name="import_anticipation" class="checkbox checkbox-sm checkbox-indigo" checked />
+                        <span class="label-text font-medium text-slate-700">Antecipação ICMS</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="bg-slate-50 px-6 py-4 border-t border-slate-200 flex justify-end gap-3 items-center">
+                <span id="import-indicator" class="htmx-indicator loading loading-spinner text-indigo-600"></span>
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('modal-import-rules').close()">Cancelar</button>
+                <button type="submit" class="btn bg-indigo-600 hover:bg-indigo-700 text-white border-none shadow-sm">
+                    <i class="fa-solid fa-bolt mr-1"></i> Iniciar Importação
+                </button>
+            </div>
+        </form>
+    </div>
+</dialog>

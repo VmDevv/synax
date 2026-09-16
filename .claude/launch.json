@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "synax",
+      "runtimeExecutable": "./venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "backend.app.main:app", "--port", "8010"],
+      "port": 8010
+    }
+  ]
+}

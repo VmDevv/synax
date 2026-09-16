@@ -1,0 +1,308 @@
+<div id="curation-list-container" class="syn-card syn-card-accent relative overflow-hidden">
+
+    <!-- Overlay de carregamento -->
+    <div class="htmx-indicator absolute inset-0 bg-white/60 backdrop-blur-[1px] z-20 flex items-center justify-center">
+        <span class="loading loading-spinner loading-md text-[#037fb5]"></span>
+    </div>
+
+    <!-- ===== Barra superior: filtros + ações em massa ===== -->
+    <div class="syn-toolbar px-4 py-3">
+        <div class="flex flex-wrap items-center gap-2">
+            <input type="hidden" id="filter-rule-type" name="rule_type" value="{{ current_rule_type }}">
+
+            {% set filter_include = "[name='rule_type'], [name='q_tenant'], [name='q_supplier'], [name='q_cfop'], [name='q_creator']" %}
+            <div class="relative flex-1 min-w-[150px]">
+                <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] text-slate-400"></i>
+                <input type="text" id="filter-tenant" name="q_tenant" value="{{ q_tenant }}" placeholder="Empresa (CNPJ)"
+                       class="w-full pl-7 pr-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition"
+                       hx-get="/api/curation/list" hx-target="#curation-list-container" hx-swap="outerHTML"
+                       hx-trigger="keyup changed delay:400ms, search" hx-include="{{ filter_include }}">
+            </div>
+            <div class="relative flex-1 min-w-[150px]">
+                <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] text-slate-400"></i>
+                <input type="text" id="filter-supplier" name="q_supplier" value="{{ q_supplier }}" placeholder="CNPJ fornecedor"
+                       class="w-full pl-7 pr-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition"
+                       hx-get="/api/curation/list" hx-target="#curation-list-container" hx-swap="outerHTML"
+                       hx-trigger="keyup changed delay:400ms, search" hx-include="{{ filter_include }}">
+            </div>
+            <div class="relative w-[110px]">
+                <input type="text" id="filter-cfop" name="q_cfop" value="{{ q_cfop }}" placeholder="CFOP"
+                       class="w-full px-2 py-1.5 text-[13px] font-mono rounded-md border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition"
+                       hx-get="/api/curation/list" hx-target="#curation-list-container" hx-swap="outerHTML"
+                       hx-trigger="keyup changed delay:400ms, search" hx-include="{{ filter_include }}">
+            </div>
+            <div class="relative flex-1 min-w-[150px]">
+                <i class="fa-solid fa-user absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] text-slate-400"></i>
+                <input type="text" id="filter-creator" name="q_creator" value="{{ q_creator }}" placeholder="Criador"
+                       class="w-full pl-7 pr-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition"
+                       hx-get="/api/curation/list" hx-target="#curation-list-container" hx-swap="outerHTML"
+                       hx-trigger="keyup changed delay:400ms, search" hx-include="{{ filter_include }}">
+            </div>
+
+            {% if q_tenant or q_supplier or q_cfop or q_creator %}
+            <button type="button" class="px-2 py-1.5 text-[12px] font-medium text-slate-500 hover:text-red-600 transition"
+                    hx-get="/api/curation/list?rule_type={{ current_rule_type }}&page=1"
+                    hx-target="#curation-list-container" hx-swap="outerHTML" title="Limpar filtros">
+                <i class="fa-solid fa-filter-circle-xmark"></i> Limpar
+            </button>
+            {% endif %}
+
+            <div class="ml-auto flex items-center gap-2">
+                <!-- Ações sobre a seleção da página -->
+                <button type="button" id="btn-approve-selected" disabled
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold rounded-md bg-emerald-600 text-white shadow-sm
+                               hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none transition"
+                        onclick="submitBatchApproval()" title="Aprovar as regras marcadas">
+                    <i class="fa-solid fa-check-double text-[11px]"></i>
+                    Aprovar <span class="selected-count tabular-nums">0</span>
+                </button>
+                <button type="button" id="btn-discard-selected" disabled
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold rounded-md border border-slate-300 text-slate-600
+                               hover:border-red-300 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-600 transition"
+                        onclick="submitBatchDiscard()" title="Descartar as regras marcadas">
+                    <i class="fa-solid fa-trash-can text-[11px]"></i>
+                    Descartar <span class="selected-count tabular-nums">0</span>
+                </button>
+
+                <span class="w-px h-6 bg-slate-300 mx-0.5"></span>
+
+                <!-- Ações sobre TODO o filtro, incluindo outras páginas -->
+                <button type="button" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold rounded-md
+                               bg-emerald-700 text-white shadow-sm hover:bg-emerald-800 disabled:opacity-40 transition"
+                        onclick="submitBulkApproveFiltered()" {% if not total_items %}disabled{% endif %}
+                        title="Aprovar todas as regras do filtro atual, em todas as páginas">
+                    <i class="fa-solid fa-circle-check text-[11px]"></i>
+                    Aprovar todos <span class="tabular-nums">({{ total_items }})</span>
+                </button>
+                <button type="button" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold rounded-md
+                               bg-red-600 text-white shadow-sm hover:bg-red-700 disabled:opacity-40 transition"
+                        onclick="submitBulkDiscardFiltered()" {% if not total_items %}disabled{% endif %}
+                        title="Descartar todas as regras do filtro atual, em todas as páginas">
+                    <i class="fa-solid fa-trash-can text-[11px]"></i>
+                    Descartar todos <span class="tabular-nums">({{ total_items }})</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== Abas ===== -->
+    <div class="px-4 pt-2 border-b border-slate-200 bg-white">
+        {% include "partials/curation/_tabs.html" %}
+    </div>
+
+    <!-- ===== Banner de seleção estendida ===== -->
+    <div id="select-all-banner" class="hidden px-4 py-2 bg-amber-50 border-b border-amber-200 text-[13px] text-amber-800 text-center">
+        <span id="select-all-page-msg"></span>
+        <button type="button" class="ml-1 font-bold underline hover:text-amber-900" onclick="submitBulkApproveFiltered()">
+            Aprovar todas as {{ total_items }} do filtro
+        </button>
+    </div>
+
+    <!-- ===== Data Grid ===== -->
+    <form id="batch-approve-form" class="syn-grid-scroll">
+        <input type="hidden" name="rule_type" value="{{ current_rule_type }}">
+        <table class="w-full border-collapse">
+            <thead class="syn-thead">
+                <tr class="text-[11px] uppercase tracking-wide">
+                    <th class="w-9 px-2 py-2 text-center font-semibold">
+                        <input type="checkbox" id="select-all-header" class="checkbox checkbox-xs checkbox-primary align-middle"
+                               onchange="toggleAllCheckboxes(this)">
+                    </th>
+                    <th class="px-2 py-2 text-left font-semibold">Empresa</th>
+                    <th class="px-2 py-2 text-left font-semibold">Regra detectada</th>
+                    <th class="px-2 py-2 text-left font-semibold">Decisão <span class="normal-case text-slate-400 font-normal">(editável)</span></th>
+                    <th class="px-2 py-2 text-left font-semibold">Criador</th>
+                    <th class="px-2 py-2 text-left font-semibold">Pendente</th>
+                    <th class="px-2 py-2 text-right font-semibold">Ações</th>
+                </tr>
+            </thead>
+            <tbody id="curation-rows" class="syn-zebra divide-y divide-slate-100">
+                {% for r in rules %}
+                    {% include "partials/curation/_row.html" %}
+                {% else %}
+                <tr id="curation-empty">
+                    <td colspan="7" class="py-16 text-center">
+                        <i class="fa-solid fa-circle-check text-4xl text-emerald-300 mb-3"></i>
+                        <p class="font-semibold text-slate-500">Fila limpa nesta categoria</p>
+                        <p class="text-[13px] text-slate-400 mt-1">Nenhuma regra aguardando revisão.</p>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </form>
+
+    <!-- ===== Rodapé ===== -->
+    <div class="px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-[12px] text-slate-500"
+         style="background: var(--syn-tint-05); border-top: 1px solid rgba(113,188,219,.30);">
+        <div class="flex items-center gap-3">
+            <span><span class="font-bold text-slate-700 tabular-nums">{{ total_items }}</span> pendente(s)</span>
+            <span class="text-slate-300">|</span>
+            <span class="hidden sm:inline">
+                <kbd class="px-1.5 py-0.5 bg-white border border-slate-300 rounded text-[10px] font-sans">Enter</kbd> salva e aprova ·
+                <kbd class="px-1.5 py-0.5 bg-white border border-slate-300 rounded text-[10px] font-sans">Shift</kbd>+clique seleciona intervalo
+            </span>
+        </div>
+        {% if total_pages > 1 %}
+        <div class="flex items-center gap-2">
+            <button class="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 transition"
+                    {% if page <= 1 %}disabled{% endif %}
+                    hx-get="/api/curation/list?page={{ page - 1 }}" hx-target="#curation-list-container" hx-swap="outerHTML"
+                    hx-include="{{ filter_include }}">
+                <i class="fa-solid fa-chevron-left text-[10px]"></i>
+            </button>
+            <span class="tabular-nums">{{ page }} / {{ total_pages }}</span>
+            <button class="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 transition"
+                    {% if page >= total_pages %}disabled{% endif %}
+                    hx-get="/api/curation/list?page={{ page + 1 }}" hx-target="#curation-list-container" hx-swap="outerHTML"
+                    hx-include="{{ filter_include }}">
+                <i class="fa-solid fa-chevron-right text-[10px]"></i>
+            </button>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+    /* Linha some suavemente ao ser aprovada/descartada */
+    tr.cur-row.htmx-swapping { opacity: 0; transform: translateX(8px); transition: opacity .2s ease-out, transform .2s ease-out; }
+    /* Feedback de gravação no campo inline */
+    .cur-edit.htmx-request { border-color: #037fb5; background: #9fdbee20; }
+</style>
+
+<script>
+(() => {
+    const container = document.getElementById('curation-list-container');
+    if (!container) return;
+    const PAGE = {{ page }};
+    const TOTAL_ITEMS = {{ total_items }};
+
+    const boxes = () => Array.from(container.querySelectorAll('.rule-checkbox'));
+    const checked = () => boxes().filter(cb => cb.checked);
+
+    function refreshSelectionUI() {
+        const n = checked().length;
+        container.querySelectorAll('.selected-count').forEach(el => el.innerText = n);
+        const approveBtn = document.getElementById('btn-approve-selected');
+        const discardBtn = document.getElementById('btn-discard-selected');
+        if (approveBtn) approveBtn.disabled = n === 0;
+        if (discardBtn) discardBtn.disabled = n === 0;
+
+        // Banner "selecionar tudo do filtro" no padrão de caixa de e-mail
+        const banner = document.getElementById('select-all-banner');
+        const msg = document.getElementById('select-all-page-msg');
+        const all = boxes().length;
+        if (banner && msg) {
+            if (all > 0 && n === all && TOTAL_ITEMS > all) {
+                msg.innerText = `As ${all} regras desta página estão selecionadas.`;
+                banner.classList.remove('hidden');
+            } else {
+                banner.classList.add('hidden');
+            }
+        }
+        const header = document.getElementById('select-all-header');
+        if (header) header.indeterminate = n > 0 && n < all;
+    }
+
+    window.toggleAllCheckboxes = (source) => {
+        boxes().forEach(cb => cb.checked = source.checked);
+        refreshSelectionUI();
+    };
+
+    // Seleção por intervalo com Shift — essencial para aprovar em volume
+    let lastIndex = null;
+    container.addEventListener('click', (e) => {
+        const cb = e.target.closest('.rule-checkbox');
+        if (!cb) return;
+        const list = boxes();
+        const idx = list.indexOf(cb);
+        if (e.shiftKey && lastIndex !== null && idx !== -1) {
+            const [a, b] = [Math.min(lastIndex, idx), Math.max(lastIndex, idx)];
+            for (let i = a; i <= b; i++) list[i].checked = cb.checked;
+        }
+        lastIndex = idx;
+        refreshSelectionUI();
+    });
+
+    // Enter no campo inline: salva o valor E aprova, em uma única requisição
+    container.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' || !e.target.classList.contains('cur-edit')) return;
+        e.preventDefault();
+        const input = e.target;
+        const row = input.closest('tr');
+        const approveBtn = row?.querySelector('[hx-post="/api/curation/rule/approve"]');
+        if (!approveBtn) return;
+        const vals = JSON.parse(approveBtn.getAttribute('hx-vals') || '{}');
+        const editVals = JSON.parse(input.getAttribute('hx-vals') || '{}');
+        htmx.ajax('POST', '/api/curation/rule/approve', {
+            source: approveBtn, target: row, swap: 'outerHTML swap:200ms',
+            values: { ...vals, field: editVals.field, value: input.value }
+        });
+    });
+
+    function filterValues() {
+        return {
+            rule_type: document.getElementById('filter-rule-type')?.value || 'cfop',
+            q_tenant: document.getElementById('filter-tenant')?.value || '',
+            q_supplier: document.getElementById('filter-supplier')?.value || '',
+            q_cfop: document.getElementById('filter-cfop')?.value || '',
+            q_creator: document.getElementById('filter-creator')?.value || ''
+        };
+    }
+
+    // ATENÇÃO: htmx.ajax() percorre as chaves enumeráveis de `values`. Um FormData
+    // não expõe nenhuma, então o corpo iria vazio e o FastAPI devolvia 422.
+    // `values` precisa ser sempre objeto simples — arrays viram campos repetidos.
+    const post = (url, values) => htmx.ajax('POST', url, {
+        target: '#curation-list-container', swap: 'outerHTML', values: values
+    });
+
+    window.submitBatchApproval = () => {
+        const sel = checked();
+        if (!sel.length) return;
+        post('/api/curation/batch-approve', {
+            ...filterValues(), page: PAGE, rule_keys: sel.map(cb => cb.value)
+        });
+    };
+
+    window.submitBatchDiscard = () => {
+        const sel = checked();
+        if (!sel.length) return;
+        if (!confirm(`Descartar ${sel.length} regra(s) selecionada(s)? A ação é irreversível.`)) return;
+        post('/api/curation/batch-discard', {
+            rule_type: filterValues().rule_type, rule_keys: sel.map(cb => cb.value)
+        });
+    };
+
+    window.submitBulkApproveFiltered = () => {
+        if (!TOTAL_ITEMS) return;
+        if (!confirm(`Aprovar TODAS as ${TOTAL_ITEMS} regras que atendem ao filtro atual, incluindo as outras páginas?`)) return;
+        post('/api/curation/bulk-approve-filtered', filterValues());
+    };
+
+    window.submitBulkDiscardFiltered = () => {
+        if (!TOTAL_ITEMS) return;
+        const hasFilter = ['q_tenant', 'q_supplier', 'q_cfop', 'q_creator']
+            .some(k => filterValues()[k]);
+        const escopo = hasFilter ? 'que atendem ao filtro atual' : 'desta categoria';
+        if (!confirm(
+            `⚠️ DESCARTAR TODOS\n\n` +
+            `${TOTAL_ITEMS} regra(s) ${escopo} serão excluídas, incluindo as de outras páginas.\n\n` +
+            `Esta ação é IRREVERSÍVEL. Confirmar?`
+        )) return;
+        post('/api/curation/bulk-discard-filtered', filterValues());
+    };
+
+    // Quando a última linha da página sai, recarrega para puxar a próxima leva
+    container.addEventListener('htmx:afterSwap', () => {
+        refreshSelectionUI();
+        const body = document.getElementById('curation-rows');
+        if (body && body.querySelectorAll('tr.cur-row').length === 0 && TOTAL_ITEMS > 0) {
+            htmx.ajax('GET', '/api/curation/list?rule_type=' + filterValues().rule_type,
+                      { target: '#curation-list-container', swap: 'outerHTML', values: filterValues() });
+        }
+    });
+
+    refreshSelectionUI();
+})();
+</script>

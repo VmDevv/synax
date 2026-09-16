@@ -1,0 +1,124 @@
+{# O resultado da geração: o que entrou, o que ficou de fora e o que foi
+   presumido — antes do botão de baixar. Entregar o arquivo sem a pessoa ler as
+   presunções é o mesmo erro de gerar SPED corrigido sem prévia. #}
+
+{% if erro %}
+<div class="alert bg-amber-50 border border-amber-200 text-amber-900 rounded-xl">
+    <i class="fa-solid fa-triangle-exclamation text-amber-600"></i>
+    <span class="text-sm">{{ erro }}</span>
+</div>
+{% if resultado and resultado.ignorados %}
+<div class="mt-3 bg-white border border-slate-200 rounded-xl p-4">
+    <h4 class="font-bold text-sm text-slate-700 mb-2">O que o pacote tinha</h4>
+    <table class="table table-xs w-full">
+        <tbody>
+            {% for nome, motivo in resultado.ignorados[:20] %}
+            <tr><td class="font-mono text-xs">{{ nome }}</td>
+                <td class="text-xs text-slate-600">{{ motivo }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% else %}
+<div class="bg-white border-2 border-emerald-500 rounded-xl overflow-hidden shadow-sm">
+    <div class="bg-emerald-600 text-white px-5 py-3 flex items-center justify-between flex-wrap gap-2">
+        <h4 class="font-bold flex items-center gap-2">
+            <i class="fa-solid fa-file-circle-check"></i>
+            SPED gerado — {{ empresa.name }}
+        </h4>
+        <span class="text-xs font-bold">competência {{ resultado.competencia }}</span>
+    </div>
+
+    <div class="p-5 space-y-5">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <div class="text-2xl font-bold text-[#015282]">{{ resultado.notas }}</div>
+                <div class="text-[11px] text-slate-500 uppercase tracking-wide">notas de entrada</div>
+            </div>
+            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <div class="text-2xl font-bold text-[#015282]">{{ resultado.itens }}</div>
+                <div class="text-[11px] text-slate-500 uppercase tracking-wide">itens</div>
+            </div>
+            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <div class="text-2xl font-bold text-[#015282]">{{ resultado.fretes }}</div>
+                <div class="text-[11px] text-slate-500 uppercase tracking-wide">CT-e</div>
+            </div>
+            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <div class="text-2xl font-bold text-[#015282]">{{ linhas }}</div>
+                <div class="text-[11px] text-slate-500 uppercase tracking-wide">linhas no arquivo</div>
+            </div>
+        </div>
+
+        {% if resultado.presuncoes %}
+        <div>
+            <h5 class="font-bold text-sm text-amber-900 mb-2">
+                <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+                O que o gerador precisou presumir
+            </h5>
+            <div class="overflow-x-auto">
+                <table class="table table-xs w-full border border-amber-200">
+                    <thead>
+                        <tr class="text-[11px] uppercase text-slate-500 bg-amber-50">
+                            <th>Campo</th><th>Valor</th><th>Por quê</th><th class="text-right">Itens</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in resultado.presuncoes %}
+                        <tr class="align-top">
+                            <td class="font-mono text-xs whitespace-nowrap">{{ p.campo }}</td>
+                            <td class="text-xs font-bold">{{ p.valor }}</td>
+                            <td class="text-xs text-slate-600">{{ p.motivo }}</td>
+                            <td class="text-right text-xs">{{ p.quantidade if p.quantidade > 1 else "—" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p class="text-[11px] text-slate-500 mt-2">
+                Nada aqui é erro — é o que os XMLs não têm. Confira no Domínio
+                depois de importar.
+            </p>
+        </div>
+        {% endif %}
+
+        {% if resultado.ignorados %}
+        <details class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+            <summary class="cursor-pointer text-sm font-bold text-slate-700">
+                {{ resultado.ignorados | length }} arquivo(s) do pacote ficaram de fora
+            </summary>
+            <table class="table table-xs w-full mt-2">
+                <tbody>
+                    {% for nome, motivo in resultado.ignorados[:50] %}
+                    <tr><td class="font-mono text-xs">{{ nome }}</td>
+                        <td class="text-xs text-slate-600">{{ motivo }}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </details>
+        {% endif %}
+
+        {% if resultado.avisos %}
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-3">
+            <ul class="text-xs text-amber-900 space-y-1 list-disc list-inside">
+                {% for aviso in resultado.avisos %}<li>{{ aviso }}</li>{% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <div class="border-t border-slate-200 pt-4 flex flex-wrap items-center gap-3">
+            {# Download nativo, fora do boost do <body>: com o htmx no meio, o
+               conteúdo do SPED seria injetado na página em vez de baixado. #}
+            <a href="/api/gerar-sped/{{ processo }}/arquivo" hx-boost="false"
+               class="btn btn-sm bg-emerald-600 hover:bg-emerald-700 text-white border-none gap-1.5 shadow-2xs rounded-lg">
+                <i class="fa-solid fa-file-arrow-down"></i> Baixar o SPED gerado
+            </a>
+            <span class="text-[11px] text-slate-500">
+                Importe no Domínio em <strong>Escrita Fiscal &rarr; Importar</strong>.
+                O arquivo fica no servidor por 7 dias.
+            </span>
+        </div>
+    </div>
+</div>
+{% endif %}

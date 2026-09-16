@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Synax | Auditor Fiscal Inteligente{% endblock %}</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Icons & HTMX & Scripts -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- Alpine.js: inicializa sozinho os blocos x-data injetados pelo HTMX -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+    
+    <!-- DaisyUI + Tailwind CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.7.2/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        syn: {
+                            900: '#026092',
+                            700: '#0377AA',
+                            600: '#258EBA',
+                            500: '#3A9EC7',
+                            400: '#5BAED1',
+                            300: '#71BCDB',
+                            200: '#7FC0DC',
+                            100: '#9FDBEE'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* ===== Paleta do escritório ===== */
+        :root {
+            --syn-900: #026092;  /* títulos, texto de destaque */
+            --syn-700: #0377AA;  /* ação primária */
+            --syn-600: #258EBA;
+            --syn-500: #3A9EC7;
+            --syn-400: #5BAED1;
+            --syn-300: #71BCDB;  /* bordas de destaque */
+            --syn-200: #7FC0DC;
+            --syn-100: #9FDBEE;  /* fundos tingidos */
+
+            --syn-surface: #eef5f9;  /* fundo da página: tingido, não branco */
+            --syn-tint-05: rgba(159, 219, 238, .10);
+            --syn-tint-12: rgba(159, 219, 238, .22);
+            --syn-tint-20: rgba(159, 219, 238, .38);
+        }
+
+        body.syn-app {
+            background:
+                radial-gradient(1200px 400px at 50% -120px, rgba(159, 219, 238, .35), transparent 70%),
+                var(--syn-surface);
+            background-attachment: fixed;
+        }
+
+        /* Cartão padrão: branco sobre fundo tingido, com fio de cor no topo */
+        .syn-card {
+            background: #fff;
+            border: 1px solid rgba(113, 188, 219, .35);
+            border-radius: .75rem;
+            box-shadow: 0 1px 2px rgba(2, 96, 146, .06), 0 4px 12px rgba(2, 96, 146, .04);
+        }
+        .syn-card-accent { border-top: 3px solid var(--syn-700); }
+
+        /* Barra de ferramentas / cabeçalhos internos */
+        .syn-toolbar { background: var(--syn-tint-05); border-bottom: 1px solid rgba(113, 188, 219, .30); }
+
+        /* Cabeçalho de tabela e zebra: dão estrutura ao grid.
+           O fundo aqui precisa ser OPACO: como o cabeçalho é fixo, qualquer
+           transparência deixa as linhas aparecerem por baixo dele ao rolar.
+           #dbf1f9 é exatamente o --syn-tint-20 achatado sobre o branco. */
+        .syn-thead { color: var(--syn-900); }
+        /* O sticky se ancora no ancestral que rola. Como o container da tabela
+           usa overflow, é ELE o scrollport — por isso top:0, e não a altura do
+           header do topo. */
+        .syn-thead th {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: #dbf1f9;
+            box-shadow: inset 0 -1px 0 rgba(113, 188, 219, .55);
+        }
+        /* Corpo do grid rola aqui dentro, mantendo o cabeçalho sempre visível */
+        .syn-grid-scroll { overflow: auto; max-height: calc(100vh - 300px); min-height: 180px; }
+        .syn-zebra > tr:nth-child(even) { background: rgba(159, 219, 238, .07); }
+        .syn-zebra > tr:hover { background: var(--syn-tint-12) !important; }
+
+        /* Navegação do topo */
+        .syn-nav { color: #64748b; }
+        .syn-nav:hover { color: var(--syn-900); background: var(--syn-tint-12); }
+        .syn-nav-on { background: var(--syn-tint-20); color: var(--syn-900); box-shadow: inset 0 -2px 0 var(--syn-700); }
+
+        /* Título de página */
+        .syn-h2 { color: var(--syn-900); }
+
+        /* Overrides para os toggles do DaisyUI acompanharem a cor primária */
+        .toggle-primary:checked,
+        .toggle-primary[checked="true"],
+        .toggle-primary[aria-checked="true"] {
+            background-color: var(--syn-700);
+            border-color: var(--syn-700);
+        }
+        .toggle-primary:focus-visible {
+            outline-color: var(--syn-700);
+        }
+        .toggle-info:checked,
+        .toggle-info[checked="true"],
+        .toggle-info[aria-checked="true"] {
+            background-color: var(--syn-500);
+            border-color: var(--syn-500);
+        }
+
+        /* Indicador HTMX.
+           !important é necessário: o Tailwind CDN injeta o CSS dele DEPOIS deste
+           bloco, e `.flex{display:flex}` tem a mesma especificidade — sem isso o
+           overlay de carregamento fica visível o tempo todo por cima do conteúdo. */
+        .htmx-indicator { display: none !important; }
+        .htmx-request .htmx-indicator,
+        .htmx-request.htmx-indicator { display: flex !important; }
+    </style>
+
+    {% block head %}{% endblock %}
+</head>
+<body hx-boost="true" class="syn-app text-slate-900 font-sans min-h-screen overflow-x-hidden relative">
+    
+    <!-- HEADER: barra fixa e enxuta, com a aba atual destacada -->
+    {% set path = request.url.path %}
+    <header class="sticky top-0 z-40 bg-white/90 backdrop-blur shadow-sm"
+            style="border-bottom: 2px solid var(--syn-300);">
+        <div class="w-full max-w-[1800px] mx-auto px-4 md:px-6 h-14 flex items-center justify-between gap-4">
+            <a href="/" class="flex items-center gap-2.5 shrink-0 group">
+                <img src="/static/img/logo.svg" alt="Synax" class="h-7 w-auto object-contain">
+                <span class="text-lg font-bold tracking-tight transition-colors" style="color: var(--syn-900);">Synax</span>
+            </a>
+
+            {% if path != '/login' %}
+            <nav class="flex items-center gap-1 ml-2 mr-auto">
+                {% set nav_base = "syn-nav flex items-center gap-2 px-3 py-1.5 rounded-lg text-[13px] font-semibold transition-colors" %}
+                <a href="/" class="{{ nav_base }} {% if path == '/' %}syn-nav-on{% endif %}">
+                    <i class="fa-solid fa-file-circle-check text-xs"></i> Auditoria
+                </a>
+                <a href="/nfse" class="{{ nav_base }} {% if path.startswith('/nfse') %}syn-nav-on{% endif %}">
+                    <i class="fa-solid fa-file-invoice text-xs"></i> Notas de Serviço
+                </a>
+                {% if user_profile and user_profile.role == 'admin' %}
+                <a href="/auditoria-pdf" class="{{ nav_base }} {% if path.startswith('/auditoria-pdf') %}syn-nav-on{% endif %}">
+                    <i class="fa-solid fa-file-pdf text-xs"></i> Auditoria de PDF
+                </a>
+                <a href="/curation" class="{{ nav_base }} {% if path == '/curation' %}syn-nav-on{% endif %}">
+                    <i class="fa-solid fa-graduation-cap text-xs"></i> Curadoria
+                </a>
+                <a href="/admin" class="{{ nav_base }} {% if path.startswith('/admin') %}syn-nav-on{% endif %}">
+                    <i class="fa-solid fa-gear text-xs"></i> Administração
+                </a>
+                {% endif %}
+            </nav>
+
+            <div class="flex items-center gap-2 shrink-0">
+                <span class="hidden md:flex items-center gap-2 px-2.5 py-1 rounded-lg text-[12px] font-medium"
+                      style="background: var(--syn-tint-12); color: var(--syn-900);">
+                    <i class="fa-solid fa-circle-user" style="color: var(--syn-700);"></i>
+                    <span class="max-w-[190px] truncate">{{ user_email }}</span>
+                    {% if user_profile and user_profile.role %}
+                    <span class="px-1.5 py-0.5 rounded bg-white text-[10px] font-bold uppercase tracking-wide"
+                          style="color: var(--syn-700); border: 1px solid var(--syn-200);">{{ user_profile.role }}</span>
+                    {% endif %}
+                </span>
+                <a href="/logout" title="Sair do sistema"
+                   class="w-8 h-8 grid place-items-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors">
+                    <i class="fa-solid fa-arrow-right-from-bracket text-sm"></i>
+                </a>
+            </div>
+            {% else %}
+            <div class="flex items-center gap-2 text-[13px] font-semibold text-slate-500">
+                <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Autenticação Segura
+            </div>
+            {% endif %}
+        </div>
+    </header>
+
+    <div class="w-full max-w-[1800px] mx-auto px-4 md:px-6 py-5">
+        <!-- MAIN CONTENT AREA INJECTED HERE -->
+        {% block content %}{% endblock %}
+    </div>
+
+    <!-- App JS -->
+    <script src="/static/js/app.js"></script>
+    {% block scripts %}{% endblock %}
+
+    <!-- Global Modal Container (HTMX) -->
+    <div id="modal-container"></div>
+
+    {# Painel lateral (ficha da empresa). Container PRÓPRIO, separado do
+       modal-container de propósito: a ficha tem botões que abrem modais, e
+       compartilhar o container faria o modal substituir a ficha que o abriu. #}
+    <div id="drawer-container"></div>
+
+    <!-- Global Toast Container (DaisyUI + HTMX OOB) -->
+    <div id="toast-container" class="toast toast-end toast-bottom z-50"></div>
+
+    <script>
+    // Some sozinho: todo toast que entrar no container é removido depois de um
+    // tempo, independentemente de quem o inseriu.
+    //
+    // MOTIVO: cada tela que devolve toast por OOB precisava lembrar de mandar
+    // junto um <script> de setTimeout. A Curadoria não mandava, e as respostas
+    // de aprovação em lote empilhavam um aviso atrás do outro até cobrir a
+    // tela — nenhum saía sozinho. Com o observador aqui, a regra vale para
+    // qualquer tela, atual ou futura, e a rota não precisa injetar script
+    // nenhum (montar <script> em f-string no backend é justamente o que o
+    // CLAUDE.md manda evitar).
+    (function () {
+        var container = document.getElementById('toast-container');
+        if (!container) return;
+
+        var VIDA_MS = 4000;   // tempo na tela
+        var SAIDA_MS = 300;   // duração do fade
+        var MAX_VISIVEIS = 4; // teto: rajada de ações não vira parede de avisos
+
+        function dispensar(el) {
+            if (!el || el.dataset.saindo) return;
+            el.dataset.saindo = '1';
+            el.style.transition = 'opacity ' + SAIDA_MS + 'ms ease, transform ' + SAIDA_MS + 'ms ease';
+            el.style.opacity = '0';
+            el.style.transform = 'translateY(6px)';
+            setTimeout(function () { el.remove(); }, SAIDA_MS);
+        }
+
+        function agendar(el) {
+            if (!el || el.dataset.agendado) return;
+            el.dataset.agendado = '1';
+            // Clicar dispensa na hora, para quem não quer esperar.
+            el.style.cursor = 'pointer';
+            el.title = 'Clique para dispensar';
+            el.addEventListener('click', function () { dispensar(el); });
+            setTimeout(function () { dispensar(el); }, VIDA_MS);
+        }
+
+        function podar() {
+            var vivos = container.querySelectorAll('.alert:not([data-saindo])');
+            for (var i = 0; i < vivos.length - MAX_VISIVEIS; i++) dispensar(vivos[i]);
+        }
+
+        function varrer() {
+            container.querySelectorAll('.alert').forEach(agendar);
+            podar();
+        }
+
+        // O HTMX insere os toasts por swap OOB; o observador pega qualquer
+        // inserção, venha de onde vier.
+        new MutationObserver(varrer).observe(container, { childList: true, subtree: true });
+        varrer();
+    })();
+    </script>
+
+
+    {% if request.url.path != '/login' and user_profile and user_profile.role in ['client', 'cliente'] %}
+    <!--Start of Tawk.to Script-->
+    <script type="text/javascript">
+    var Tawk_API=Tawk_API||{}, Tawk_LoadStart=new Date();
+    
+    // Identificação do Usuário Logado (UX Premium)
+    Tawk_API.visitor = {
+        name: '{{ user_name | default("Usuário") }} - {{ tenant_name | default("TaxAudit") }}',
+        email: '{{ user_email }}'
+    };
+
+    (function(){
+    var s1=document.createElement("script"),s0=document.getElementsByTagName("script")[0];
+    s1.async=true;
+    s1.src='https://embed.tawk.to/6a599c56940f101d5323a0f3/1jtn0lct9';
+    s1.charset='UTF-8';
+    s1.setAttribute('crossorigin','*');
+    s0.parentNode.insertBefore(s1,s0);
+    })();
+    </script>
+    <!--End of Tawk.to Script-->
+    {% endif %}
+    <script>
+        document.body.addEventListener('htmx:configRequest', (event) => {
+            // Injeta o token se houver no localStorage
+            const token = localStorage.getItem('access_token');
+            if (token) {
+                event.detail.headers['Authorization'] = `Bearer ${token}`;
+            }
+            
+            // Garante que o navegador envie os cookies de sessão nas requisições AJAX/HTMX
+            event.detail.includeCredentials = true;
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,528 @@
+{# Painel do Radar de Atividade.
+   Todos os números vêm prontos de services/painel_atividade.py — aqui só se
+   desenha. Os gráficos são div com altura em %, sem biblioteca: o HTMX troca
+   este bloco inteiro a cada mudança de período, e gráfico de canvas precisaria
+   ser reinicializado por JS a cada troca. #}
+
+{% set k = p.kpis %}
+{# Altura das barras é % do pico. O 1 na lista é o piso: sem ele, um período
+   inteiro sem auditoria daria divisão por zero. #}
+{% set pico = ([1] + (p.por_dia | map(attribute='total') | list)) | max %}
+
+<div id="admin-content">
+
+    <!-- Cabeçalho: título, alternância de visão e período -->
+    <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-5 gap-4">
+        <div>
+            <h3 class="text-lg font-bold text-slate-800">Radar de Atividade</h3>
+            <p class="text-sm text-slate-500">
+                Últimos {{ p.dias }} dias · atualizado em {{ p.gerado_em.strftime('%d/%m/%Y às %H:%M') }}
+                <span class="text-slate-400">(horário de Brasília)</span>
+            </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3">
+            {% with aba = 'painel' %}{% include "partials/admin/_activity_tabs.html" %}{% endwith %}
+
+            <div class="inline-flex items-center gap-1 p-1 rounded-lg bg-slate-100 border border-slate-200">
+                {% for d in p.periodos %}
+                <button type="button"
+                        class="px-3 py-1.5 rounded-md text-[13px] font-semibold transition-colors
+                               {{ 'bg-white shadow-sm' if d == p.dias else 'text-slate-500 hover:text-slate-700' }}"
+                        {% if d == p.dias %}style="color: var(--syn-900);"{% endif %}
+                        hx-get="/admin/activity/painel?dias={{ d }}"
+                        hx-target="#admin-content" hx-swap="outerHTML"
+                        hx-indicator="#painel-carregando"
+                        hx-disabled-elt="this">
+                    {{ d }} dias
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    {# O `hx-indicator` acima é obrigatório: sem ele o htmx procura a classe
+       .htmx-indicator DENTRO do botão clicado, e este overlay — que cobre a
+       tela inteira — nunca apareceria. #}
+    <div id="painel-carregando"
+         class="htmx-indicator fixed inset-0 bg-white/60 backdrop-blur-sm z-30 flex-col items-center justify-center">
+        <span class="loading loading-spinner loading-lg text-blue-600 mb-2"></span>
+        <span class="text-sm font-semibold text-slate-600">Recalculando o painel...</span>
+    </div>
+
+    {# A faixa que avisava sobre auditorias sem contador saiu a pedido do Sandro
+       em 10/09/2026. A CONTAGEM continua sendo apurada (`p.sem_contador`, em
+       services/painel_atividade.py) e travada em teste: o painel segue sem
+       tratar essas auditorias como zero — o que saiu foi o aviso na tela, não a
+       medição. Enquanto o backfill não rodar, as somas de notas e
+       inconsistências não incluem esse histórico. #}
+
+    <!-- ================= CARTÕES ================= -->
+    <div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
+
+        <div class="syn-card syn-card-accent p-4">
+            <div class="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1">Auditorias</div>
+            <div class="text-3xl font-black" style="color: var(--syn-900);">{{ k.auditorias | num_br }}</div>
+            <div class="text-[11px] text-slate-500 mt-1">
+                {{ k.concluidas }} ok
+                {% if k.com_erro %}· <span class="text-red-600 font-semibold">{{ k.com_erro }} com erro</span>{% endif %}
+                {% if k.em_andamento %}· {{ k.em_andamento }} em curso{% endif %}
+            </div>
+        </div>
+
+        <div class="syn-card p-4">
+            <div class="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1">Taxa de sucesso</div>
+            <div class="text-3xl font-black {{ 'text-emerald-600' if k.taxa_sucesso >= 95 else ('text-amber-600' if k.taxa_sucesso >= 80 else 'text-red-600') }}">
+                {{ k.taxa_sucesso }}<span class="text-lg">%</span>
+            </div>
+            <div class="text-[11px] text-slate-500 mt-1">das que terminaram</div>
+        </div>
+
+        <div class="syn-card p-4">
+            <div class="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1">Notas conferidas</div>
+            <div class="text-3xl font-black text-slate-700">{{ k.notas | num_br }}</div>
+            <div class="text-[11px] text-slate-500 mt-1">somando as execuções</div>
+        </div>
+
+        <div class="syn-card p-4">
+            <div class="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1">Inconsistências</div>
+            <div class="text-3xl font-black text-red-600">{{ k.inconsistencias | num_br }}</div>
+            <div class="text-[11px] text-slate-500 mt-1">
+                {% if k.notas %}{{ (k.inconsistencias * 100.0 / k.notas) | round(1) }} a cada 100 notas{% else %}sem base para taxa{% endif %}
+            </div>
+        </div>
+
+        <div class="syn-card p-4">
+            <div class="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1">Regras represadas</div>
+            <div class="text-3xl font-black {{ 'text-amber-600' if k.regras_pendentes else 'text-slate-400' }}">{{ k.regras_pendentes | num_br }}</div>
+            <div class="text-[11px] text-slate-500 mt-1">
+                {% if p.total_empresas_com_pendencia %}em {{ p.total_empresas_com_pendencia }} empresa(s){% else %}nada aguardando{% endif %}
+            </div>
+        </div>
+
+        <div class="syn-card p-4">
+            <div class="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1">Movimento</div>
+            <div class="text-3xl font-black text-slate-700">{{ k.pessoas_ativas }}</div>
+            <div class="text-[11px] text-slate-500 mt-1">
+                pessoa(s) · {{ k.empresas_ativas }} empresa(s)
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= AUDITORIAS POR DIA ================= -->
+    <div class="syn-card p-5 mb-5">
+        <div class="flex flex-wrap items-baseline justify-between gap-3 mb-4">
+            <h4 class="font-bold text-slate-700 text-[15px]">
+                <i class="fa-solid fa-chart-column mr-1.5" style="color: var(--syn-600);"></i>
+                Auditorias por dia
+            </h4>
+            <div class="flex items-center gap-4 text-[11px] text-slate-500">
+                <span class="flex items-center gap-1.5">
+                    <span class="w-2.5 h-2.5 rounded-sm" style="background: var(--syn-700);"></span> concluídas
+                </span>
+                <span class="flex items-center gap-1.5">
+                    <span class="w-2.5 h-2.5 rounded-sm bg-amber-400"></span> em curso
+                </span>
+                <span class="flex items-center gap-1.5">
+                    <span class="w-2.5 h-2.5 rounded-sm bg-red-400"></span> com erro
+                </span>
+                <span class="text-slate-400">pico: {{ pico }}/dia</span>
+            </div>
+        </div>
+
+        {% if k.auditorias %}
+        {% set passo = 1 if p.dias <= 7 else (3 if p.dias <= 30 else 7) %}
+        <div class="overflow-x-auto">
+            <div class="min-w-[520px]">
+                <div class="flex items-end gap-[3px] h-44 border-b border-slate-200 pb-px">
+                    {% for d in p.por_dia %}
+                    <div class="flex-1 min-w-0 h-full flex flex-col justify-end rounded-t
+                                {{ 'bg-slate-50' if d.dia_semana >= 5 }}"
+                         title="{{ d.rotulo }} — {{ d.total }} auditoria(s): {{ d.concluido }} concluída(s), {{ d.outros }} em curso, {{ d.erro }} com erro">
+                        {% if d.erro %}
+                        <div class="w-full bg-red-400 rounded-t-sm"
+                             style="height: {{ [3, (d.erro * 100.0 / pico)] | max | round(2) }}%"></div>
+                        {% endif %}
+                        {% if d.outros %}
+                        <div class="w-full bg-amber-400 {{ 'rounded-t-sm' if not d.erro }}"
+                             style="height: {{ [3, (d.outros * 100.0 / pico)] | max | round(2) }}%"></div>
+                        {% endif %}
+                        {% if d.concluido %}
+                        <div class="w-full {{ 'rounded-t-sm' if not (d.erro or d.outros) }}"
+                             style="height: {{ [3, (d.concluido * 100.0 / pico)] | max | round(2) }}%; background: var(--syn-700);"></div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="flex gap-[3px] mt-1.5">
+                    {% for d in p.por_dia %}
+                    <div class="flex-1 min-w-0 text-center text-[10px] text-slate-400 tabular-nums">
+                        {% if loop.index0 % passo == 0 or loop.last %}{{ d.rotulo }}{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="py-10 text-center text-sm text-slate-400">
+            <i class="fa-solid fa-satellite-dish text-3xl text-slate-200 block mb-2"></i>
+            Nenhuma auditoria nos últimos {{ p.dias }} dias.
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- ================= COMPETÊNCIAS POR EMPRESA ================= -->
+    {% set hm = p.competencias %}
+    <div class="syn-card p-5 mb-5">
+        <div class="flex flex-wrap items-baseline justify-between gap-3 mb-1">
+            <h4 class="font-bold text-slate-700 text-[15px]">
+                <i class="fa-solid fa-calendar-check mr-1.5" style="color: var(--syn-600);"></i>
+                Competências por empresa
+            </h4>
+            <div class="flex items-center gap-4 text-[11px] text-slate-500">
+                <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span> sem inconsistência</span>
+                <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-amber-300"></span> atenção</span>
+                <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-red-400"></span> alta</span>
+                <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm border border-amber-300 bg-amber-50"></span> em aberto</span>
+            </div>
+        </div>
+        <p class="text-[12px] text-slate-500 mb-4">
+            {# A régua não cobra o mês corrente nem mês anterior à entrada da
+               empresa na carteira — ver services/painel_atividade.py. #}
+            O mês do SPED, não a data do upload.
+            {% if hm.empresas_em_aberto %}
+            <b class="text-amber-700">{{ hm.empresas_em_aberto }}</b> empresa(s) com
+            <b class="text-amber-700">{{ hm.meses_em_aberto }}</b> competência(s) em aberto.
+            {% else %}
+            Nenhuma competência fechada em aberto.
+            {% endif %}
+        </p>
+
+        {% if hm.sem_competencia %}
+        <div class="mb-3 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5">
+            <i class="fa-solid fa-circle-info text-slate-400 mt-0.5"></i>
+            <div class="text-[12px] text-slate-600">
+                <b>{{ hm.sem_competencia }}</b> empresa(s) com auditoria no período não aparecem aqui:
+                o histórico delas é anterior a 03/09/2026 e não tem a competência gravada. Rode
+                <code class="px-1.5 py-0.5 rounded bg-slate-200 font-mono text-[11px]">venv/Scripts/python.exe scripts/backfill_resumo_auditoria.py --aplicar</code>
+                para preencher.
+            </div>
+        </div>
+        {% endif %}
+
+        {% if not hm.linhas %}
+        <div class="py-10 text-center text-sm text-slate-400">
+            <i class="fa-solid fa-calendar-day text-3xl text-slate-200 block mb-2"></i>
+            Nenhuma competência registrada ainda.
+        </div>
+        {% else %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-[12px] border-separate border-spacing-0">
+                <thead>
+                    <tr>
+                        <th class="text-left font-semibold text-slate-500 pb-2 pr-3 w-[220px] min-w-[180px]">Empresa</th>
+                        {% for m in hm.meses %}
+                        <th class="pb-2 px-0.5 text-center font-semibold text-[10px] tabular-nums
+                                   {{ 'text-slate-700' if m.virada else 'text-slate-400' }}"
+                            title="{{ m.rotulo }}">
+                            {{ m.curto }}{% if m.virada %}<span class="block text-[9px] text-slate-400">{{ m.ano }}</span>{% endif %}
+                        </th>
+                        {% endfor %}
+                        <th class="pb-2 pl-3 text-right font-semibold text-slate-500 whitespace-nowrap">Em aberto</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for linha in hm.linhas %}
+                    <tr class="hover:bg-slate-50/70">
+                        <td class="py-1 pr-3 truncate max-w-[220px] font-medium text-slate-700"
+                            title="{{ linha.nome }} — última competência conferida: {{ linha.ultima_rotulo }}">
+                            {{ linha.nome }}
+                        </td>
+                        {% for c in linha.celulas %}
+                        {% if not c.esperada %}
+                        {% set cor = 'border border-dashed border-slate-200' %}
+                        {% set dica = 'fora do período da empresa' %}
+                        {% elif c.em_aberto %}
+                        {% set cor = 'border border-amber-300 bg-amber-50' %}
+                        {% set dica = 'sem auditoria' %}
+                        {% elif c.taxa is none %}
+                        {% set cor = 'bg-slate-200' %}
+                        {% set dica = 'conferida, sem contador gravado' %}
+                        {% elif c.taxa == 0 %}
+                        {% set cor = 'bg-emerald-500' %}
+                        {% set dica = 'sem inconsistência' %}
+                        {% elif c.taxa <= 2 %}
+                        {% set cor = 'bg-emerald-200' %}
+                        {% set dica = c.taxa ~ ' por 100 notas' %}
+                        {% elif c.taxa <= 5 %}
+                        {% set cor = 'bg-amber-300' %}
+                        {% set dica = c.taxa ~ ' por 100 notas' %}
+                        {% else %}
+                        {% set cor = 'bg-red-400' %}
+                        {% set dica = c.taxa ~ ' por 100 notas' %}
+                        {% endif %}
+                        <td class="py-1 px-0.5">
+                            <div class="h-6 rounded {{ cor }}"
+                                 title="{{ linha.nome }} · {{ c.rotulo }} — {% if c.auditada %}{{ c.inconsistencias if c.inconsistencias is not none else '?' }} inconsistência(s) em {{ c.notas if c.notas is not none else '?' }} notas ({{ dica }}){% else %}{{ dica }}{% endif %}"></div>
+                        </td>
+                        {% endfor %}
+                        <td class="py-1 pl-3 text-right tabular-nums font-bold
+                                   {{ 'text-amber-600' if linha.em_aberto else 'text-slate-300' }}">
+                            {{ linha.em_aberto or '—' }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if hm.ocultas %}
+        <p class="text-[11px] text-slate-400 mt-2">
+            Mostrando {{ hm.linhas | length }} de {{ hm.empresas }} empresas com competência
+            registrada — as com mais meses em aberto primeiro.
+        </p>
+        {% endif %}
+        {% endif %}
+    </div>
+
+    <!-- ================= TOP EMPRESAS (duas colunas) ================= -->
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-5">
+
+        <!-- Inconsistências -->
+        <div class="syn-card p-5">
+            <h4 class="font-bold text-slate-700 text-[15px] mb-1">
+                <i class="fa-solid fa-triangle-exclamation mr-1.5 text-red-500"></i>
+                Empresas com mais inconsistências
+            </h4>
+            <p class="text-[12px] text-slate-500 mb-4">
+                Da <b>última</b> auditoria de cada empresa no período — não da soma das execuções,
+                para que rodar de novo depois de corrigir não faça a empresa parecer pior.
+            </p>
+
+            {% if p.empresas_inconsistencias %}
+            {% set teto = p.empresas_inconsistencias[0].inconsistencias or 1 %}
+            <div class="space-y-3">
+                {% for e in p.empresas_inconsistencias %}
+                <div>
+                    <div class="flex items-baseline justify-between gap-3 mb-1">
+                        <span class="text-[13px] font-semibold text-slate-700 truncate" title="{{ e.nome }}">
+                            {{ loop.index }}. {{ e.nome }}
+                        </span>
+                        <span class="text-[13px] font-bold text-red-600 tabular-nums shrink-0">
+                            {{ e.inconsistencias | num_br }}
+                        </span>
+                    </div>
+                    <div class="h-2 rounded-full bg-slate-100 overflow-hidden">
+                        <div class="h-full rounded-full bg-red-400"
+                             style="width: {{ [2, (e.inconsistencias * 100.0 / teto)] | max | round(2) }}%"></div>
+                    </div>
+                    <div class="text-[11px] text-slate-500 mt-1 flex flex-wrap gap-x-3">
+                        <span>{{ e.notas | num_br }} nota(s)</span>
+                        {% if e.notas %}
+                        <span class="font-semibold {{ 'text-red-600' if e.taxa >= 20 else 'text-slate-500' }}">
+                            {{ e.taxa }} a cada 100
+                        </span>
+                        {% endif %}
+                        <span class="text-slate-400">{{ e.quando.strftime('%d/%m %H:%M') if e.quando else '' }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="py-8 text-center text-sm text-slate-400">
+                Nenhuma auditoria concluída com contador no período.
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Curadoria represada -->
+        <div class="syn-card p-5">
+            <h4 class="font-bold text-slate-700 text-[15px] mb-1">
+                <i class="fa-solid fa-hourglass-half mr-1.5 text-amber-500"></i>
+                Empresas com curadoria represada
+            </h4>
+            <p class="text-[12px] text-slate-500 mb-4">
+                Regras gravadas por operador que ainda esperam aprovação de um admin. Enquanto
+                estão assim, o motor <b>ignora</b> cada uma delas — o item continua caindo na tela.
+                Sem recorte de período: pendência antiga é a que ninguém está vendo.
+            </p>
+
+            {% if p.empresas_pendencias %}
+            {% set teto2 = p.empresas_pendencias[0].total or 1 %}
+            <div class="space-y-3">
+                {% for e in p.empresas_pendencias %}
+                <div>
+                    <div class="flex items-baseline justify-between gap-3 mb-1">
+                        <span class="text-[13px] font-semibold text-slate-700 truncate" title="{{ e.nome }}">
+                            {{ loop.index }}. {{ e.nome }}
+                        </span>
+                        <span class="text-[13px] font-bold text-amber-600 tabular-nums shrink-0">
+                            {{ e.total | num_br }}
+                        </span>
+                    </div>
+                    <div class="h-2 rounded-full bg-slate-100 overflow-hidden">
+                        <div class="h-full rounded-full bg-amber-400"
+                             style="width: {{ [2, (e.total * 100.0 / teto2)] | max | round(2) }}%"></div>
+                    </div>
+                    <div class="flex flex-wrap gap-1 mt-1.5">
+                        {% for tipo, qtd in e.por_tipo.items() %}
+                        <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600">
+                            {{ tipo }}: {{ qtd }}
+                        </span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% if p.total_empresas_com_pendencia > p.empresas_pendencias | length %}
+            <p class="text-[11px] text-slate-400 mt-3">
+                e mais {{ p.total_empresas_com_pendencia - (p.empresas_pendencias | length) }} empresa(s) com pendência menor.
+            </p>
+            {% endif %}
+            {% else %}
+            <div class="py-8 text-center text-sm text-emerald-600">
+                <i class="fa-solid fa-circle-check text-2xl block mb-2"></i>
+                Nenhuma regra aguardando aprovação.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ================= USO POR PESSOA ================= -->
+    <div class="syn-card mb-5 overflow-hidden">
+        <div class="syn-toolbar px-5 py-3">
+            <h4 class="font-bold text-slate-700 text-[15px]">
+                <i class="fa-solid fa-user-clock mr-1.5" style="color: var(--syn-600);"></i>
+                Uso por pessoa — auditorias
+            </h4>
+            <p class="text-[12px] text-slate-500 mt-0.5">Quem disparou auditoria nos últimos {{ p.dias }} dias.</p>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="table w-full text-sm [&_th]:py-3 [&_th]:px-4 [&_td]:py-2.5 [&_td]:px-4">
+                <thead class="syn-thead text-[11px] uppercase tracking-wide">
+                    <tr>
+                        <th class="text-left">Pessoa</th>
+                        <th class="text-left w-[26%]">Auditorias</th>
+                        <th class="text-right">Sucesso</th>
+                        <th class="text-right">Empresas</th>
+                        <th class="text-right">Notas</th>
+                        <th class="text-right">Inconsist.</th>
+                        <th class="text-right">Última</th>
+                    </tr>
+                </thead>
+                <tbody class="syn-zebra divide-y divide-slate-100">
+                    {% set teto3 = p.pessoas[0].auditorias if p.pessoas else 1 %}
+                    {% for u in p.pessoas %}
+                    <tr>
+                        <td class="font-semibold text-slate-700">
+                            <span class="flex items-center gap-2">
+                                <i class="fa-regular fa-user text-slate-300"></i>
+                                {{ u.nome }}
+                                {% if not u.identificada %}
+                                <span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-medium"
+                                      title="A auditoria não guardou quem a disparou, ou a conta foi removida.">sem conta</span>
+                                {% endif %}
+                            </span>
+                        </td>
+                        <td>
+                            <div class="flex items-center gap-2">
+                                <span class="tabular-nums font-bold text-slate-700 w-8 shrink-0">{{ u.auditorias }}</span>
+                                <div class="h-1.5 rounded-full bg-slate-100 overflow-hidden flex-1 min-w-[40px]">
+                                    <div class="h-full rounded-full"
+                                         style="width: {{ [3, (u.auditorias * 100.0 / (teto3 or 1))] | max | round(2) }}%; background: var(--syn-600);"></div>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="text-right tabular-nums">
+                            <span class="font-semibold {{ 'text-emerald-600' if u.taxa_sucesso >= 95 else ('text-amber-600' if u.taxa_sucesso >= 80 else 'text-red-600') }}">
+                                {{ u.taxa_sucesso }}%
+                            </span>
+                            {% if u.erros %}
+                            <span class="text-[11px] text-red-500 block">{{ u.erros }} erro(s)</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-right tabular-nums text-slate-600">{{ u.empresas }}</td>
+                        <td class="text-right tabular-nums text-slate-600">{{ u.notas | num_br }}</td>
+                        <td class="text-right tabular-nums font-semibold {{ 'text-red-600' if u.inconsistencias else 'text-slate-400' }}">
+                            {{ u.inconsistencias | num_br }}
+                        </td>
+                        <td class="text-right text-[12px] text-slate-500 whitespace-nowrap">
+                            {{ u.ultima.strftime('%d/%m %H:%M') if u.ultima else '—' }}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="py-10 text-center text-sm text-slate-400">
+                            Ninguém rodou auditoria nos últimos {{ p.dias }} dias.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ================= CURADORIA POR PESSOA ================= -->
+    <div class="syn-card overflow-hidden">
+        <div class="syn-toolbar px-5 py-3">
+            <h4 class="font-bold text-slate-700 text-[15px]">
+                <i class="fa-solid fa-scale-balanced mr-1.5" style="color: var(--syn-600);"></i>
+                Uso por pessoa — regras cadastradas
+            </h4>
+            <p class="text-[12px] text-slate-500 mt-0.5">
+                Tabela separada da de cima porque o sistema identifica as duas coisas de formas
+                diferentes: a auditoria guarda a conta do usuário, a regra guarda o e-mail de login.
+                Juntar as duas listas exigiria adivinhar quem é quem.
+            </p>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="table w-full text-sm [&_th]:py-3 [&_th]:px-4 [&_td]:py-2.5 [&_td]:px-4">
+                <thead class="syn-thead text-[11px] uppercase tracking-wide">
+                    <tr>
+                        <th class="text-left">Autor</th>
+                        <th class="text-left w-[22%]">Regras no período</th>
+                        <th class="text-left">Onde</th>
+                    </tr>
+                </thead>
+                <tbody class="syn-zebra divide-y divide-slate-100">
+                    {% set teto4 = p.curadores[0].total if p.curadores else 1 %}
+                    {% for c in p.curadores %}
+                    <tr>
+                        <td class="font-semibold text-slate-700">
+                            <span class="flex items-center gap-2">
+                                <i class="fa-regular fa-{{ 'user' if c.por_conta else 'envelope' }} text-slate-300"></i>
+                                <span class="{{ '' if c.por_conta else 'font-mono text-[12px] font-normal' }}">{{ c.nome }}</span>
+                            </span>
+                        </td>
+                        <td>
+                            <div class="flex items-center gap-2">
+                                <span class="tabular-nums font-bold text-slate-700 w-10 shrink-0">{{ c.total | num_br }}</span>
+                                <div class="h-1.5 rounded-full bg-slate-100 overflow-hidden flex-1 min-w-[40px]">
+                                    <div class="h-full rounded-full"
+                                         style="width: {{ [3, (c.total * 100.0 / (teto4 or 1))] | max | round(2) }}%; background: var(--syn-400);"></div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="flex flex-wrap gap-1">
+                                {% for tipo, qtd in c.por_tipo.items() %}
+                                <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600">
+                                    {{ tipo }}: {{ qtd }}
+                                </span>
+                                {% endfor %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="3" class="py-10 text-center text-sm text-slate-400">
+                            Nenhuma regra cadastrada nos últimos {{ p.dias }} dias.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

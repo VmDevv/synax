@@ -1,0 +1,289 @@
+{# Tela que segura a auditoria até uma pessoa decidir sobre os pares sugeridos.
+
+   Os itens listados aqui são, todos, itens que o motor NÃO conseguiu parear
+   pelos sinais determinísticos. Nenhum casamento por código, valor unitário ou
+   quantidade passa por esta tela: aqueles seguem intocados.
+
+   Cada linha é aprovada ou descartada individualmente. O que for aprovado vira
+   REGRA (ItemMatchRule): na próxima auditoria daquele fornecedor o par é
+   aplicado direto, sem tela e sem IA. O que for descartado volta para "Itens
+   Não Conferidos", que é o comportamento de sempre.
+
+   A seleção usa checkboxes reais dentro do form — a paginação e o filtro só
+   escondem linhas com `display`, então marcar na página 1, filtrar e enviar na
+   página 3 continua enviando tudo o que foi marcado. #}
+<div class="my-4">
+    <form id="form-confirmar-ia" onsubmit="return false;">
+
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+
+            <div class="px-6 py-5 border-b border-slate-200 bg-gradient-to-r from-violet-50 to-white">
+                <div class="flex items-start gap-3">
+                    <div class="w-11 h-11 rounded-xl bg-violet-100 flex items-center justify-center text-violet-700 shrink-0">
+                        <i class="fa-solid fa-wand-magic-sparkles text-lg"></i>
+                    </div>
+                    <div class="min-w-0">
+                        <h3 class="text-lg font-bold text-slate-800">
+                            Itens relacionados por IA
+                            <span class="badge badge-sm bg-violet-600 text-white border-none font-bold ml-1">{{ sugestoes | length }}</span>
+                        </h3>
+                        <p class="text-[13px] text-slate-600 mt-1 leading-relaxed">
+                            Estes itens <strong>não casaram</strong> pelos critérios do sistema (código do produto,
+                            valor unitário, quantidade). A ligação foi deduzida a partir de
+                            <strong>descrição e valor total</strong>. Marque os que estiverem certos —
+                            os aprovados viram regra e <strong>não serão perguntados de novo</strong>
+                            nas próximas auditorias deste fornecedor.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Barra de ferramentas: filtro de confiança + seleção em massa -->
+            <div class="px-6 py-3 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center gap-x-5 gap-y-2">
+                <div class="flex items-center gap-2">
+                    <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Confiança</span>
+                    <div class="join" id="filtro-confianca">
+                        <button type="button" data-conf="todas"
+                                class="btn btn-xs join-item btn-active bg-slate-700 text-white border-none font-bold">
+                            Todas <span class="opacity-70">({{ sugestoes | length }})</span>
+                        </button>
+                        <button type="button" data-conf="alta"
+                                class="btn btn-xs join-item font-bold">
+                            Alta <span class="opacity-70">({{ sugestoes | selectattr('confianca', 'equalto', 'alta') | list | length }})</span>
+                        </button>
+                        <button type="button" data-conf="media"
+                                class="btn btn-xs join-item font-bold">
+                            Média <span class="opacity-70">({{ sugestoes | selectattr('confianca', 'equalto', 'media') | list | length }})</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2 ml-auto">
+                    <button type="button" onclick="marcarVisiveisIa(true)"
+                            class="btn btn-xs btn-ghost text-slate-600 font-bold gap-1">
+                        <i class="fa-regular fa-square-check"></i> Marcar visíveis
+                    </button>
+                    <button type="button" onclick="marcarVisiveisIa(false)"
+                            class="btn btn-xs btn-ghost text-slate-600 font-bold gap-1">
+                        <i class="fa-regular fa-square"></i> Desmarcar visíveis
+                    </button>
+                    <span class="text-[12px] font-bold text-violet-700 whitespace-nowrap">
+                        <span id="contador-ia">0</span> aprovado(s)
+                    </span>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto w-full">
+                <table class="table table-zebra w-full text-sm text-slate-700 [&_th]:py-3.5 [&_th]:px-4 [&_td]:py-3 [&_td]:px-4">
+                    <thead class="bg-slate-50 text-slate-500">
+                        <tr>
+                            <th class="pl-6 w-12"><i class="fa-regular fa-square-check"></i></th>
+                            <th class="whitespace-nowrap">NF-e</th>
+                            <th>Item do SPED</th>
+                            <th class="text-center w-10"></th>
+                            <th>Item do XML</th>
+                            <th class="text-right whitespace-nowrap">Valor</th>
+                            <th>Por quê</th>
+                        </tr>
+                    </thead>
+                    <tbody id="corpo-sugestoes-ia" class="whitespace-normal break-words">
+                        {% for s in sugestoes %}
+                        <tr class="linha-sugestao" data-conf="{{ s.confianca }}">
+                            <td class="pl-6 align-top">
+                                {# O `value` é o índice na lista gravada na task — é assim
+                                   que o backend sabe qual sugestão foi aprovada. #}
+                                <input type="checkbox" name="aprovados" value="{{ loop.index0 }}"
+                                       onchange="contarAprovadosIa()"
+                                       class="checkbox checkbox-sm checkbox-primary"
+                                       {% if s.confianca == 'alta' %}checked{% endif %} />
+                            </td>
+                            <td class="whitespace-nowrap font-mono text-xs align-top">
+                                <div class="font-bold text-slate-800">{{ s.num }}</div>
+                                <div class="text-[11px] text-slate-500 max-w-[150px] truncate" title="{{ s.emit_name }}">{{ s.emit_name }}</div>
+                            </td>
+                            <td class="align-top">
+                                <div class="text-[13px] font-semibold text-slate-800">{{ s.sped_descr }}</div>
+                                <div class="text-[11px] text-slate-500 font-mono mt-0.5">
+                                    cód. {{ s.sped_cod }} · R$ {{ "%.2f"|format(s.sped_valor|float) }}
+                                </div>
+                            </td>
+                            <td class="text-center align-top text-violet-500">
+                                <i class="fa-solid fa-arrow-right-arrow-left"></i>
+                            </td>
+                            <td class="align-top">
+                                <div class="text-[13px] font-semibold text-slate-800">{{ s.xml_descr }}</div>
+                                <div class="text-[11px] text-slate-500 font-mono mt-0.5">
+                                    cód. {{ s.xml_cod }} · R$ {{ "%.2f"|format(s.xml_valor|float) }}
+                                </div>
+                            </td>
+                            <td class="text-right align-top whitespace-nowrap">
+                                {# Os dois lados batem no valor: é o sinal que sobrevive à conversão
+                                   de unidade (caixa de 24 vira 24 unidades). #}
+                                {% if (s.sped_valor|float - s.xml_valor|float)|abs < 0.01 %}
+                                <span class="text-emerald-600 font-bold">R$ {{ "%.2f"|format(s.sped_valor|float) }}</span>
+                                <div class="text-[10px] text-emerald-600 font-bold uppercase">totais iguais</div>
+                                {% else %}
+                                <span class="text-amber-600 font-bold">difere</span>
+                                {% endif %}
+                            </td>
+                            <td class="align-top">
+                                <span class="badge badge-sm border-none font-bold text-white
+                                    {% if s.confianca == 'alta' %}bg-emerald-600{% else %}bg-amber-500{% endif %}">
+                                    {{ s.confianca }}
+                                </span>
+                                {% if s.origem == 'poda' %}
+                                <span class="badge badge-sm badge-ghost font-bold" title="Resolvido pelo sistema, sem consultar a IA">sistema</span>
+                                {% endif %}
+                                <div class="text-[11px] text-slate-600 mt-1 leading-snug">{{ s.justificativa }}</div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div id="paginacao-ia" class="hidden items-center justify-center gap-3 py-3 border-t border-slate-200"></div>
+
+            <div class="px-6 py-4 border-t border-slate-200 bg-slate-50 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                <p class="text-[12px] text-slate-500 leading-snug">
+                    O que não for marcado continua em <strong>Itens Não Conferidos</strong> para
+                    conferência manual — que é o comportamento de sempre.
+                </p>
+
+                {# `acao` vai por hx-vals no BOTÃO, não por `name`/`value` de submit.
+                   O htmx 1.9 nem sempre inclui o botão que submeteu na serialização
+                   do form, e sem `acao` os dois botões fariam a mesma coisa —
+                   "Descartar tudo" aprovaria os marcados, calado. Os checkboxes
+                   vêm por hx-include, do form inteiro, então a seleção feita em
+                   qualquer página ou filtro viaja junto. #}
+                <div id="acoes-ia" class="flex items-center gap-2 shrink-0">
+                    <button type="button"
+                            hx-post="/api/audit/{{ task_id }}/aplicar-ia"
+                            hx-vals='{"acao": "ignorar"}'
+                            hx-include="#form-confirmar-ia"
+                            hx-target="#process-status" hx-swap="innerHTML"
+                            hx-disabled-elt="#acoes-ia button"
+                            hx-indicator="#progresso-ia"
+                            class="btn btn-sm btn-outline border-slate-300 text-slate-700 hover:bg-slate-200 hover:border-slate-400 font-bold gap-1.5">
+                        <i class="fa-solid fa-xmark"></i> Descartar tudo e rodar auditoria
+                    </button>
+                    <button type="button"
+                            hx-post="/api/audit/{{ task_id }}/aplicar-ia"
+                            hx-vals='{"acao": "confirmar"}'
+                            hx-include="#form-confirmar-ia"
+                            hx-target="#process-status" hx-swap="innerHTML"
+                            hx-disabled-elt="#acoes-ia button"
+                            hx-indicator="#progresso-ia"
+                            class="btn btn-sm bg-violet-600 hover:bg-violet-700 text-white border-none font-bold shadow-sm gap-1.5">
+                        <i class="fa-solid fa-check"></i> Aprovar marcados e rodar auditoria
+                    </button>
+                </div>
+            </div>
+
+            {# Painel de progresso. Sem ele a tela ficava IDÊNTICA depois do clique:
+               a gravação das regras leva segundos contra o Supabase, e o usuário
+               não tinha como saber se algo estava acontecendo — clicava de novo, e
+               cada clique gravava tudo outra vez. #}
+            <div id="progresso-ia" class="htmx-indicator px-6 py-4 border-t border-violet-200 bg-violet-50">
+                <div class="flex items-center gap-3">
+                    <span class="loading loading-spinner loading-sm text-violet-600"></span>
+                    <div class="min-w-0">
+                        <p class="text-[13px] font-bold text-violet-900">
+                            Gravando as aprovações e iniciando a auditoria…
+                        </p>
+                        <p class="text-[11px] text-violet-700 mt-0.5">
+                            Cada par aprovado vira regra no banco. Com muitos itens isso leva
+                            alguns segundos — <strong>não clique de novo</strong>.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+
+<script>
+(function() {
+    var POR_PAGINA = 20;
+    var corpo = document.getElementById('corpo-sugestoes-ia');
+    if (!corpo) return;
+
+    var todas = Array.from(corpo.querySelectorAll('tr.linha-sugestao'));
+    var filtro = 'todas';
+    var pagina = 1;
+
+    function visiveisNoFiltro() {
+        return todas.filter(function(tr) {
+            return filtro === 'todas' || tr.dataset.conf === filtro;
+        });
+    }
+
+    function render() {
+        var alvo = visiveisNoFiltro();
+        var paginas = Math.max(1, Math.ceil(alvo.length / POR_PAGINA));
+        if (pagina > paginas) pagina = paginas;
+        var ini = (pagina - 1) * POR_PAGINA;
+
+        // Esconder é só `display`: o checkbox continua no form, então o que foi
+        // marcado numa página/filtro segue sendo enviado ao aprovar.
+        todas.forEach(function(tr) { tr.style.display = 'none'; });
+        alvo.slice(ini, ini + POR_PAGINA).forEach(function(tr) { tr.style.display = ''; });
+
+        var barra = document.getElementById('paginacao-ia');
+        if (alvo.length <= POR_PAGINA) {
+            barra.classList.add('hidden');
+            barra.classList.remove('flex');
+            barra.innerHTML = '';
+            return;
+        }
+        barra.classList.remove('hidden');
+        barra.classList.add('flex');
+        barra.innerHTML =
+            '<button type="button" class="btn btn-xs btn-outline" data-ir="ant"' +
+            (pagina === 1 ? ' disabled' : '') + '>Anterior</button>' +
+            '<span class="text-xs font-semibold text-slate-600">Página ' + pagina +
+            ' de ' + paginas + ' (' + alvo.length + ' itens)</span>' +
+            '<button type="button" class="btn btn-xs btn-outline" data-ir="prox"' +
+            (pagina === paginas ? ' disabled' : '') + '>Próximo</button>';
+
+        barra.querySelectorAll('[data-ir]').forEach(function(b) {
+            b.addEventListener('click', function() {
+                pagina += (b.dataset.ir === 'prox' ? 1 : -1);
+                render();
+            });
+        });
+    }
+
+    document.querySelectorAll('#filtro-confianca [data-conf]').forEach(function(botao) {
+        botao.addEventListener('click', function() {
+            filtro = botao.dataset.conf;
+            pagina = 1;
+            document.querySelectorAll('#filtro-confianca [data-conf]').forEach(function(b) {
+                b.classList.remove('btn-active', 'bg-slate-700', 'text-white', 'border-none');
+            });
+            botao.classList.add('btn-active', 'bg-slate-700', 'text-white', 'border-none');
+            render();
+        });
+    });
+
+    // Só as linhas que estão na tela agora — marcar tudo sem querer, inclusive o
+    // que o filtro escondeu, é o oposto do que estes botões prometem.
+    window.marcarVisiveisIa = function(marcar) {
+        todas.forEach(function(tr) {
+            if (tr.style.display === 'none') return;
+            var cx = tr.querySelector('input[type=checkbox]');
+            if (cx) cx.checked = marcar;
+        });
+        contarAprovadosIa();
+    };
+
+    window.contarAprovadosIa = function() {
+        var n = corpo.querySelectorAll('input[type=checkbox]:checked').length;
+        var alvo = document.getElementById('contador-ia');
+        if (alvo) alvo.textContent = n;
+    };
+
+    render();
+    contarAprovadosIa();
+})();
+</script>

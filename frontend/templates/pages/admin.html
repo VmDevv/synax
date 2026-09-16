@@ -1,0 +1,63 @@
+{% extends "layout/base.html" %}
+{% block title %}Administração | Synax | Auditor Fiscal Inteligente{% endblock %}
+
+{% block content %}
+<main class="w-full">
+    <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-3">
+        <h2 class="text-xl font-bold text-[#026a9e] flex items-center gap-2.5">
+            <i class="fa-solid fa-gear text-[#037fb5] text-base"></i> Administração
+        </h2>
+        <p class="text-[13px] text-slate-500">Empresas, acessos e regras fiscais por cliente.</p>
+    </div>
+
+    <!-- Abas DaisyUI para Navegação -->
+    <div role="tablist" class="tabs tabs-bordered mb-4" hx-boost="true" hx-target="#admin-content" hx-swap="innerHTML transition:true">
+        
+        <a role="tab" class="tab tab-active text-blue-700 font-semibold border-blue-600" 
+           hx-get="/admin/tenants/list" hx-push-url="false"
+           onclick="document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active', 'text-blue-700', 'border-blue-600', 'text-slate-500')); this.classList.add('tab-active', 'text-blue-700', 'border-blue-600');">
+           <i class="fa-solid fa-building mr-2"></i> Empresas e Usuários
+        </a>
+        
+        <a role="tab" class="tab text-slate-500 font-medium" 
+           hx-get="/admin/rules?tenant_id={{ tenants[0].id if tenants else '' }}" hx-push-url="false"
+           onclick="document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active', 'text-blue-700', 'border-blue-600')); this.classList.add('tab-active', 'text-blue-700', 'border-blue-600');">
+           <i class="fa-solid fa-scale-balanced mr-2"></i> Regras por Empresa
+        </a>
+        
+        <a role="tab" class="tab text-slate-500 font-medium"
+           hx-get="/admin/certificados" hx-push-url="false"
+           onclick="document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active', 'text-blue-700', 'border-blue-600')); this.classList.add('tab-active', 'text-blue-700', 'border-blue-600');">
+           <i class="fa-solid fa-file-shield mr-2"></i> Certificados
+        </a>
+
+        <a role="tab" class="tab text-slate-500 font-medium"
+           hx-get="/admin/erros" hx-push-url="false"
+           onclick="document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active', 'text-blue-700', 'border-blue-600')); this.classList.add('tab-active', 'text-blue-700', 'border-blue-600');">
+           <i class="fa-solid fa-triangle-exclamation mr-2"></i> Erros do Sistema
+        </a>
+
+        <a role="tab" class="tab text-slate-500 font-medium"
+           hx-get="/admin/configuracoes" hx-push-url="false"
+           onclick="document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active', 'text-blue-700', 'border-blue-600')); this.classList.add('tab-active', 'text-blue-700', 'border-blue-600');">
+           <i class="fa-solid fa-gear mr-2"></i> Configurações
+        </a>
+
+        <a role="tab" class="tab text-slate-500 font-medium"
+           hx-get="/admin/activity/painel" hx-push-url="false"
+           onclick="document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active', 'text-blue-700', 'border-blue-600')); this.classList.add('tab-active', 'text-blue-700', 'border-blue-600');">
+           <i class="fa-solid fa-satellite-dish mr-2"></i> Radar de Atividade
+        </a>
+    </div>
+
+    <!-- Container de Conteúdo Dinâmico (HTMX injeta aqui) -->
+    <div id="admin-content">
+        <!-- Inicialmente carrega a aba 1 via include ou chamando o próprio endpoint HTMX no load -->
+        <div hx-get="/admin/tenants/list" hx-trigger="load" hx-swap="outerHTML">
+            <div class="flex justify-center p-12">
+                <span class="loading loading-spinner text-blue-600 loading-lg"></span>
+            </div>
+        </div>
+    </div>
+</main>
+{% endblock %}

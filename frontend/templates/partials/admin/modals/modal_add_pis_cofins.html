@@ -1,0 +1,38 @@
+<dialog id="modal-add-pis-cofins" class="modal" onclick="if(event.target === this) this.close()">
+    <div class="modal-box p-0 overflow-hidden bg-white max-w-2xl">
+        <div class="bg-blue-600 px-6 py-4 flex justify-between items-center text-white">
+            <h3 class="font-bold text-lg flex items-center gap-2">
+                <i class="fa-solid fa-building-columns"></i> Nova Regra: PIS/COFINS
+            </h3>
+            <button class="btn btn-sm btn-circle btn-ghost text-white" onclick="this.closest('dialog').close()">✕</button>
+        </div>
+        <form hx-post="/admin/rules/pis_cofins/add" hx-swap="none" >
+            <div class="p-6 space-y-4">
+                <input type="hidden" name="tenant_id" value="{{ tenant_id }}">
+                
+                <div class="form-control w-full">
+                    <label class="label"><span class="label-text font-bold text-slate-700">CFOP</span></label>
+                    <input type="text" name="cfop" placeholder="Ex: 5102" class="input input-bordered w-full" required />
+                </div>
+                
+                <div class="form-control w-full">
+                    <label class="label"><span class="label-text font-bold text-slate-700">CST Esperado</span></label>
+                    <input type="text" name="cst_expected" placeholder="Ex: 50" class="input input-bordered w-full" required />
+                </div>
+                
+                <div class="form-control w-full">
+                    <label class="cursor-pointer label justify-start gap-4 border border-slate-200 p-4 rounded-lg bg-slate-50">
+                        <input type="checkbox" name="allow_credit" class="checkbox checkbox-primary" />
+                        <span class="label-text font-bold text-slate-700">Permite Crédito de PIS/COFINS?</span>
+                    </label>
+                </div>
+                
+            </div>
+            <div class="bg-slate-50 px-6 py-4 border-t border-slate-200 flex justify-end gap-2">
+                <button type="button" class="btn btn-ghost" onclick="this.closest('dialog').close()">Cancelar</button>
+                <button type="submit" class="btn bg-blue-600 hover:bg-blue-700 text-white border-none">Salvar Regra</button>
+            </div>
+        </form>
+    </div>
+
+</dialog>

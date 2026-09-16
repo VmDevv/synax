@@ -1,0 +1,158 @@
+{# Uma linha do data grid. Devolvida isolada pelos endpoints inline. #}
+{% set vals_base %}{"rule_type": {{ current_rule_type|tojson }}, "key": {{ r._batch_key|tojson }}}{% endset %}
+<tr class="cur-row group border-b border-slate-100 transition-colors">
+    <td class="px-2 py-1.5 text-center align-middle">
+        <input type="checkbox" name="rule_keys" value="{{ r._batch_key }}"
+               class="checkbox checkbox-xs checkbox-primary rule-checkbox align-middle">
+    </td>
+
+    {# Empresa #}
+    <td class="px-2 py-1.5 align-middle max-w-[150px]">
+        <span class="block truncate text-[13px] font-medium text-slate-700" title="{{ r._tenant_name }}">{{ r._tenant_name }}</span>
+    </td>
+
+    {# Contexto da regra (somente leitura) #}
+    <td class="px-2 py-1.5 align-middle">
+        <div class="flex items-baseline gap-2 text-[13px] leading-tight">
+        {% if current_rule_type == 'cfop' %}
+            <div class="min-w-0">
+                <div class="flex items-baseline gap-2">
+                    <span class="font-mono font-bold text-slate-800">{{ r.supplier_cfop }}</span>
+                    <span class="text-slate-400 truncate" title="Fornec: {{ r.supplier_cnpj }} | Prod: {{ r.product_code }}">
+                        {{ r.supplier_cnpj }} · {{ r.product_code }}
+                    </span>
+                </div>
+                {# Descrição do item: é o que permite julgar a regra sem abrir a nota #}
+                {% if r.product_description %}
+                <div class="text-[12px] text-slate-500 truncate" title="{{ r.product_description }}">
+                    {{ r.product_description }}
+                </div>
+                {% endif %}
+            </div>
+        {% elif current_rule_type == 'cte' %}
+            <span class="font-mono font-bold text-slate-800">{{ r.supplier_cfop }}</span>
+            <span class="text-slate-400">UF {{ r.emitter_uf }} · {{ r.company_cnpj }}</span>
+        {% elif current_rule_type in ['pis_cofins', 'ipi'] %}
+            <span class="font-mono font-bold text-slate-800">{{ r.cfop }}</span>
+            <span class="text-slate-400">CST {{ r.cst_expected }}</span>
+        {% elif current_rule_type == 'icms' %}
+            <span class="font-mono font-bold text-slate-800">{{ r.cfop }}</span>
+            <span class="text-slate-400 truncate">{{ r.description or '' }}</span>
+        {% elif current_rule_type == 'anticipation' %}
+            <span class="font-mono font-bold text-slate-800">{{ r.cfop }}</span>
+            <span class="text-slate-400">{{ r.uf_origem }} → {{ r.uf_destino }}</span>
+        {% elif current_rule_type == 'item_match' %}
+            {# O que se julga aqui é se os dois produtos são o MESMO produto. Sem
+               as duas descrições lado a lado não há como decidir sem abrir a nota. #}
+            <div class="min-w-0">
+                <div class="text-[12px] text-slate-700 truncate" title="SPED: {{ r.sped_descr }}">
+                    <span class="font-mono text-slate-400">{{ r.sped_cod }}</span>
+                    {{ r.sped_descr or '—' }}
+                </div>
+                <div class="text-[12px] text-slate-700 truncate" title="XML: {{ r.xml_descr }}">
+                    <i class="fa-solid fa-arrow-right-long text-[10px] text-violet-400 mx-0.5"></i>
+                    <span class="font-mono text-slate-400">{{ r.xml_cod }}</span>
+                    {{ r.xml_descr or '—' }}
+                </div>
+                <div class="text-[11px] text-slate-400 truncate" title="Fornecedor {{ r.supplier_cnpj }}">
+                    Fornec. {{ r.supplier_cnpj }}
+                </div>
+            </div>
+        {% endif %}
+        </div>
+    </td>
+
+    {# Decisão editável inline #}
+    <td class="px-2 py-1.5 align-middle">
+        {% if current_rule_type in ['cfop', 'cte'] %}
+            <div class="flex items-center gap-1.5">
+                <i class="fa-solid fa-arrow-right-long text-[10px] text-slate-300"></i>
+                <input type="text" name="value" value="{{ r.entry_cfop or '' }}" maxlength="4" inputmode="numeric"
+                       class="cur-edit w-[68px] px-2 py-1 text-[13px] font-mono font-bold text-center rounded border border-slate-200
+                              bg-white text-[#026a9e] focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/60 focus:outline-none transition"
+                       title="CFOP de entrada — Enter salva e aprova"
+                       hx-post="/api/curation/rule/update"
+                       hx-vals='{"rule_type": {{ current_rule_type|tojson }}, "key": {{ r._batch_key|tojson }}, "field": "entry_cfop"}'
+                       hx-trigger="change"
+                       hx-target="closest tr" hx-swap="outerHTML">
+            </div>
+        {% elif current_rule_type in ['icms', 'ipi', 'pis_cofins'] %}
+            {# Botão-toggle: envia o valor invertido, servidor devolve a linha já atualizada #}
+            <button type="button"
+                    class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-bold border transition
+                           {% if r.allow_credit %}bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100
+                           {% else %}bg-red-50 border-red-200 text-red-700 hover:bg-red-100{% endif %}"
+                    title="Clique para inverter"
+                    hx-post="/api/curation/rule/update"
+                    hx-vals='{"rule_type": {{ current_rule_type|tojson }}, "key": {{ r._batch_key|tojson }}, "field": "allow_credit", "value": {{ ('false' if r.allow_credit else 'true')|tojson }}}'
+                    hx-target="closest tr" hx-swap="outerHTML">
+                <i class="fa-solid {{ 'fa-circle-check' if r.allow_credit else 'fa-circle-xmark' }}"></i>
+                {{ 'Credita' if r.allow_credit else 'Glosa' }}
+            </button>
+        {% elif current_rule_type == 'anticipation' %}
+            <div class="flex items-center gap-1.5 text-[12px]">
+                <label class="text-slate-400">MVA</label>
+                <input type="number" step="0.01" name="value" value="{{ r.mva_percentage }}"
+                       class="cur-edit w-[64px] px-1.5 py-1 font-mono text-right rounded border border-slate-200 bg-white
+                              focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/60 focus:outline-none transition"
+                       hx-post="/api/curation/rule/update"
+                       hx-vals='{"rule_type": {{ current_rule_type|tojson }}, "key": {{ r._batch_key|tojson }}, "field": "mva_percentage"}'
+                       hx-trigger="change" hx-target="closest tr" hx-swap="outerHTML">
+                <label class="text-slate-400 ml-1">Alíq</label>
+                <input type="number" step="0.01" name="value" value="{{ r.aliquota_interna_percentage }}"
+                       class="cur-edit w-[64px] px-1.5 py-1 font-mono text-right rounded border border-slate-200 bg-white
+                              focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/60 focus:outline-none transition"
+                       hx-post="/api/curation/rule/update"
+                       hx-vals='{"rule_type": {{ current_rule_type|tojson }}, "key": {{ r._batch_key|tojson }}, "field": "aliquota_interna_percentage"}'
+                       hx-trigger="change" hx-target="closest tr" hx-swap="outerHTML">
+            </div>
+        {% elif current_rule_type == 'item_match' %}
+            {# Não há o que editar: a decisão é aprovar o par ou descartá-lo. O que
+               fica aqui é o que ajuda a julgar — quem sugeriu e com que convicção. #}
+            <div class="flex items-center gap-1.5">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border
+                    {% if r.confianca == 'alta' %}bg-emerald-50 border-emerald-200 text-emerald-700
+                    {% else %}bg-amber-50 border-amber-200 text-amber-700{% endif %}"
+                    title="{{ r.justificativa or '' }}">
+                    <i class="fa-solid fa-wand-magic-sparkles text-[10px]"></i>
+                    {{ r.confianca or '—' }}
+                </span>
+                {% if r.origem == 'poda' %}
+                <span class="text-[11px] text-slate-400 font-bold" title="Resolvido pelo sistema, sem consultar a IA">sistema</span>
+                {% endif %}
+            </div>
+        {% endif %}
+    </td>
+
+    {# Criador #}
+    <td class="px-2 py-1.5 align-middle max-w-[150px]">
+        <span class="block truncate text-[12px] text-slate-500" title="{{ r.created_by or 'Sistema' }}">{{ r.created_by or 'Sistema' }}</span>
+    </td>
+
+    {# Idade #}
+    <td class="px-2 py-1.5 align-middle whitespace-nowrap">
+        <span class="text-[12px] tabular-nums {% if r._pending_stale %}text-amber-600 font-semibold{% else %}text-slate-400{% endif %}"
+              title="Criada em {{ r.created_at }}">{{ r._pending_age }}</span>
+    </td>
+
+    {# Ações inline #}
+    <td class="px-2 py-1.5 align-middle text-right whitespace-nowrap">
+        <div class="inline-flex items-center gap-1 opacity-60 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+            <button type="button" title="Aprovar (Enter no campo)"
+                    class="w-7 h-7 grid place-items-center rounded-md text-emerald-600 hover:bg-emerald-100 hover:text-emerald-700 transition"
+                    hx-post="/api/curation/rule/approve"
+                    hx-vals='{{ vals_base }}'
+                    hx-target="closest tr" hx-swap="outerHTML swap:200ms">
+                <i class="fa-solid fa-check text-[13px]"></i>
+            </button>
+            <button type="button" title="Descartar"
+                    class="w-7 h-7 grid place-items-center rounded-md text-slate-400 hover:bg-red-100 hover:text-red-600 transition"
+                    hx-post="/api/curation/rule/discard"
+                    hx-vals='{{ vals_base }}'
+                    hx-confirm="Descartar esta sugestão de regra?"
+                    hx-target="closest tr" hx-swap="outerHTML swap:200ms">
+                <i class="fa-solid fa-xmark text-[13px]"></i>
+            </button>
+        </div>
+    </td>
+</tr>

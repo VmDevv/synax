@@ -1,0 +1,199 @@
+<dialog class="modal modal-open">
+    <div class="modal-box bg-white text-slate-800 max-w-4xl p-0 overflow-hidden">
+
+        <!-- Cabeçalho -->
+        <div class="px-6 py-4 border-b border-slate-200 bg-slate-50/70 flex items-center gap-3">
+            <div class="w-9 h-9 rounded-lg bg-red-100 text-red-500 grid place-items-center">
+                <i class="fa-solid fa-tags"></i>
+            </div>
+            <div class="flex-1">
+                <h3 class="font-bold text-lg leading-tight text-slate-800">Regras de CFOP para Exclusão</h3>
+                <p class="text-[13px] text-slate-500">
+                    Fornecedor <span class="font-mono font-bold text-slate-700">{{ supplier_cnpj }}</span>
+                    · CFOP de Origem <span class="font-mono font-bold text-blue-600">{{ supplier_cfop }}</span>
+                    · <span class="font-bold text-slate-700">{{ total }}</span> regra(s) encontrada(s)
+                </p>
+            </div>
+        </div>
+
+        <form id="cfop-siblings-form" hx-post="/admin/rules/cfop/batch-delete" hx-target="#admin-content" hx-swap="outerHTML">
+
+            <input type="hidden" name="tenant_id" value="{{ tenant_id }}">
+
+            <div class="px-6 py-4 max-h-[55vh] overflow-y-auto">
+
+                <!-- Toolbar de seleção -->
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                    <div class="flex items-center gap-2">
+                        <label class="flex items-center gap-2 cursor-pointer select-none">
+                            <input type="checkbox" class="checkbox checkbox-sm checkbox-error" id="cb-select-all"
+                                   onchange="siblingToggleAll(this.checked)">
+                            <span class="text-[13px] font-semibold text-slate-600">Selecionar Todas</span>
+                        </label>
+                    </div>
+                    <span id="sibling-counter" class="px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 text-[12px] font-bold tabular-nums">
+                        0 selecionada(s)
+                    </span>
+                </div>
+
+                <!-- Tabela de regras irmãs -->
+                <div class="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table class="table w-full text-sm [&_th]:py-3 [&_th]:px-3 [&_td]:py-2.5 [&_td]:px-3">
+                        <thead class="bg-slate-50 text-slate-500">
+                            <tr>
+                                <th class="w-10"></th>
+                                <th>Produto</th>
+                                <th>Código do Produto</th>
+                                <th class="text-blue-600 font-bold">CFOP Destino</th>
+                                <th>Status</th>
+                                <th>Criado por</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            {% for r in siblings %}
+                            <tr class="hover:bg-red-50/40 transition-colors sibling-row" id="sibling-row-{{ loop.index }}">
+                                <td>
+                                    <input type="checkbox" name="rule_keys"
+                                           value="{{ r.company_cnpj }}|{{ r.supplier_cnpj }}|{{ r.supplier_cfop }}|{{ r.product_code }}"
+                                           class="checkbox checkbox-sm checkbox-error sibling-cb"
+                                           onchange="siblingUpdateUI()">
+                                </td>
+                                <td class="max-w-[260px]">
+                                    {% if r.product_description %}
+                                        <div class="font-medium text-slate-700 truncate" title="{{ r.product_description }}">{{ r.product_description }}</div>
+                                    {% else %}
+                                        <span class="italic text-slate-400">Sem descrição</span>
+                                    {% endif %}
+                                </td>
+                                <td class="font-mono text-slate-600 text-xs">
+                                    {% if r.product_code == '*' %}
+                                        <span class="badge badge-sm bg-indigo-100 text-indigo-700 border-indigo-200 font-bold">Genérica (*)</span>
+                                    {% else %}
+                                        {{ r.product_code }}
+                                    {% endif %}
+                                </td>
+                                <td class="font-mono font-bold text-blue-600">{{ r.entry_cfop }}</td>
+                                <td>
+                                    {% if r.status == 'aprovado' %}
+                                        <span class="badge badge-sm bg-emerald-100 text-emerald-700 border-emerald-200 font-medium">Ativo</span>
+                                    {% else %}
+                                        <span class="badge badge-sm bg-amber-100 text-amber-700 border-amber-200 font-medium">Pendente</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-xs text-slate-500">{{ r.created_by or '—' }}</td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="6" class="py-8 text-center text-slate-400">Nenhuma regra encontrada.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Aviso informativo -->
+                <div class="mt-3 p-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-[13px] flex items-start gap-2">
+                    <i class="fa-solid fa-circle-info mt-0.5"></i>
+                    <div>
+                        <strong>Como funciona:</strong> Ao excluir uma regra, o item correspondente voltará a aparecer
+                        como "não mapeado" na próxima auditoria, permitindo que você o remapeie com maior acertividade.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer / Ações -->
+            <div class="px-6 py-4 border-t border-slate-200 bg-slate-50/70 flex items-center justify-between">
+                <p class="text-[12px] text-slate-500">
+                    <i class="fa-solid fa-info-circle mr-1"></i>
+                    Marque as regras que deseja excluir e confirme.
+                </p>
+                <div class="flex items-center gap-2">
+                    <button type="button" class="btn btn-sm btn-ghost text-slate-600"
+                            onclick="document.getElementById('modal-container').innerHTML = ''">
+                        Cancelar
+                    </button>
+                    <button type="submit" id="btn-delete-siblings" class="btn btn-sm bg-red-600 hover:bg-red-700 border-none text-white btn-disabled opacity-50" disabled>
+                        <i class="fa-solid fa-trash-can mr-1"></i>
+                        <span id="btn-delete-label">Excluir 0 Selecionada(s)</span>
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+    <div class="modal-backdrop bg-slate-900/40" onclick="document.getElementById('modal-container').innerHTML = ''"></div>
+</dialog>
+
+<script>
+(function() {
+    // Validação no submit: não envia se nenhuma selecionada
+    var form = document.getElementById('cfop-siblings-form');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            var checked = document.querySelectorAll('.sibling-cb:checked');
+            if (checked.length === 0) {
+                e.preventDefault();
+                e.stopPropagation();
+                alert('Selecione ao menos uma regra para excluir.');
+                return false;
+            }
+        });
+    }
+})();
+
+function siblingToggleAll(checked) {
+    var cbs = document.querySelectorAll('.sibling-cb');
+    cbs.forEach(function(cb) { cb.checked = checked; });
+    siblingUpdateUI();
+}
+
+function siblingUpdateUI() {
+    var cbs = document.querySelectorAll('.sibling-cb');
+    var checked = document.querySelectorAll('.sibling-cb:checked');
+    var count = checked.length;
+    var total = cbs.length;
+
+    // Atualiza contador
+    var counter = document.getElementById('sibling-counter');
+    if (counter) {
+        counter.textContent = count + ' selecionada(s)';
+        counter.className = count > 0
+            ? 'px-2.5 py-1 rounded-full bg-red-100 text-red-700 text-[12px] font-bold tabular-nums'
+            : 'px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 text-[12px] font-bold tabular-nums';
+    }
+
+    // Atualiza botão de excluir
+    var btn = document.getElementById('btn-delete-siblings');
+    var label = document.getElementById('btn-delete-label');
+    if (btn) {
+        if (count > 0) {
+            btn.disabled = false;
+            btn.classList.remove('btn-disabled', 'opacity-50');
+        } else {
+            btn.disabled = true;
+            btn.classList.add('btn-disabled', 'opacity-50');
+        }
+    }
+    if (label) {
+        label.textContent = 'Excluir ' + count + ' Selecionada(s)';
+    }
+
+    // Atualiza "Selecionar Todas"
+    var selectAll = document.getElementById('cb-select-all');
+    if (selectAll) {
+        selectAll.checked = (count === total && total > 0);
+        selectAll.indeterminate = (count > 0 && count < total);
+    }
+
+    // Highlight nas linhas selecionadas
+    cbs.forEach(function(cb) {
+        var row = cb.closest('tr');
+        if (row) {
+            if (cb.checked) {
+                row.classList.add('bg-red-50/60');
+            } else {
+                row.classList.remove('bg-red-50/60');
+            }
+        }
+    });
+}
+</script>

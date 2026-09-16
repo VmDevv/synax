@@ -1,0 +1,26 @@
+{# Abas com contadores. Trocadas via OOB depois de cada ação inline. #}
+<div id="curation-tabs" {% if oob %}hx-swap-oob="true"{% endif %} class="flex items-center gap-1 overflow-x-auto pb-px -mb-px">
+    {% set tabs = [
+        ('cfop', 'CFOP', 'fa-arrows-turn-to-dots'),
+        ('pis_cofins', 'PIS/COFINS', 'fa-percent'),
+        ('ipi', 'IPI', 'fa-industry'),
+        ('icms', 'ICMS', 'fa-receipt'),
+        ('cte', 'CT-e', 'fa-truck-fast'),
+        ('anticipation', 'Antecipação', 'fa-forward'),
+        ('item_match', 'Itens SPED×XML', 'fa-wand-magic-sparkles')
+    ] %}
+    {% for key, label, icon in tabs %}
+    <a class="group flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-t-lg border-b-2 cursor-pointer whitespace-nowrap transition-colors
+              {% if current_rule_type == key %}border-[#037fb5] text-[#026a9e] bg-[#9fdbee]/15{% else %}border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50{% endif %}"
+       hx-get="/api/curation/list?rule_type={{ key }}&page=1"
+       hx-target="#curation-list-container" hx-swap="outerHTML"
+       hx-include="[name='q_tenant'], [name='q_supplier'], [name='q_cfop'], [name='q_creator']">
+        <i class="fa-solid {{ icon }} text-xs opacity-60"></i>
+        {{ label }}
+        <span class="px-1.5 py-0.5 rounded-full text-[11px] font-bold tabular-nums
+                     {% if counts[key] %}bg-amber-100 text-amber-700{% else %}bg-slate-100 text-slate-400{% endif %}">
+            {{ counts[key] }}
+        </span>
+    </a>
+    {% endfor %}
+</div>

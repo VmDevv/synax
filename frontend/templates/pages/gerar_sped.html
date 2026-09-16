@@ -1,0 +1,102 @@
+{% extends "layout/base.html" %}
+{% block title %}Gerar SPED dos XMLs | Synax{% endblock %}
+
+{% block content %}
+<main class="w-full">
+
+    <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-3">
+        <h2 class="syn-h2 text-xl font-bold flex items-center gap-2.5">
+            <i class="fa-solid fa-file-import text-base" style="color: var(--syn-700);"></i>
+            Gerar SPED dos XMLs
+        </h2>
+        <p class="text-[13px] text-slate-500">Para empresa que não escritura: sobe o ZIP do mês, sai o arquivo para importar no Domínio.</p>
+    </div>
+
+    <section class="syn-card syn-card-accent overflow-hidden">
+        {# `hx-boost="false"`: o <body> tem boost e este form é multipart com
+           HTMX próprio — deixar os dois disputarem o submit manda o ZIP duas
+           vezes. #}
+        <form id="formGerarSped" hx-post="/api/gerar-sped"
+              hx-encoding="multipart/form-data" hx-target="#resultado-gerar"
+              hx-swap="innerHTML" hx-indicator="#spinner-gerar"
+              hx-boost="false" class="p-5">
+
+            <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_auto] gap-5 items-start mb-5">
+                <div>
+                    <label class="block text-[14px] font-bold text-slate-800 mb-2">
+                        <i class="fa-solid fa-building-user text-syn-600 text-sm mr-1"></i> Empresa
+                    </label>
+                    <select name="tenant_id" required
+                            class="select select-bordered w-full font-medium text-sm rounded-lg">
+                        <option value="" disabled selected>Selecione o cliente...</option>
+                        {% for t in tenants %}
+                        <option value="{{ t.id }}">{{ t.name }} ({{ t.cnpj }})</option>
+                        {% endfor %}
+                    </select>
+                    <p class="text-[11px] text-slate-500 mt-1">
+                        O CNPJ do cadastro é o que separa as notas de entrada dela
+                        das saídas e das de outros clientes que venham no mesmo ZIP.
+                    </p>
+                </div>
+
+                <div>
+                    <label class="block text-[14px] font-bold text-slate-800 mb-2">Perfil</label>
+                    <select name="perfil" class="select select-bordered font-medium text-sm rounded-lg">
+                        <option value="A" selected>A</option>
+                        <option value="B">B</option>
+                        <option value="C">C</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-[14px] font-bold text-slate-800 mb-2">Atividade</label>
+                    <select name="ind_ativ" class="select select-bordered font-medium text-sm rounded-lg">
+                        <option value="1" selected>Outros</option>
+                        <option value="0">Industrial ou equiparado</option>
+                    </select>
+                </div>
+            </div>
+
+            <label class="block text-[14px] font-bold text-slate-800 mb-2">
+                <i class="fa-regular fa-file-zipper text-syn-600 text-sm mr-1"></i>
+                XMLs do mês (.zip)
+            </label>
+            <label class="flex items-center gap-4 border-2 border-dashed border-slate-300 rounded-xl p-5 cursor-pointer hover:border-syn-500 hover:bg-slate-50 transition-colors">
+                <input type="file" name="xmls_zip" accept=".zip,.rar" required class="file-input file-input-sm file-input-bordered w-full max-w-md">
+                <span class="text-[12px] text-slate-500">
+                    NF-e e CT-e de <strong>um mês só</strong> — o SPED é mensal, e um
+                    pacote com duas competências é recusado.
+                </span>
+            </label>
+
+            <div class="flex items-center gap-3 mt-5">
+                <button type="submit" class="btn bg-syn-700 hover:bg-syn-800 text-white font-bold px-6 shadow-sm">
+                    <i class="fa-solid fa-gears mr-1"></i> Gerar arquivo
+                </button>
+                <span id="spinner-gerar" class="htmx-indicator text-sm text-slate-500">
+                    <span class="loading loading-spinner loading-sm"></span>
+                    Lendo os XMLs e montando o arquivo…
+                </span>
+            </div>
+        </form>
+    </section>
+
+    <div id="resultado-gerar" class="mt-5"></div>
+
+    <section class="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-4">
+        <h3 class="font-bold text-sm text-amber-900 mb-1">
+            <i class="fa-solid fa-circle-info mr-1"></i> O que sai daqui é um arquivo de entradas
+        </h3>
+        <p class="text-xs text-slate-700 leading-relaxed">
+            Os XMLs contêm as notas que a empresa recebeu — e só isso. Não há saídas,
+            inventário, ativo nem produção, então os Blocos E, G, H, K e 1 saem
+            declarados como <strong>sem dados</strong> e quem apura é o Domínio, depois
+            de receber os lançamentos. O CFOP de entrada vem da regra aprovada da
+            empresa quando existe; na falta, da conversão do primeiro dígito
+            (5&rarr;1, 6&rarr;2, 7&rarr;3), e a tela mostra quantos itens ficaram nessa
+            situação.
+        </p>
+    </section>
+
+</main>
+{% endblock %}

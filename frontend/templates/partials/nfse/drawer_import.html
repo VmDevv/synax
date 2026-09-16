@@ -1,0 +1,303 @@
+{# Drawer lateral: não cobre a tela inteira, o relatório continua visível ao lado. #}
+<div id="nfse-drawer" class="fixed inset-0 z-50" x-data="{ aberto: true, aba: {{ "'empresas'" if pode_lote else "'adn'" }} }" x-show="aberto" x-cloak>
+    <div class="absolute inset-0 bg-slate-900/30" @click="aberto = false; setTimeout(() => document.getElementById('drawer-container').innerHTML = '', 200)"></div>
+
+    <aside class="absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl flex flex-col"
+           x-transition:enter="transition ease-out duration-200"
+           x-transition:enter-start="translate-x-full" x-transition:enter-end="translate-x-0">
+
+        <div class="px-5 py-4 border-b border-slate-200 flex items-center gap-3" style="background: var(--syn-tint-05);">
+            <div class="w-9 h-9 rounded-lg grid place-items-center" style="background: var(--syn-tint-20); color: var(--syn-900);">
+                <i class="fa-solid fa-file-import"></i>
+            </div>
+            <div class="min-w-0 flex-1">
+                <h3 class="font-bold text-lg leading-tight" style="color: var(--syn-900);">Importar NFS-e</h3>
+                <p class="text-[12px] text-slate-500">XMLs avulsos ou pacote ZIP</p>
+            </div>
+            <button type="button" class="w-8 h-8 grid place-items-center rounded-lg text-slate-400 hover:bg-slate-200 transition"
+                    @click="aberto = false; setTimeout(() => document.getElementById('drawer-container').innerHTML = '', 200)">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <!-- Abas: buscar no governo ou subir arquivo -->
+        <div class="px-5 pt-3 flex gap-1 border-b border-slate-200">
+            {% if pode_lote %}
+            <button type="button" @click="aba = 'empresas'"
+                    class="px-3 py-2 text-[13px] font-semibold rounded-t-lg border-b-2 transition-colors"
+                    :class="aba === 'empresas' ? 'border-[#037fb5] text-[#026092] bg-[#9fdbee]/15' : 'border-transparent text-slate-500 hover:bg-slate-50'">
+                <i class="fa-solid fa-building-user text-xs mr-1"></i> Empresas
+            </button>
+            {% endif %}
+            <button type="button" @click="aba = 'adn'"
+                    class="px-3 py-2 text-[13px] font-semibold rounded-t-lg border-b-2 transition-colors"
+                    :class="aba === 'adn' ? 'border-[#037fb5] text-[#026092] bg-[#9fdbee]/15' : 'border-transparent text-slate-500 hover:bg-slate-50'">
+                <i class="fa-solid fa-cloud-arrow-down text-xs mr-1"></i> Buscar no ADN
+            </button>
+            <button type="button" @click="aba = 'arquivo'"
+                    class="px-3 py-2 text-[13px] font-semibold rounded-t-lg border-b-2 transition-colors"
+                    :class="aba === 'arquivo' ? 'border-[#037fb5] text-[#026092] bg-[#9fdbee]/15' : 'border-transparent text-slate-500 hover:bg-slate-50'">
+                <i class="fa-solid fa-folder-open text-xs mr-1"></i> Enviar arquivos
+            </button>
+        </div>
+
+        <!-- ===== Aba: seleção de empresas (certificado vem da rede) ===== -->
+        {% if pode_lote %}
+        <form x-show="aba === 'empresas'" id="form-empresas"
+              hx-post="/nfse/consultar-lote"
+              hx-target="#nfse-tabela" hx-swap="outerHTML"
+              hx-indicator="#lote-carregando"
+              hx-on::after-request="if(event.detail.successful) { document.getElementById('drawer-container').innerHTML = ''; }"
+              class="flex-1 overflow-y-auto px-5 py-5 space-y-4"
+              x-data='{
+                  sel: [], busca: "", limite: 40, so_prontas: false,
+                  todas: {{ lista_empresas|tojson }},
+                  get filtradas() {
+                      const t = this.busca.toLowerCase().trim();
+                      return this.todas.filter(e =>
+                          (!this.so_prontas || e.ok) && (!t || e.busca.includes(t)));
+                  },
+                  get visiveis() { return this.filtradas.slice(0, this.limite); },
+                  marcarTodas() { this.sel = this.filtradas.filter(e => e.ok).map(e => e.id); }
+              }'>
+
+            <div class="flex items-center justify-between gap-2">
+                <p class="text-[13px] text-slate-600">
+                    O certificado de cada empresa é lido da pasta da rede.
+                </p>
+                <span class="px-2 py-1 rounded-full text-[12px] font-bold tabular-nums shrink-0"
+                      style="background: var(--syn-tint-12); color: var(--syn-900);"
+                      x-text="sel.length + ' sel.'"></span>
+            </div>
+
+            <div class="relative">
+                <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-[11px] text-slate-400"></i>
+                <input type="text" x-model.debounce.250ms="busca" placeholder="Buscar empresa…"
+                       @input="limite = 40"
+                       class="w-full pl-8 pr-3 py-2 text-[13px] rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition">
+            </div>
+
+            <div class="flex items-center gap-2 flex-wrap">
+                <button type="button" class="px-2 py-1 text-[12px] font-medium rounded transition"
+                        style="color: var(--syn-700);"
+                        @click="marcarTodas()">Todas</button>
+                <button type="button" class="px-2 py-1 text-[12px] font-medium text-slate-500 hover:bg-slate-100 rounded transition"
+                        @click="sel = []">Limpar</button>
+                <label class="ml-auto flex items-center gap-1.5 text-[12px] text-slate-600 cursor-pointer">
+                    <input type="checkbox" x-model="so_prontas" @change="limite = 40"
+                           class="checkbox checkbox-xs checkbox-primary">
+                    só com certificado
+                </label>
+            </div>
+
+            <div class="text-[11px] text-slate-400 tabular-nums">
+                Exibindo <span x-text="visiveis.length"></span> de <span x-text="filtradas.length"></span>
+                — <span class="font-semibold text-emerald-600" x-text="todas.filter(e => e.ok).length"></span> com certificado pronto
+            </div>
+
+            <div class="space-y-1.5 max-h-[300px] overflow-y-auto pr-1">
+                <template x-for="e in visiveis" :key="e.id">
+                    <label class="tenant-card relative block">
+                        <input type="checkbox" :value="e.id" class="sr-only"
+                               x-model="sel" :disabled="!e.ok">
+                        <div class="card-body flex items-center gap-3 p-2.5 rounded-lg border-2 border-slate-200 bg-white transition-all"
+                             :class="e.ok ? 'cursor-pointer hover:border-slate-300' : 'opacity-60'">
+                            <div class="min-w-0 flex-1">
+                                <p class="text-[13px] font-semibold text-slate-700 truncate">
+                                    <span x-text="e.nome"></span>
+                                    <template x-if="!e.ativo">
+                                        <span class="text-[10px] font-normal text-slate-400">(Inativa)</span>
+                                    </template>
+                                </p>
+                                <p class="text-[11px] font-mono text-slate-400 truncate" x-text="e.cnpj || 'sem CNPJ'"></p>
+                            </div>
+                            <template x-if="e.ok">
+                                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 shrink-0">
+                                    <i class="fa-solid fa-file-shield"></i> OK
+                                </span>
+                            </template>
+                            <template x-if="!e.ok">
+                                <span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 shrink-0"
+                                      :title="e.motivo" x-text="e.motivo"></span>
+                            </template>
+                            <i class="tc-check fa-solid fa-circle-check opacity-0 transition-opacity shrink-0" style="color: var(--syn-700);"></i>
+                        </div>
+                    </label>
+                </template>
+
+                <template x-if="!filtradas.length">
+                    <p class="py-6 text-center text-[12px] text-slate-400">Nenhuma empresa encontrada.</p>
+                </template>
+
+                <button type="button" x-show="filtradas.length > limite" @click="limite += 40"
+                        class="w-full py-2 text-[12px] font-semibold rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition">
+                    Mostrar mais (<span x-text="filtradas.length - limite"></span> restantes)
+                </button>
+            </div>
+
+            {# A seleção vive fora da lista visível: assim uma empresa marcada e
+               depois escondida pelo filtro continua sendo enviada. #}
+            <template x-for="id in sel" :key="'sel-' + id">
+                <input type="hidden" name="tenant_ids" :value="id">
+            </template>
+
+            <label class="flex items-start gap-2 p-3 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer">
+                <input type="checkbox" name="reiniciar" value="1" class="checkbox checkbox-xs checkbox-primary mt-0.5">
+                <span class="text-[12px] text-slate-600">
+                    <span class="font-semibold text-slate-700">Recomeçar do zero</span> — ignora o histórico de NSU.
+                </span>
+            </label>
+
+            <div id="lote-carregando" class="htmx-indicator items-center gap-2 text-[13px] text-slate-600">
+                <span class="loading loading-spinner loading-sm text-[#037fb5]"></span>
+                Consultando o ADN empresa por empresa…
+            </div>
+        </form>
+        {% endif %}
+
+        <!-- ===== Aba: consulta ao ADN com certificado enviado agora ===== -->
+        <form x-show="aba === 'adn'" id="form-adn"
+              hx-post="/nfse/consultar-adn" hx-encoding="multipart/form-data"
+              hx-target="#nfse-tabela" hx-swap="outerHTML"
+              hx-indicator="#adn-carregando"
+              hx-on::after-request="if(event.detail.successful) { document.getElementById('drawer-container').innerHTML = ''; }"
+              class="flex-1 overflow-y-auto px-5 py-5 space-y-4">
+
+            <div>
+                <label class="block text-[13px] font-semibold text-slate-600 mb-1.5">Empresa</label>
+                <select name="tenant_id" required
+                        class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition"
+                        onchange="const o=this.options[this.selectedIndex]; const c=o.dataset.cnpj || '';
+                                  const alvo=this.form.querySelector('[name=cnpj]'); if(c && !alvo.value) alvo.value=c;">
+                    <option value="" disabled selected>Selecione a empresa…</option>
+                    {% for e in empresas %}
+                    <option value="{{ e.id }}" data-cnpj="{{ (e.cnpj or '')|replace('.','')|replace('/','')|replace('-','') }}">
+                        {{ e.name }}{% if e.cnpj %} — {{ e.cnpj }}{% endif %}{% if not e.ativo %} (Inativa){% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-[13px] font-semibold text-slate-600 mb-1.5">CNPJ a consultar</label>
+                <input type="text" name="cnpj" required inputmode="numeric" maxlength="18"
+                       placeholder="somente números"
+                       class="w-full px-3 py-2 text-sm font-mono rounded-lg border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition">
+                <p class="text-[11px] text-slate-400 mt-1">O certificado precisa pertencer a este CNPJ (ou haver procuração).</p>
+            </div>
+
+            <div>
+                <label class="block text-[13px] font-semibold text-slate-600 mb-1.5">Certificado A1 (.pfx)</label>
+                <label for="adn-cert"
+                       class="flex items-center justify-center gap-2 w-full h-16 border-2 border-dashed rounded-lg cursor-pointer transition-colors"
+                       style="border-color: var(--syn-300); background: var(--syn-tint-05);">
+                    <i class="fa-solid fa-file-shield" style="color: var(--syn-500);"></i>
+                    <span class="text-[13px] text-slate-600 font-medium" id="adn-cert-label">Selecionar arquivo .pfx</span>
+                    <input id="adn-cert" type="file" name="certificado" required accept=".pfx,.p12" class="hidden"
+                           onchange="document.getElementById('adn-cert-label').innerText = this.files[0]?.name || 'Selecionar arquivo .pfx'">
+                </label>
+            </div>
+
+            <div>
+                <label class="block text-[13px] font-semibold text-slate-600 mb-1.5">Senha do certificado</label>
+                <input type="password" name="senha" required autocomplete="off"
+                       class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition">
+            </div>
+
+            <label class="flex items-start gap-2 p-3 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer">
+                <input type="checkbox" name="reiniciar" value="1" class="checkbox checkbox-xs checkbox-primary mt-0.5">
+                <span class="text-[12px] text-slate-600">
+                    <span class="font-semibold text-slate-700">Recomeçar do zero</span><br>
+                    Ignora o histórico e busca desde o NSU 0. Use apenas se algo se perdeu —
+                    normalmente a busca continua de onde parou.
+                </span>
+            </label>
+
+            <div class="p-3 rounded-lg border border-emerald-200 bg-emerald-50">
+                <p class="text-[12px] text-emerald-900">
+                    <i class="fa-solid fa-lock mr-1"></i>
+                    <span class="font-semibold">O certificado não é armazenado.</span>
+                    Ele é usado apenas nesta consulta e descartado ao final.
+                </p>
+            </div>
+
+            <div id="adn-carregando" class="htmx-indicator items-center gap-2 text-[13px] text-slate-600">
+                <span class="loading loading-spinner loading-sm text-[#037fb5]"></span>
+                Consultando o ADN… isso pode levar alguns minutos.
+            </div>
+        </form>
+
+        <!-- ===== Aba 2: envio de arquivos ===== -->
+        <form x-show="aba === 'arquivo'" id="form-arquivo"
+              hx-post="/nfse/importar" hx-encoding="multipart/form-data"
+              hx-target="#nfse-tabela" hx-swap="outerHTML"
+              hx-on::after-request="if(event.detail.successful) { document.getElementById('drawer-container').innerHTML = ''; }"
+              class="flex-1 overflow-y-auto px-5 py-5 space-y-5">
+
+            <div>
+                <label class="block text-[13px] font-semibold text-slate-600 mb-1.5">Empresa (tomadora)</label>
+                <select name="tenant_id" required
+                        class="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition">
+                    <option value="" disabled selected>Selecione a empresa…</option>
+                    {% for e in empresas %}
+                    <option value="{{ e.id }}">{{ e.name }}{% if e.cnpj %} — {{ e.cnpj }}{% endif %}{% if not e.ativo %} (Inativa){% endif %}</option>
+                    {% endfor %}
+                </select>
+                <p class="text-[11px] text-slate-400 mt-1">As notas ficam vinculadas a esta empresa.</p>
+            </div>
+
+            <div>
+                <label class="block text-[13px] font-semibold text-slate-600 mb-1.5">Arquivos</label>
+                <label for="nfse-arquivos"
+                       class="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed rounded-lg cursor-pointer transition-colors"
+                       style="border-color: var(--syn-300); background: var(--syn-tint-05);"
+                       onmouseover="this.style.background='var(--syn-tint-12)'"
+                       onmouseout="this.style.background='var(--syn-tint-05)'">
+                    <i class="fa-solid fa-cloud-arrow-up text-2xl mb-1.5" style="color: var(--syn-500);"></i>
+                    <p class="text-[13px] text-slate-600 font-medium" id="nfse-arquivos-label">
+                        <span style="color: var(--syn-700);" class="font-semibold">Clique</span> ou arraste os XMLs / ZIP
+                    </p>
+                    <input id="nfse-arquivos" type="file" name="arquivos" multiple required
+                           accept=".xml,.zip" class="hidden"
+                           onchange="document.getElementById('nfse-arquivos-label').innerHTML =
+                                     this.files.length + ' arquivo(s) selecionado(s)'">
+                </label>
+            </div>
+
+            <div class="p-3 rounded-lg border border-slate-200 bg-slate-50">
+                <p class="text-[12px] font-semibold text-slate-700 mb-1">
+                    <i class="fa-solid fa-folder-tree mr-1" style="color: var(--syn-700);"></i> Local de salvamento
+                </p>
+                <p class="text-[11px] text-slate-500 font-mono break-all">{{ storage_dir }}</p>
+                <p class="text-[11px] text-slate-500 mt-1.5">
+                    Organizado automaticamente em <span class="font-mono">CNPJ / ano-mês / arquivo.xml</span>.
+                </p>
+                {% if not storage_ok %}
+                <p class="mt-2 px-2 py-1.5 rounded bg-amber-50 border border-amber-200 text-[11px] text-amber-800">
+                    <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+                    Diretório indisponível no momento. As notas serão indexadas, mas os arquivos não serão gravados.
+                </p>
+                {% endif %}
+            </div>
+        </form>
+
+        <div class="px-5 py-4 border-t border-slate-200 flex items-center justify-end gap-2" style="background: var(--syn-tint-05);">
+            <button type="button" class="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-200 rounded-lg transition"
+                    @click="aberto = false; setTimeout(() => document.getElementById('drawer-container').innerHTML = '', 200)">Cancelar</button>
+            <button type="button"
+                    @click="document.getElementById(aba === 'empresas' ? 'form-empresas' : (aba === 'adn' ? 'form-adn' : 'form-arquivo')).requestSubmit()"
+                    class="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-lg text-white shadow-sm transition"
+                    style="background: var(--syn-700);"
+                    onmouseover="this.style.background='var(--syn-900)'"
+                    onmouseout="this.style.background='var(--syn-700)'">
+                <i class="fa-solid text-[12px]" :class="aba === 'arquivo' ? 'fa-file-import' : 'fa-cloud-arrow-down'"></i>
+                <span x-text="aba === 'arquivo' ? 'Importar' : 'Buscar notas'"></span>
+            </button>
+        </div>
+    </aside>
+</div>
+<style>
+  [x-cloak]{display:none!important}
+  .tenant-card input:checked ~ .card-body { border-color:#037fb5; background:rgba(159,219,238,.18); }
+  .tenant-card input:checked ~ .card-body .tc-check { opacity:1; }
+</style>

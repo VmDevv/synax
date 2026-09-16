@@ -1,0 +1,88 @@
+{# `hx-trigger="buscaRegras from:body"` fica NESTE div, e não no invólucro que o
+   rules_list.html monta: a paginação troca o invólucro por outerHTML, então
+   qualquer listener declarado lá some no primeiro clique de "Próximo". Aqui ele
+   volta a cada renderização. #}
+<div id="table-container-anticipation"
+     hx-get="/admin/rules/anticipation?tenant_id={{ tenant_id }}&page=1&per_page={{ per_page }}&status={{ status }}"
+     hx-trigger="buscaRegras from:body"
+     hx-include="#busca-regras"
+     hx-target="this" hx-swap="outerHTML">
+    {% if busca %}
+    <div class="px-4 py-2 bg-blue-50 border-b border-blue-100 text-xs text-blue-800 flex items-center gap-2">
+        <i class="fa-solid fa-filter"></i>
+        <span><b>{{ total }}</b> resultado(s) para "<b>{{ busca }}</b>"</span>
+    </div>
+    {% endif %}
+    <div class="overflow-x-auto">
+        <table class="table w-full text-sm table-pin-rows [&_th]:py-3.5 [&_th]:px-4 [&_td]:py-3 [&_td]:px-4">
+            <thead class="bg-slate-50 text-slate-500">
+                <tr>
+                    <th>UF Origem</th>
+                    <th>CFOP</th>
+                    <th>Red. BC (%)</th>
+                    <th>MVA (%)</th>
+                    <th>Aliq. Int (%)</th>
+                    <th>Aliq. Inter (%)</th>
+                    <th class="text-right">Ações</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for r in anticipation_rules %}
+                <tr class="hover:bg-slate-50 transition-colors" id="row-anticipation-{{ loop.index }}">
+                    <td class="font-bold text-rose-700">{{ r.uf_origem }}</td>
+                    <td class="font-mono font-bold text-slate-700">{{ r.cfop }}</td>
+                    <td>{{ "%.2f"|format(r.reducao_base_calculo_percentage) }}</td>
+                    <td>{{ "%.2f"|format(r.mva_percentage) }}</td>
+                    <td>{{ "%.2f"|format(r.aliquota_interna_percentage) }}</td>
+                    <td>{{ "%.2f"|format(r.aliquota_interestadual_percentage) }}</td>
+                    <td class="text-right">
+                        <button class="btn btn-xs btn-ghost text-red-400 hover:bg-red-50 hover:text-red-600"
+                                hx-delete="/admin/rules/anticipation/delete?tenant_id={{ tenant_id }}&cfop={{ r.cfop }}"
+                                hx-confirm="Tem certeza que deseja excluir esta regra?"
+                                hx-target="#row-anticipation-{{ loop.index }}" hx-swap="outerHTML swap:0.5s">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="py-8 text-center text-slate-500">{% if busca %}Nenhuma regra de cálculo de antecipação casa com “{{ busca }}”.{% else %}Nenhuma regra de cálculo de antecipação encontrada.{% endif %}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Paginação -->
+    <div class="px-4 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-sm">
+        <div class="flex items-center gap-4" id="filters-anticipation">
+            <div class="flex items-center gap-2 text-slate-500">
+                <input type="hidden" name="tenant_id" value="{{ tenant_id }}">
+                <span>Mostrar</span>
+                <select class="select select-bordered select-xs bg-white text-slate-700" 
+                    hx-get="/admin/rules/anticipation" hx-target="#table-container-anticipation" hx-swap="outerHTML" 
+                    name="per_page" hx-include="#filters-anticipation [name='tenant_id'], #filters-anticipation select, #busca-regras">
+                <option value="10" {% if per_page == 10 %}selected{% endif %}>10</option>
+                <option value="25" {% if per_page == 25 %}selected{% endif %}>25</option>
+                <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+                <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
+            </select>
+            <input type="hidden" name="tenant_id" value="{{ tenant_id }}">
+            <span class="htmx-indicator loading loading-spinner loading-xs text-rose-500 ml-2"></span>
+        </div>
+        
+        <div class="join">
+            <button class="join-item btn btn-xs {% if page <= 1 %}btn-disabled{% else %}bg-white border-slate-300 text-slate-700 hover:bg-slate-100{% endif %}"
+                    hx-get="/admin/rules/anticipation" hx-target="#table-container-anticipation" hx-swap="outerHTML"
+                    hx-include="#busca-regras" hx-vals='{"tenant_id": "{{ tenant_id }}", "page": "{{ page - 1 }}", "per_page": "{{ per_page }}", "status": "{{ status }}"}'>
+                <i class="fa-solid fa-chevron-left"></i> Anterior
+            </button>
+            <button class="join-item btn btn-xs bg-white border-slate-300 text-slate-700 pointer-events-none">
+                Página {{ page }} de {{ total_pages }}
+            </button>
+            <button class="join-item btn btn-xs {% if page >= total_pages %}btn-disabled{% else %}bg-white border-slate-300 text-slate-700 hover:bg-slate-100{% endif %}"
+                    hx-get="/admin/rules/anticipation" hx-target="#table-container-anticipation" hx-swap="outerHTML"
+                    hx-include="#busca-regras" hx-vals='{"tenant_id": "{{ tenant_id }}", "page": "{{ page + 1 }}", "per_page": "{{ per_page }}", "status": "{{ status }}"}'>
+                Próximo <i class="fa-solid fa-chevron-right"></i>
+            </button>
+        </div>
+    </div>
+</div>

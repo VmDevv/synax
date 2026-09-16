@@ -1,0 +1,59 @@
+<dialog class="modal modal-open">
+    <div class="modal-box bg-white text-slate-800 max-w-3xl">
+        <h3 class="font-bold text-lg mb-4">Editar Regra</h3>
+        
+        <form hx-post="/admin/rules/edit" hx-target="#admin-content" hx-swap="outerHTML">
+            <input type="hidden" name="tenant_id" value="{{ tenant_id }}" />
+            <input type="hidden" name="rule_type" value="{{ rule_type }}" />
+            
+            {% if rule_type == 'classification' %}
+            <input type="hidden" name="company_cnpj" value="{{ rule.company_cnpj }}" />
+            <input type="hidden" name="supplier_cnpj" value="{{ rule.supplier_cnpj }}" />
+            <input type="hidden" name="supplier_cfop" value="{{ rule.supplier_cfop }}" />
+            <input type="hidden" name="product_code" value="{{ rule.product_code }}" />
+            
+            <div class="alert alert-info bg-blue-50 text-blue-800 border-blue-200 mb-4 p-3 text-sm">
+                As chaves primárias (CNPJs e Códigos originais) não podem ser alteradas. Você só pode alterar o destino e a descrição.
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div class="form-control">
+                    <label class="label"><span class="label-text text-slate-600">Descrição do Produto</span></label>
+                    <input type="text" name="product_description" value="{{ rule.product_description }}" class="input input-sm input-bordered bg-slate-50 border-slate-300 w-full text-slate-900" />
+                </div>
+                <div class="form-control">
+                    <label class="label"><span class="label-text font-bold text-blue-600">CFOP de Entrada (Destino)</span></label>
+                    <input type="text" name="entry_cfop" value="{{ rule.entry_cfop }}" class="input input-sm input-bordered bg-slate-50 border-blue-300 w-full text-slate-900 font-bold" />
+                </div>
+            </div>
+            
+            {% elif rule_type == 'credit' %}
+            <input type="hidden" name="cfop" value="{{ rule.cfop }}" />
+            
+            <div class="alert alert-info bg-blue-50 text-blue-800 border-blue-200 mb-4 p-3 text-sm">
+                CFOP Original: <strong>{{ rule.cfop }}</strong>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div class="form-control">
+                    <label class="label"><span class="label-text text-slate-600">Permite Crédito de ICMS?</span></label>
+                    <select name="allow_credit" class="select select-sm select-bordered bg-slate-50 border-slate-300 text-slate-900 w-full">
+                        <option value="True" {% if rule.allow_credit %}selected{% endif %}>Sim</option>
+                        <option value="False" {% if not rule.allow_credit %}selected{% endif %}>Não</option>
+                    </select>
+                </div>
+                <div class="form-control">
+                    <label class="label"><span class="label-text text-slate-600">Descrição</span></label>
+                    <input type="text" name="description" value="{{ rule.description }}" class="input input-sm input-bordered bg-slate-50 border-slate-300 w-full text-slate-900" />
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="modal-action">
+                <button type="button" class="btn btn-ghost text-slate-600" onclick="document.getElementById('modal-container').innerHTML = ''">Cancelar</button>
+                <button type="submit" class="btn btn-primary bg-blue-600 hover:bg-blue-700 border-none text-white">Salvar Alterações</button>
+            </div>
+        </form>
+    </div>
+    <div class="modal-backdrop bg-slate-900/40" onclick="document.getElementById('modal-container').innerHTML = ''"></div>
+</dialog>

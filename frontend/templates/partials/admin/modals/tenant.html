@@ -1,0 +1,30 @@
+<dialog class="modal modal-open">
+    <div class="modal-box bg-white text-slate-800">
+        <h3 class="font-bold text-lg mb-4">Cadastrar Nova Empresa</h3>
+        <!-- O formulário posta para /admin/tenants. O backend retorna a tabela atualizada. O HTMX dá swap na tabela alvo e também limpamos o #modal-container por OOB -->
+        <form hx-post="/admin/tenants" hx-target="#admin-content" hx-swap="outerHTML">
+            <div class="form-control mb-3">
+                <label class="label"><span class="label-text font-semibold text-slate-600">Razão Social</span></label>
+                <input type="text" name="name" required class="input input-bordered bg-slate-50 border-slate-300 w-full text-slate-900" />
+            </div>
+            <div class="form-control mb-3">
+                <label class="label"><span class="label-text font-semibold text-slate-600">CNPJ</span></label>
+                <input type="text" name="cnpj" required class="input input-bordered bg-slate-50 border-slate-300 w-full text-slate-900" placeholder="00.000.000/0001-00"/>
+            </div>
+            {# A UF decide CFOP 1933 (interna) x 2933 (interestadual) na auditoria de
+               PDF. Ja esteve fixa como "ES" no codigo, e nota RJxRJ saia como 2933. #}
+            <div class="form-control mb-5">
+                <label class="label"><span class="label-text font-semibold text-slate-600">UF</span></label>
+                <input type="text" name="uf" required maxlength="2" style="text-transform: uppercase"
+                       class="input input-bordered bg-slate-50 border-slate-300 w-full text-slate-900" placeholder="ES"/>
+                <span class="text-[11px] text-slate-500 mt-1">Estado da empresa. Decide se a nota de servico e CFOP 1933 (interna) ou 2933 (interestadual).</span>
+            </div>
+            <div class="modal-action">
+                <!-- Fechar modal removendo o conteudo de #modal-container -->
+                <button type="button" class="btn btn-ghost text-slate-600" onclick="document.getElementById('modal-container').innerHTML = ''">Cancelar</button>
+                <button type="submit" class="btn btn-primary bg-blue-600 hover:bg-blue-700 border-none text-white">Salvar Empresa</button>
+            </div>
+        </form>
+    </div>
+    <div class="modal-backdrop bg-slate-900/40" onclick="document.getElementById('modal-container').innerHTML = ''"></div>
+</dialog>

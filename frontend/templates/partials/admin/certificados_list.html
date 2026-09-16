@@ -1,0 +1,274 @@
+<div id="admin-content" class="animate-fade-in">
+
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+            <h3 class="text-lg font-bold" style="color: var(--syn-900);">Certificados Digitais</h3>
+            <p class="text-[13px] text-slate-500">
+                Vínculo empresa → arquivo A1 e senha. A senha é gravada cifrada.
+            </p>
+        </div>
+        <div class="text-[12px] text-slate-500 text-right">
+            <span class="font-mono">{{ pasta }}</span><br>
+            {% if pasta_ok %}
+            <span class="text-emerald-600 font-semibold">{{ arquivos|length }} arquivo(s) disponíveis</span>
+            {% else %}
+            <span class="text-red-600 font-semibold">pasta indisponível</span>
+            {% endif %}
+        </div>
+    </div>
+
+    {% set inc = "[name='q'], [name='situacao'], [name='per_page']" %}
+    {% set attrs = 'hx-get="/admin/certificados" hx-target="#admin-content" hx-swap="outerHTML" hx-include="' ~ inc ~ '"' %}
+
+    {# ===== Resumo de vencimento — conta todas as empresas, não só a página =====
+       Classes escritas por extenso, e não montadas com o nome da cor: o Tailwind
+       só gera o CSS das classes que encontra escritas no HTML. #}
+    {% set cartoes = [
+        ('ok',           'fa-circle-check',         'Válidos',
+         'acima de ' ~ dias_alerta ~ ' dias',
+         'bg-emerald-50 border-emerald-200 hover:border-emerald-400',
+         'text-emerald-700', 'text-emerald-800', 'ring-emerald-400'),
+        ('alerta',       'fa-triangle-exclamation', 'A vencer',
+         'nos próximos ' ~ dias_alerta ~ ' dias',
+         'bg-amber-50 border-amber-200 hover:border-amber-400',
+         'text-amber-700', 'text-amber-800', 'ring-amber-400'),
+        ('problema',     'fa-circle-xmark',         'Com problema',
+         'expirado ou arquivo ausente',
+         'bg-red-50 border-red-200 hover:border-red-400',
+         'text-red-700', 'text-red-800', 'ring-red-400'),
+        ('desconhecido', 'fa-circle-question',      'Não verificados',
+         'use o botão Verificar validades',
+         'bg-slate-50 border-slate-200 hover:border-slate-400',
+         'text-slate-600', 'text-slate-700', 'ring-slate-400')
+    ] %}
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 mb-3">
+        {% for chave, icone, titulo, ajuda, caixa, tom, forte, anel in cartoes %}
+        <button type="button"
+                hx-get="/admin/certificados?situacao={{ '' if situacao == chave else chave }}"
+                hx-target="#admin-content" hx-swap="outerHTML"
+                hx-include="[name='q'], [name='per_page']"
+                title="{{ ajuda }} — clique para {{ 'limpar o filtro' if situacao == chave else 'filtrar' }}"
+                class="text-left px-3 py-2.5 rounded-xl border transition {{ caixa }}
+                       {% if situacao == chave %}ring-2 {{ anel }}{% endif %}">
+            <div class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide {{ tom }}">
+                <i class="fa-solid {{ icone }}"></i> {{ titulo }}
+            </div>
+            <div class="text-2xl font-bold tabular-nums {{ forte }} leading-tight mt-0.5">{{ resumo[chave] }}</div>
+            <div class="text-[10px] {{ tom }} opacity-80 leading-tight">{{ ajuda }}</div>
+        </button>
+        {% endfor %}
+    </div>
+    <div class="syn-toolbar px-3 py-2.5 rounded-t-xl flex flex-wrap items-end gap-2 border border-b-0" style="border-color: rgba(113,188,219,.35);">
+        <div class="relative flex-1 min-w-[180px]">
+            <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] text-slate-400"></i>
+            <input type="text" name="q" value="{{ q }}" placeholder="Buscar empresa ou CNPJ…"
+                   {{ attrs|safe }} hx-trigger="keyup changed delay:400ms, search"
+                   class="w-full pl-7 pr-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:border-[#037fb5] focus:outline-none">
+        </div>
+        <select name="situacao" {{ attrs|safe }} hx-trigger="change"
+                class="px-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:outline-none">
+            <option value="" {% if not situacao %}selected{% endif %}>Todas</option>
+            <option value="prontos" {% if situacao == 'prontos' %}selected{% endif %}>Prontos</option>
+            <option value="pendentes" {% if situacao == 'pendentes' %}selected{% endif %}>Pendentes</option>
+            <option value="alerta" {% if situacao == 'alerta' %}selected{% endif %}>A vencer</option>
+            <option value="problema" {% if situacao == 'problema' %}selected{% endif %}>Com problema</option>
+            <option value="desconhecido" {% if situacao == 'desconhecido' %}selected{% endif %}>Não verificados</option>
+        </select>
+        <select name="per_page" {{ attrs|safe }} hx-trigger="change"
+                class="px-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:outline-none">
+            {% for n in [25, 50, 100] %}
+            <option value="{{ n }}" {% if per_page == n %}selected{% endif %}>{{ n }}/pág</option>
+            {% endfor %}
+        </select>
+        <button type="button"
+                hx-post="/admin/certificados/validades"
+                hx-target="#admin-content" hx-swap="outerHTML"
+                hx-indicator="#lendo-validades"
+                hx-confirm="Ler todos os certificados da pasta e atualizar as datas de vencimento? Leva cerca de 40 segundos — não feche a página."
+                title="Abre cada .pfx e grava a data de expiração (~40s para 164 certificados)"
+                class="px-2.5 py-1.5 text-[12px] font-semibold rounded-md text-white transition whitespace-nowrap"
+                style="background: var(--syn-700);">
+            <i class="fa-solid fa-arrows-rotate mr-1"></i> Verificar validades
+        </button>
+        <div id="lendo-validades" class="htmx-indicator items-center gap-1.5 text-[12px] text-slate-600">
+            <span class="loading loading-spinner loading-xs" style="color: var(--syn-700);"></span>
+            lendo os certificados…
+        </div>
+        <div class="ml-auto text-[12px] text-slate-500">
+            <span class="font-bold text-emerald-600 tabular-nums">{{ prontos }}</span> pronto(s)
+            de <span class="font-bold text-slate-700 tabular-nums">{{ total }}</span>
+        </div>
+    </div>
+
+    <div class="syn-card overflow-hidden rounded-t-none">
+        <table class="w-full text-[13px]">
+            <thead class="syn-thead">
+                <tr class="text-[10px] uppercase tracking-wide">
+                    <th class="px-3 py-2 text-left font-semibold">Empresa</th>
+                    <th class="px-3 py-2 text-left font-semibold">Arquivo do certificado</th>
+                    <th class="px-3 py-2 text-left font-semibold">Senha</th>
+                    <th class="px-3 py-2 text-center font-semibold">Ativo</th>
+                    <th class="px-3 py-2 text-left font-semibold">Validade / Status</th>
+                    <th class="px-3 py-2 text-right font-semibold">Ações</th>
+                </tr>
+            </thead>
+            <tbody class="syn-zebra divide-y divide-slate-100">
+                {% for l in linhas %}
+                {# Um <form> não pode envolver <td>s: a especificação de tabela do HTML5
+                   não permite <form> como filho de <tr>, e o navegador o descarta ao
+                   montar o DOM — o botão "Salvar" ficava sem form nenhum para submeter,
+                   e um <tr> só com esse botão (certificado ainda não cadastrado) parecia
+                   simplesmente não fazer nada. Em vez de form+submit, cada ação carrega
+                   os campos da própria linha via hx-include="closest tr". #}
+                <tr>
+                    <td class="px-3 py-2">
+                        <div class="font-semibold text-slate-700">{{ l.tenant.name }}</div>
+                        <div class="text-[11px] font-mono text-slate-400">{{ l.cnpj or 'sem CNPJ' }}</div>
+                    </td>
+                    <td class="px-3 py-2">
+                        {# Só o valor atual vem do servidor. Repetir os 172 arquivos
+                           em cada linha gerava 1,2 MB de HTML por página — era isso
+                           que travava a aba. A lista completa entra no primeiro clique. #}
+                        <select name="arquivo" data-atual="{{ l.arquivo or '' }}"
+                                onmousedown="synPreencherCert(this)" onfocus="synPreencherCert(this)"
+                                class="w-full max-w-[300px] px-2 py-1 text-[12px] rounded border border-slate-200 bg-white focus:border-[#037fb5] focus:outline-none">
+                            {% if l.arquivo %}
+                            <option value="{{ l.arquivo }}" selected>{{ l.rotulo }}</option>
+                            {% else %}
+                            <option value="">— não vinculado —</option>
+                            {% endif %}
+                        </select>
+                        {% if l.sugerido %}
+                        <div class="text-[10px] text-amber-700 mt-0.5">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> sugerido pelo CNPJ — salve para confirmar
+                        </div>
+                        {% endif %}
+                    </td>
+                    <td class="px-3 py-2">
+                        <input type="password" name="senha" autocomplete="off"
+                               placeholder="{% if l.cert %}•••••• (manter){% else %}definir senha{% endif %}"
+                               title="Enter salva"
+                               hx-post="/admin/certificados/{{ l.tenant.id }}"
+                               hx-include="closest tr" hx-trigger="keyup[key=='Enter']"
+                               hx-target="#admin-content" hx-swap="outerHTML"
+                               class="w-[140px] px-2 py-1 text-[12px] rounded border border-slate-200 bg-white focus:border-[#037fb5] focus:outline-none">
+                    </td>
+                    <td class="px-3 py-2 text-center">
+                        <input type="checkbox" name="ativo" value="1"
+                               class="checkbox checkbox-xs checkbox-primary"
+                               {% if not l.cert or l.cert.ativo %}checked{% endif %}>
+                    </td>
+                    <td class="px-3 py-2 whitespace-nowrap">
+                        {% set v = l.validade %}
+                        {% if v.cor == 'emerald' %}
+                        {% set estilo = 'bg-emerald-100 text-emerald-800' %}
+                        {% elif v.cor == 'amber' %}
+                        {% set estilo = 'bg-amber-100 text-amber-900' %}
+                        {% elif v.cor == 'red' %}
+                        {% set estilo = 'bg-red-100 text-red-800' %}
+                        {% else %}
+                        {% set estilo = 'bg-slate-100 text-slate-600' %}
+                        {% endif %}
+
+                        {% if v.validade %}
+                        <div class="font-semibold text-slate-700 tabular-nums leading-tight">
+                            {{ v.validade.strftime('%d/%m/%Y') }}
+                        </div>
+                        {% endif %}
+                        <span class="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold {{ estilo }}">
+                            {% if v.cor == 'amber' %}<i class="fa-solid fa-triangle-exclamation mr-0.5"></i>
+                            {% elif v.cor == 'red' %}<i class="fa-solid fa-circle-xmark mr-0.5"></i>
+                            {% elif v.cor == 'emerald' %}<i class="fa-solid fa-circle-check mr-0.5"></i>{% endif %}
+                            {{ v.rotulo }}
+                        </span>
+                        {% if l.cert and l.cert.ultimo_erro %}
+                        <div class="text-[10px] text-red-600 mt-0.5 whitespace-normal">{{ l.cert.ultimo_erro }}</div>
+                        {% endif %}
+                    </td>
+                    <td class="px-3 py-2 text-right whitespace-nowrap">
+                        <button type="button"
+                                hx-post="/admin/certificados/{{ l.tenant.id }}"
+                                hx-include="closest tr"
+                                hx-target="#admin-content" hx-swap="outerHTML"
+                                class="px-2.5 py-1 text-[12px] font-semibold rounded text-white transition"
+                                style="background: var(--syn-700);">Salvar</button>
+                        {% if l.cert %}
+                        <button type="button"
+                                class="px-2.5 py-1 text-[12px] font-semibold rounded border border-slate-300 text-slate-600 hover:bg-slate-100 transition"
+                                hx-post="/admin/certificados/{{ l.tenant.id }}/testar"
+                                hx-target="#admin-content" hx-swap="outerHTML">Testar</button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="py-10 text-center text-slate-400">Nenhuma empresa neste filtro.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        {% if total_pages > 1 %}
+        <div class="px-4 py-2.5 flex items-center justify-between gap-3 text-[12px] text-slate-500"
+             style="background: var(--syn-tint-05); border-top: 1px solid rgba(113,188,219,.30);">
+            <span>Página <span class="font-bold text-slate-700">{{ page }}</span> de {{ total_pages }}</span>
+            <div class="flex gap-2">
+                <button class="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 transition"
+                        {% if page <= 1 %}disabled{% endif %}
+                        hx-get="/admin/certificados?page={{ page - 1 }}" hx-target="#admin-content"
+                        hx-swap="outerHTML" hx-include="{{ inc }}">
+                    <i class="fa-solid fa-chevron-left text-[10px]"></i>
+                </button>
+                <button class="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 transition"
+                        {% if page >= total_pages %}disabled{% endif %}
+                        hx-get="/admin/certificados?page={{ page + 1 }}" hx-target="#admin-content"
+                        hx-swap="outerHTML" hx-include="{{ inc }}">
+                    <i class="fa-solid fa-chevron-right text-[10px]"></i>
+                </button>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if arquivos | selectattr('sensivel') | list %}
+    <div class="mt-3 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-[12px] text-amber-900">
+        <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+        <strong>{{ arquivos | selectattr('sensivel') | list | length }} arquivo(s) têm a senha no próprio nome</strong>
+        (marcados com ⚠). O nome é exibido mascarado aqui, mas quem abrir a pasta lê a senha — vale renomeá-los.
+    </div>
+    {% endif %}
+
+    {# Uma cópia da lista de arquivos para a página inteira. #}
+    <script id="certs-arquivos" type="application/json">{{ arquivos|tojson }}</script>
+    <script>
+    (function () {
+        var dados = JSON.parse(document.getElementById('certs-arquivos').textContent);
+        window.synPreencherCert = function (sel) {
+            if (sel.dataset.pronto) return;
+            sel.dataset.pronto = '1';
+            var atual = sel.dataset.atual || '';
+            sel.innerHTML = '';
+            var vazio = new Option('— não vinculado —', '');
+            sel.appendChild(vazio);
+            var frag = document.createDocumentFragment();
+            for (var i = 0; i < dados.length; i++) {
+                var a = dados[i];
+                frag.appendChild(new Option(a.rotulo + (a.sensivel ? ' ⚠' : ''), a.nome));
+            }
+            sel.appendChild(frag);
+            sel.value = atual;
+        };
+    })();
+    </script>
+
+    <div id="modal-container" hx-swap-oob="innerHTML"></div>
+</div>
+
+{% if toast_message %}
+{# O auto-dispensar vive em layout/base.html e vale para todo toast. Cada tela
+   mandava o próprio setTimeout, que removia "o último da lista" em vez do
+   próprio toast — e a Curadoria não mandava nenhum, empilhando avisos. #}
+<div id="toast-container" hx-swap-oob="beforeend">
+    <div class="alert shadow-lg bg-slate-800 text-white font-medium text-sm flex items-center gap-2 mb-2">
+        <span>{{ toast_message }}</span>
+    </div>
+</div>
+{% endif %}

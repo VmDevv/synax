@@ -1,0 +1,132 @@
+<div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+    <div class="border-b border-slate-100 pb-4 mb-6 flex justify-between items-center">
+        <div>
+            <h3 class="text-xl font-bold text-slate-800 flex items-center gap-2">
+                <i class="fa-solid fa-envelope-open-text text-blue-600"></i> Gerador Inteligente de E-mails para Clientes
+            </h3>
+            <p class="text-sm text-slate-500 mt-1">
+                Selecione os parâmetros e divergências identificadas na auditoria para montar um e-mail profissional e personalizado.
+            </p>
+        </div>
+        <span class="badge badge-primary badge-outline font-semibold">Exclusivo Admin</span>
+    </div>
+
+    <form class="space-y-6" hx-post="/admin/email-generator/generate" hx-target="#email-preview-container" hx-swap="innerHTML">
+        <!-- Linha 1: Empresa, Destinatário, Período -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+                <label class="block text-xs font-bold uppercase text-slate-600 mb-1">
+                    <i class="fa-solid fa-building mr-1"></i> Empresa / Cliente Auditado
+                </label>
+                <select name="tenant_id" class="select select-bordered select-sm w-full font-medium" required>
+                    <option value="">-- Selecione uma Empresa --</option>
+                    {% for t in tenants %}
+                    <option value="{{ t.id }}">{{ t.name }} {% if t.cnpj %} ({{ t.cnpj }}){% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-xs font-bold uppercase text-slate-600 mb-1">
+                    <i class="fa-solid fa-user mr-1"></i> Saudação / Destinatário
+                </label>
+                <input type="text" name="recipient_name" class="input input-bordered input-sm w-full" value="Responsável Fiscal / Contabilidade" required />
+            </div>
+
+            <div>
+                <label class="block text-xs font-bold uppercase text-slate-600 mb-1">
+                    <i class="fa-solid fa-calendar mr-1"></i> Período Apurado
+                </label>
+                <input type="text" name="period" class="input input-bordered input-sm w-full" placeholder="Ex: Julho/2026" value="Mês Atual / 2026" required />
+            </div>
+        </div>
+
+        <!-- Linha 2: O que reportar -->
+        <div class="bg-slate-50 rounded-lg p-5 border border-slate-200">
+            <label class="block text-xs font-bold uppercase text-slate-700 mb-3">
+                <i class="fa-solid fa-list-check mr-1 text-blue-600"></i> Selecione os tópicos e divergências para reportar no e-mail:
+            </label>
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                <label class="flex items-start gap-3 p-4 bg-white rounded-lg border border-slate-200 hover:border-blue-400 cursor-pointer transition-colors shadow-sm">
+                    <input type="checkbox" name="include_summary" value="true" checked class="checkbox checkbox-sm checkbox-primary mt-0.5" />
+                    <div>
+                        <span class="font-bold text-slate-800 text-sm block">Resumo e Parecer Geral de Auditoria</span>
+                        <span class="text-xs text-slate-500">Introdução explicativa sobre a conciliação eletrônica realizada.</span>
+                    </div>
+                </label>
+
+                <label class="flex items-start gap-3 p-4 bg-white rounded-lg border border-slate-200 hover:border-red-400 cursor-pointer transition-colors shadow-sm">
+                    <input type="checkbox" name="include_icms" value="true" checked class="checkbox checkbox-sm checkbox-error mt-0.5" />
+                    <div>
+                        <span class="font-bold text-red-700 text-sm block">🔴 Divergências de ICMS</span>
+                        <span class="text-xs text-slate-500">Apontar créditos glosados e diferenças de valores entre SPED x XML.</span>
+                    </div>
+                </label>
+
+                <label class="flex items-start gap-3 p-4 bg-white rounded-lg border border-slate-200 hover:border-purple-400 cursor-pointer transition-colors shadow-sm">
+                    <input type="checkbox" name="include_ipi" value="true" class="checkbox checkbox-sm checkbox-secondary mt-0.5" />
+                    <div>
+                        <span class="font-bold text-purple-700 text-sm block">🟣 Divergências de IPI (CST / Crédito)</span>
+                        <span class="text-xs text-slate-500">Reportar CST incompatível com crédito de IPI na legislação TIPI.</span>
+                    </div>
+                </label>
+
+                <label class="flex items-start gap-3 p-4 bg-white rounded-lg border border-slate-200 hover:border-blue-400 cursor-pointer transition-colors shadow-sm">
+                    <input type="checkbox" name="include_pis_cofins" value="true" class="checkbox checkbox-sm checkbox-info mt-0.5" />
+                    <div>
+                        <span class="font-bold text-blue-700 text-sm block">🔵 Divergências de PIS e COFINS</span>
+                        <span class="text-xs text-slate-500">Apontar inconsistências de alíquotas, bases e CSTs nas contribuições.</span>
+                    </div>
+                </label>
+
+                <label class="flex items-start gap-3 p-4 bg-white rounded-lg border border-slate-200 hover:border-orange-400 cursor-pointer transition-colors shadow-sm md:col-span-2 xl:col-span-1">
+                    <input type="checkbox" name="include_missing_xmls" value="true" class="checkbox checkbox-sm checkbox-warning mt-0.5" />
+                    <div>
+                        <span class="font-bold text-orange-700 text-sm block">🟠 Cobrança de XMLs Faltantes (Entrada sem arquivo)</span>
+                        <span class="text-xs text-slate-500">Solicitar o envio dos arquivos XML das notas fiscais declaradas no SPED C100/D100.</span>
+                    </div>
+                </label>
+            </div>
+        </div>
+
+        <!-- Linha 3: Tom da Mensagem & Observações -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-xs font-bold uppercase text-slate-600 mb-2">
+                    <i class="fa-solid fa-comment-dots mr-1"></i> Tom / Estilo do E-mail
+                </label>
+                <div class="space-y-2">
+                    <label class="flex items-center gap-2 p-2.5 bg-white rounded border border-slate-200 hover:border-blue-500 cursor-pointer">
+                        <input type="radio" name="tone" value="formal" checked class="radio radio-sm radio-primary" />
+                        <span class="text-sm font-medium text-slate-700">Formal & Executivo (Diretoria / Contabilidade)</span>
+                    </label>
+                    <label class="flex items-center gap-2 p-2.5 bg-white rounded border border-slate-200 hover:border-blue-500 cursor-pointer">
+                        <input type="radio" name="tone" value="orientativo" class="radio radio-sm radio-primary" />
+                        <span class="text-sm font-medium text-slate-700">Orientativo & Compliance (Foco na Legislação)</span>
+                    </label>
+                    <label class="flex items-center gap-2 p-2.5 bg-white rounded border border-slate-200 hover:border-blue-500 cursor-pointer">
+                        <input type="radio" name="tone" value="operacional" class="radio radio-sm radio-primary" />
+                        <span class="text-sm font-medium text-slate-700">Operacional / Direto ao Ponto (Equipe Fiscal)</span>
+                    </label>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-bold uppercase text-slate-600 mb-2">
+                    <i class="fa-solid fa-pen-to-square mr-1"></i> Observações Adicionais (Opcional)
+                </label>
+                <textarea name="custom_notes" rows="4" class="textarea textarea-bordered w-full text-sm" placeholder="Ex: Favor dar prioridade aos itens com glosa de ICMS superior a R$ 1.000,00 da aba de Inconformidades."></textarea>
+            </div>
+        </div>
+
+        <!-- Botão de Submissão -->
+        <div class="flex justify-end border-t border-slate-100 pt-4">
+            <button type="submit" class="btn bg-blue-600 hover:bg-blue-700 text-white font-bold px-8 shadow-sm">
+                <i class="fa-solid fa-wand-magic-sparkles mr-2"></i> Gerar E-mail Personalizado
+            </button>
+        </div>
+    </form>
+
+    <!-- Área de Preview do E-mail gerado -->
+    <div id="email-preview-container" class="mt-8"></div>
+</div>

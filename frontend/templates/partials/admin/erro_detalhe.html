@@ -1,0 +1,39 @@
+{# Um relatório de erro inteiro, em modal.
+
+   `erro.html` já vem escapado e formatado por `erros_sistema.markdown_seguro`,
+   que escapa ANTES de aplicar negrito e título. Por isso o `| safe` aqui é
+   seguro — e é obrigatório, senão a tela mostraria as tags como texto. #}
+<dialog id="modal-erro" class="modal modal-open">
+    <div class="modal-box bg-white text-slate-800 w-11/12 max-w-4xl max-h-[85vh]">
+        <div class="flex items-start justify-between gap-4 border-b border-slate-200 pb-3 mb-4">
+            <div>
+                <h3 class="font-bold text-lg text-slate-800 capitalize">
+                    {{ erro.origem }} — <span class="font-mono text-base">{{ erro.tipo }}</span>
+                </h3>
+                <p class="text-xs text-slate-500 mt-0.5">
+                    {{ erro.quando.strftime('%d/%m/%Y às %H:%M:%S') }}
+                    {% if erro.gravidade %}
+                    · <span class="px-1.5 py-0.5 rounded border text-[10px] font-bold {{ erro.cor_gravidade }}">
+                        {{ erro.gravidade }}</span>
+                    {% endif %}
+                </p>
+            </div>
+            <button type="button" class="btn btn-sm btn-ghost text-slate-400"
+                    onclick="document.getElementById('modal-erro').remove()">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <div class="overflow-y-auto max-h-[62vh] pr-2 text-sm">
+            {{ erro.html | safe }}
+        </div>
+
+        <div class="modal-action border-t border-slate-200 pt-3 mt-4">
+            <span class="text-[11px] text-slate-400 mr-auto font-mono">{{ erro.arquivo }}</span>
+            <button type="button" class="btn btn-sm btn-ghost"
+                    onclick="document.getElementById('modal-erro').remove()">Fechar</button>
+        </div>
+    </div>
+    <div class="modal-backdrop bg-slate-900/40"
+         onclick="document.getElementById('modal-erro').remove()"></div>
+</dialog>

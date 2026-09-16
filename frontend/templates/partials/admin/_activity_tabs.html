@@ -1,0 +1,18 @@
+{# Alternância entre as duas visões do Radar. Incluída pelos dois lados, com
+   `aba` valendo 'painel' ou 'registros'. #}
+{% set on = "bg-white shadow-sm" %}
+{% set off = "text-slate-500 hover:text-slate-700" %}
+<div class="inline-flex items-center gap-1 p-1 rounded-lg bg-slate-100 border border-slate-200">
+    <button type="button"
+            class="px-3 py-1.5 rounded-md text-[13px] font-semibold transition-colors {{ on if aba == 'painel' else off }}"
+            {% if aba == 'painel' %}style="color: var(--syn-900);"{% endif %}
+            hx-get="/admin/activity/painel" hx-target="#admin-content" hx-swap="outerHTML">
+        <i class="fa-solid fa-chart-column mr-1.5 text-[11px]"></i> Painel
+    </button>
+    <button type="button"
+            class="px-3 py-1.5 rounded-md text-[13px] font-semibold transition-colors {{ on if aba == 'registros' else off }}"
+            {% if aba == 'registros' %}style="color: var(--syn-900);"{% endif %}
+            hx-get="/admin/activity" hx-target="#admin-content" hx-swap="outerHTML">
+        <i class="fa-solid fa-list mr-1.5 text-[11px]"></i> Registros
+    </button>
+</div>

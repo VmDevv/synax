@@ -1,0 +1,65 @@
+# ===== Segredos =====
+.env
+.env.*
+!.env.example
+
+# ===== Bancos de dados locais =====
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+# bancos temporarios criados pelas suites de teste
+_*_test.db
+_local_ui.db
+
+# ===== Dados fiscais de clientes (NUNCA versionar) =====
+# SPED e XMLs enviados para auditoria
+temp_uploads/
+# DANFEs em cache vindas do cofre fiscal do SIEG
+.sieg_cache_pdf/
+# Diagnóstico automático de erros por IA (core/ai_error_reporter.py) — texto
+# de erro do sistema, mesmo mascarado por regex, não deve ser versionado.
+logs/
+# Planilhas de trabalho com dados de cliente
+*.xlsx
+!Portaria*.xlsx
+!NCM*.xlsx
+
+# ===== Backups do banco (NUNCA versionar) =====
+# O dump traz TODOS os dados de TODOS os clientes: relatórios de auditoria,
+# notas de serviço e as senhas cifradas dos 165 certificados A1. Um arquivo
+# destes no repositório é pior que o .env — o .env dá acesso, o dump JÁ É a
+# cópia. Guarde fora do projeto ou aqui, mas nunca versionado.
+backups/
+*.dump
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== Ambiente virtual =====
+venv/
+.venv/
+env/
+
+# ===== Sistema operacional / editor =====
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+
+# ===== Artefatos de sessões anteriores de migração =====
+old_rules*.txt
+synax_full_context.md
+
+# ===== Rascunhos de sessão (NUNCA versionar) =====
+# scratch/ guarda backup de regras com CNPJ de cliente e fornecedor
+# (cfop_classifications_backup_*.json) e relatórios do diagnóstico de erros
+# por IA (erros_ia/) — mesma razão de temp_uploads/ e logs/ acima.
+scratch/
