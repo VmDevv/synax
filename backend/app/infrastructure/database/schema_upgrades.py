@@ -90,8 +90,8 @@ def aplicar(engine: Engine) -> None:
                 continue
             logger.info("Adicionando coluna %s.%s (banco já existia sem ela)", tabela, nome)
             with engine.begin() as conn:
-                # nosemgrep (DDL não aceita parâmetro; tabela, nome e ddl vêm de
-                # COLUNAS_NOVAS, constante deste módulo, nunca de entrada)
-                conn.execute(text(f"ALTER TABLE {tabela} ADD COLUMN {nome} {ddl}"))
+                # DDL não aceita parâmetro; tabela, nome e ddl vêm de COLUNAS_NOVAS,
+                # constante deste módulo, nunca de entrada.
+                conn.execute(text(f"ALTER TABLE {tabela} ADD COLUMN {nome} {ddl}"))  # nosemgrep
 
     _criar_indices_faltantes(engine, tabelas_existentes)

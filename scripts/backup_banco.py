@@ -149,8 +149,8 @@ def main() -> int:
     print("Destino ..... " + args.saida + "\n")
 
     print("[1/3] Copiando estrutura e dados...")
-    # nosemgrep (lista de argumentos fixa, sem shell; do ambiente só vai a URL do banco)
-    proc = subprocess.run(
+    # Lista de argumentos fixa, sem shell; do ambiente só vai a URL do banco.
+    proc = subprocess.run(  # nosemgrep
         [pg_dump, "--format=custom", "--compress=9", "--schema=public",
          "--no-owner", "--file=" + arq_dump],
         env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -163,8 +163,8 @@ def main() -> int:
 
     print("[2/3] Copiando a estrutura em texto legível...")
     with open(arq_sql, "wb") as saida:
-        # nosemgrep (mesmo caso do pg_dump acima)
-        proc = subprocess.run(
+        # Mesmo caso do pg_dump acima.
+        proc = subprocess.run(  # nosemgrep
             [pg_dump, "--schema-only", "--schema=public", "--no-owner"],
             env=env, stdout=saida, stderr=subprocess.PIPE)
     if proc.returncode == 0:

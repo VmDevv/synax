@@ -3,7 +3,9 @@
 # listava dezenas de pacotes que não estavam instalados nem eram importados
 # (selenium, playwright, google-*, pyttsx3, alembic...) em versões antigas com
 # CVE aberto — o scanner acusava furo em coisa que nem rodava. Ao instalar ou
-# atualizar algo no venv, regrave a linha aqui.
+# atualizar algo no venv, regrave a linha aqui. python-jose (com ecdsa, rsa e
+# pyasn1) saiu em 16/09/2026: nada importa `jose`, e o ecdsa carrega a
+# CVE-2024-23342 (Minerva), que não tem versão corrigida.
 aiofiles==25.1.0
 annotated-doc==0.0.4
 annotated-types==0.7.0
@@ -24,7 +26,6 @@ defusedxml==0.7.1
 deprecation==2.1.0
 distro==1.9.0
 docstring_parser==0.18.0
-ecdsa==0.19.2
 et_xmlfile==2.0.0
 fastapi==0.139.2
 greenlet==3.5.3
@@ -54,17 +55,14 @@ pandas==3.0.3
 postgrest==2.31.0
 propcache==0.5.2
 psycopg2-binary==2.9.12
-pyasn1==0.6.4
 pycparser==3.0
 pydantic==2.13.4
 pydantic_core==2.46.4
 PyJWT==2.13.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
-python-jose==3.5.0
 python-multipart==0.0.32
 realtime==2.31.0
-rsa==4.9.1
 six==1.17.0
 sniffio==1.3.1
 SQLAlchemy==2.0.51

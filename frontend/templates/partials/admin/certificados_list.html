@@ -236,10 +236,10 @@
     {% endif %}
 
     {# Uma cópia da lista de arquivos para a página inteira. #}
-    <script id="certs-arquivos" type="application/json">{{ arquivos|tojson }}</script>
+    <div id="certs-arquivos" hidden data-arquivos='{{ arquivos|tojson }}'></div>
     <script>
     (function () {
-        var dados = JSON.parse(document.getElementById('certs-arquivos').textContent);
+        var dados = JSON.parse(document.getElementById('certs-arquivos').dataset.arquivos);
         window.synPreencherCert = function (sel) {
             if (sel.dataset.pronto) return;
             sel.dataset.pronto = '1';

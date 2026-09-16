@@ -157,8 +157,8 @@ def forgot_password_action(
         # e-mail); registra no servidor para diagnóstico.
         # Só o domínio vai para o log: o endereço inteiro é dado pessoal do
         # cliente, e o log alimenta o diagnóstico de erros por IA.
-        logger.exception("[forgot-password] falha ao enviar para *@%s",
-                         email.rsplit("@", 1)[-1] if "@" in email else "?")
+        dominio = email.rsplit("@", 1)[-1] if "@" in email else "?"
+        logger.exception("[recuperacao-de-senha] falha ao enviar para *@%s", dominio)
 
     return templates.TemplateResponse(request, "pages/forgot_password.html", {
         "request": request,
