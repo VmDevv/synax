@@ -27,7 +27,13 @@ from dataclasses import dataclass, field
 
 # Encoding do SPED. Ler como utf-8 estoura em qualquer razão social com
 # acento; ler com errors="ignore" apaga o caractere e muda o tamanho do campo.
+# latin-1 mapeia byte a byte, e é isso que garante que o arquivo volta igual.
 ENCODING = "latin-1"
+
+# Marca de UTF-8 no começo do arquivo. Não faz parte do leiaute e o PVA
+# recusa a primeira linha com ela. Lida como latin-1 vira "ï»¿" colado no
+# |0000|; lida como UTF-8, "\ufeff". As duas formas são reconhecidas.
+BOMS = ("\u00ef\u00bb\u00bf", "\ufeff")
 
 # Nível hierárquico de cada registro, conforme o Guia Prático 3.2.2. O pai de
 # um registro é o último visto com nível imediatamente menor.
@@ -143,6 +149,9 @@ class Documento:
     registros: list[Registro]
     caminho: str = ""
     fim_padrao: str = "\r\n"
+    # O que a leitura viu de errado e NÃO conseguiu manter: linha que não é
+    # registro, registro sem pai, BOM. A prévia e o relatório mostram.
+    avisos: list[str] = field(default_factory=list)
 
     # ------------------------------------------------------------------ busca
 
@@ -282,6 +291,16 @@ def ler_texto(conteudo: str, caminho: str = "") -> Documento:
     registros: list[Registro] = []
     pilha: dict[int, Registro] = {}
     fins: dict[str, int] = {}
+    avisos: list[str] = []
+
+    for bom in BOMS:
+        if conteudo.startswith(bom):
+            conteudo = conteudo[len(bom):]
+            avisos.append(
+                "O arquivo começava com BOM (marca de UTF-8), que não faz parte "
+                "do leiaute e foi removida: com ela a primeira linha não começa "
+                "com pipe e o PVA não acha o registro 0000.")
+            break
 
     numero = 0
     inicio = 0
@@ -303,8 +322,14 @@ def ler_texto(conteudo: str, caminho: str = "") -> Documento:
         fins[fim] = fins.get(fim, 0) + 1
 
         campos = _quebrar(bruta)
-        r = Registro(reg=campos[0] if campos else "", campos=campos,
-                     linha=numero, crua=bruta, fim=fim)
+        if not bruta.startswith("|") or not campos or not campos[0].strip():
+            # Não é registro. Mantê-la faria o 9900 contar um "tipo" que não
+            # existe e o PVA rejeitar a linha; sai do arquivo, com aviso.
+            avisos.append(f"linha {numero} ignorada: não é um registro do "
+                          f"leiaute ({bruta[:40]!r})")
+            continue
+        r = Registro(reg=campos[0], campos=campos, linha=numero, crua=bruta,
+                     fim=fim)
 
         nivel = NIVEL.get(r.reg)
         if nivel is not None:
@@ -312,6 +337,13 @@ def ler_texto(conteudo: str, caminho: str = "") -> Documento:
             if pai is not None:
                 r.pai = pai
                 pai.filhos.append(r)
+            elif nivel >= 2:
+                # C170 antes de qualquer C100, D190 sem D100: a linha fica no
+                # arquivo, mas fora da árvore — a cascata não a soma e o PVA
+                # acusa hierarquia. Quem corrige precisa saber.
+                avisos.append(f"linha {numero}: registro {r.reg} sem o "
+                              "registro pai esperado antes dele; fica fora "
+                              "da hierarquia e a cascata não o enxerga")
             pilha[nivel] = r
             # Some com os níveis mais fundos: sem isso, um C170 depois de um
             # C100 novo poderia se pendurar num filho do documento anterior.
@@ -321,4 +353,5 @@ def ler_texto(conteudo: str, caminho: str = "") -> Documento:
         registros.append(r)
 
     padrao = max(fins, key=fins.get) if fins else "\r\n"
-    return Documento(registros=registros, caminho=caminho, fim_padrao=padrao or "\r\n")
+    return Documento(registros=registros, caminho=caminho,
+                     fim_padrao=padrao or "\r\n", avisos=avisos)

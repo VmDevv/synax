@@ -304,12 +304,15 @@ def _validar_documento(c100: Registro, itens: list[Registro],
     # que a curadoria mapeou e o crédito que a auditoria apontou —, e a que
     # ficasse de fora seria justamente a do CFOP, que é o que esta validação
     # existe para conferir.
+    # NUM_ITEM comparado sem espaços dos dois lados: a ponte já normaliza o
+    # lado da auditoria, e um " 1" no arquivo recusava o item inteiro.
     por_item: dict[str, dict] = {}
     for c in correcoes:
-        por_item.setdefault(c.num_item, {}).update(c.campos)
+        por_item.setdefault(c.num_item.strip(), {}).update(c.campos)
 
+    numeros = {i.campo(2).strip() for i in itens}
     for correcao in correcoes:
-        if correcao.num_item not in {i.campo(2) for i in itens}:
+        if correcao.num_item.strip() not in numeros:
             return (f"item {correcao.num_item} não existe neste documento "
                     f"(a nota tem {len(itens)} item(ns))")
         for nome in correcao.campos:
@@ -319,7 +322,7 @@ def _validar_documento(c100: Registro, itens: list[Registro],
     # Como ficaria o CFOP de cada item depois de aplicar tudo.
     resultado = []
     for item in itens:
-        campos = por_item.get(item.campo(2), {})
+        campos = por_item.get(item.campo(2).strip(), {})
         novo = (valor_para_texto("CFOP", campos["CFOP"])
                 if "CFOP" in campos else item.campo(11))
         resultado.append((item.campo(2), novo))
@@ -386,10 +389,10 @@ def aplicar_itens(doc: Documento, patch: Patch) -> tuple[list[Alteracao],
                                   correcoes=correcoes))
             continue
 
-        por_num = {i.campo(2): i for i in itens}
+        por_num = {i.campo(2).strip(): i for i in itens}
         mexeu = False
         for correcao in correcoes:
-            item = por_num[correcao.num_item]
+            item = por_num[correcao.num_item.strip()]
             for nome, valor in correcao.campos.items():
                 numero = CAMPOS_C170[nome]
                 antes = item.campo(numero)

@@ -1,13 +1,48 @@
+import io
 import os
 
+BOM_UTF8 = b"\xef\xbb\xbf"
+
+
 def clean_float(val):
+    """"1234,56" -> 1234.56. Vazio e lixo viram 0.0, sem derrubar a leitura.
+
+    Com vírgula, o ponto é separador de milhar e sai. SEM vírgula, um ponto
+    é decimal: "1234.56" (arquivo fora do leiaute) virava 123456.0 aqui
+    enquanto o leitor da reescrita (`texto_para_decimal`) lia 1234.56 — os
+    dois motores discordavam sobre o mesmo campo por um fator de cem.
+    """
     if not val:
         return 0.0
-    val = val.strip().replace(".", "").replace(",", ".")
+    val = val.strip()
+    if "," in val:
+        val = val.replace(".", "").replace(",", ".")
     try:
         return float(val)
     except ValueError:
         return 0.0
+
+
+def _decodificar(bruto: bytes) -> str:
+    """UTF-8 (com ou sem BOM) quando o arquivo é UTF-8 válido; senão latin-1.
+
+    O leiaute manda latin-1, e é assim que o Domínio grava. Mas arquivo
+    salvo por editor de texto sai em UTF-8, às vezes com BOM — e o BOM lido
+    como latin-1 vira "ï»¿" grudado no "|0000|": a linha deixa de começar
+    com pipe, e CNPJ, nome e competência sumiam sem aviso nenhum.
+    """
+    if bruto.startswith(BOM_UTF8):
+        return bruto[len(BOM_UTF8):].decode("utf-8", errors="replace")
+    try:
+        return bruto.decode("utf-8")
+    except UnicodeDecodeError:
+        return bruto.decode("latin1")
+
+
+def _abrir(path):
+    """O arquivo inteiro como texto, na codificação certa."""
+    with open(path, "rb") as f:
+        return io.StringIO(_decodificar(f.read()))
 
 # COD_SIT (campo 6 do C100/D100) que tira o documento da apuração: cancelado,
 # escrituração extemporânea de cancelado, denegado e numeração inutilizada. Não
@@ -50,7 +85,7 @@ def parse_sped(path):
     # dado — não que o cliente deixou de creditar.
     bloco_d_tem_pis_cofins = False
     
-    with open(path, "r", encoding="latin1") as f:
+    with _abrir(path) as f:
         current_c100 = None
         current_d100 = None
         for line in f:

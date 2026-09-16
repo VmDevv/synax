@@ -9,7 +9,7 @@ motor não conseguiu casar. FastAPI + SQLAlchemy + Jinja2/HTMX, Supabase (Postgr
 venv/Scripts/python.exe tests/run_all.py
 ```
 
-52 suítes, 2792 testes, SQLite em processo, sem rede, ~2 min. Suíte isolada:
+53 suítes, 2876 testes, SQLite em processo, sem rede, ~2 min. Suíte isolada:
 `venv/Scripts/python.exe tests/test_mapeamento_lote.py`.
 
 Cada suíte é um script que imprime `OK`/`FALHA` e sai com código 1 se algo falhar — não é
@@ -180,6 +180,27 @@ situar.
   contadores são os do `sped_rewriter` — e a suíte prova que o leitor fiel dele
   relê o arquivo gerado byte a byte, que é o que garante que aquilo é SPED e
   não texto parecido.
+
+- **O gerador de SPED escritura o direito do COMPRADOR, não os impostos do
+  vendedor — a política está no cabeçalho de `sped_builder/gerador.py`.**
+  ICMS próprio entra como crédito pelo XML; ICMS ST, FCP ST e IPI vão para o
+  custo (VL_ITEM/VL_MERC, campos do imposto zerados), que é o que o Guia manda
+  sem direito a crédito e o que o SPED real do Domínio mostra (ST e IPI zerados
+  em todos os 1301 C170 de entrada); PIS/COFINS saem com CST 99 e sem valores,
+  porque o regime não está no XML; CSOSN vira x90 sem crédito. Cada escolha sai
+  como presunção com o total em dinheiro. Até 16/09/2026 o arquivo saía com CST
+  de SAÍDA nos campos de entrada (01 no PIS, "0102" no ICMS do Simples), ST
+  no item com base zero, C100 com total de ST diferente da soma dos C190,
+  VL_OPR sem o frete (a soma não fechava com o VL_DOC), 0100 com 13 campos em
+  vez de 14 e sem Bloco D quando o mês não tinha CT-e. Mais três regras: o
+  COD_VER sai do ANO da competência (`COD_VER_POR_ANO`; 020 em 2026 — "018"
+  fixo reprova no PVA), Blocos C e D existem sempre (IND_MOV=1 quando vazios) e
+  nota com cStat fora de 100/150 (denegada, cancelada) fica de fora com o
+  motivo. Os dois leitores de SPED tratam BOM (o |0000| deixava de começar
+  com pipe e o cabeçalho sumia), leem "1234.56" como 1234,56 nos dois motores,
+  e a leitura fiel avisa linha que não é registro e item sem documento em vez
+  de engolir (`Documento.avisos`, repassado à prévia). Travado em
+  `tests/test_sped_builder.py` (6b–6d) e `tests/test_sped_leitura.py`.
 
 - **A correção do SPED reescreve o documento sempre; a APURAÇÃO só sob caixa
   marcada.** A aba "Corrigir SPED" aplica no arquivo o que a auditoria apontou e

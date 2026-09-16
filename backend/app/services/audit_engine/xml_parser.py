@@ -44,6 +44,13 @@ def parse_nfe_xml(path):
         modelo = _t(ide, "mod", "55")
         dh_emi = _t(ide, "dhEmi") or _t(ide, "dEmi")
         dh_saida = _t(ide, "dhSaiEnt") or _t(ide, "dSaiEnt")
+        # Para a geração de SPED: forma de pagamento (C100 campo 13; na 4.0
+        # fica em <pag><detPag><indPag>, na 3.10 no <ide>), modalidade do
+        # frete (C100 campo 17 — a tabela do SPED é a mesma do modFrete) e a
+        # situação no protocolo (só cStat 100/150 é nota autorizada).
+        ind_pag = _t(root.find(".//ns:pag/ns:detPag", ns), "indPag") or _t(ide, "indPag")
+        mod_frete = _t(root.find(".//ns:transp", ns), "modFrete")
+        c_stat = _t(root.find(".//ns:protNFe/ns:infProt", ns), "cStat")
         _inf_nfe = root.find(".//ns:infNFe", ns)
         chave = ((_inf_nfe.attrib.get("Id") or "").replace("NFe", "").strip()
                  if _inf_nfe is not None else "")
@@ -354,6 +361,9 @@ def parse_nfe_xml(path):
             "chave": chave,
             "dh_emi": dh_emi,
             "dh_saida": dh_saida,
+            "ind_pag": ind_pag,
+            "mod_frete": mod_frete,
+            "c_stat": c_stat,
             "emit_id": emit_id,
             "emit_name": emit_name,
             "emit_uf": emit_uf,
@@ -421,6 +431,16 @@ def parse_cte_xml(path):
         emit_name = emit.find("ns:xNome", ns).text if emit is not None else ""
         ender_emit = emit.find("ns:enderEmit", ns) if emit is not None else None
         emit_uf = ender_emit.find("ns:UF", ns).text if ender_emit is not None and ender_emit.find("ns:UF", ns) is not None else ""
+        # IE e município do transportador: o 0150 exige COD_MUN de
+        # participante do Brasil, e o CT-e os traz em <emit>/<enderEmit>.
+        emit_ie = _txt(emit, "ns:IE")
+        emit_cod_mun = _txt(ender_emit, "ns:cMun")
+        # Origem e destino do serviço (D100 campos 24/25), tipo do CT-e
+        # (D100 campo 13) e a situação no protocolo.
+        cod_mun_ini = _txt(ide, "ns:cMunIni")
+        cod_mun_fim = _txt(ide, "ns:cMunFim")
+        tp_cte = _txt(ide, "ns:tpCTe")
+        c_stat = _txt(root.find(".//ns:protCTe/ns:infProt", ns), "ns:cStat")
         
         v_prest = root.find(".//ns:vPrest", ns)
         v_t_prest = 0.0
@@ -434,10 +454,24 @@ def parse_cte_xml(path):
         icms_proprio = 0.0
         icms_outra_uf = 0.0
         v_bc = 0.0
+        cst_cte = ""
+        p_icms_cte = 0.0
         if imposto is not None:
             icms = imposto.find("ns:ICMS", ns)
             if icms is not None:
                 for child in icms:
+                    # CST e alíquota do próprio grupo (ICMS00, ICMS20,
+                    # ICMSOutraUF...). O ICMSSN não tem CST: é "90".
+                    cst_el = child.find("ns:CST", ns)
+                    if cst_el is not None and cst_el.text:
+                        cst_cte = cst_el.text.strip()
+                    elif child.tag.endswith("ICMSSN"):
+                        cst_cte = "90"
+                    p_el = child.find("ns:pICMS", ns)
+                    if p_el is None:
+                        p_el = child.find("ns:pICMSOutraUF", ns)
+                    if p_el is not None and p_el.text:
+                        p_icms_cte = float(p_el.text)
                     v_icms_el = child.find("ns:vICMS", ns)
                     if v_icms_el is not None and v_icms_el.text:
                         icms_proprio = float(v_icms_el.text)
@@ -534,6 +568,14 @@ def parse_cte_xml(path):
             "emit_name": emit_name,
             "emit_uf": emit_uf,
             "cfop": cfop,
+            "cst": cst_cte,
+            "p_icms": p_icms_cte,
+            "emit_ie": emit_ie,
+            "emit_cod_mun": emit_cod_mun,
+            "cod_mun_ini": cod_mun_ini,
+            "cod_mun_fim": cod_mun_fim,
+            "tp_cte": tp_cte,
+            "c_stat": c_stat,
             "vl_doc": v_t_prest,
             "vl_bc": v_bc,
             "vl_icms": icms_val,

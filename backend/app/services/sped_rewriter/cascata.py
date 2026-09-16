@@ -46,7 +46,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from .documento import Documento, Registro
 from .patch import (Alteracao, Patch, Recusa, aplicar_documentos,
@@ -179,7 +179,10 @@ def _ratear(extra: Decimal, bases: list[Decimal]) -> list[Decimal]:
     total = sum(bases, ZERO)
     if extra == 0 or total == 0:
         return [ZERO for _ in bases]
-    parcelas = [(extra * b / total).quantize(Decimal("0.01")) for b in bases]
+    # HALF_UP como todo valor que este módulo grava (`decimal_para_texto`);
+    # o padrão do Decimal é HALF_EVEN, e os dois divergem em meio centavo.
+    parcelas = [(extra * b / total).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                for b in bases]
     residuo = extra - sum(parcelas, ZERO)
     if residuo != 0:
         maior = bases.index(max(bases))
@@ -364,6 +367,9 @@ CAMPOS_FOTOGRAFADOS = {
     "VL_ICMS": 15, "VL_BC_ICMS_ST": 16, "VL_ICMS_ST": 18, "CST_IPI": 20,
     "VL_BC_IPI": 22, "ALIQ_IPI": 23, "VL_IPI": 24,
 }
+# O nome do campo pelo número, para a trilha dizer "ALIQ_ST" e não "campo 17".
+NOMES_C170 = {numero: nome for nome, numero in CAMPOS_FOTOGRAFADOS.items()}
+NOMES_C170[17] = "ALIQ_ST"
 
 
 def fotografar_itens(doc: Documento) -> dict:
@@ -461,7 +467,7 @@ def aplicar_glosas(doc: Documento, c100: Registro,
                 continue
 
             for numero in campos_zerar:
-                registrar(item, numero, f"campo {numero}",
+                registrar(item, numero, NOMES_C170.get(numero, f"campo {numero}"),
                           decimal_para_texto(ZERO, item.campo(numero)))
 
             if campo_cst is not None:
@@ -929,11 +935,11 @@ def atualizar_e110(doc: Documento, delta: Decimal,
            f"{MOTIVOS_E110[campo_credito]} ({decimal_para_texto(delta)})")
 
     saldo = _saldo_e110(e110)
+    deducoes = texto_para_decimal(e110.campo(E110_TOT_DED))
     if saldo > 0:
         gravar(E110_SLD_APURADO, saldo, "saldo devedor refeito com o crédito novo")
         gravar(E110_SLD_CREDOR_TRANSPORTAR, ZERO,
                "apuração fechou devedora: não há saldo credor a transportar")
-        deducoes = texto_para_decimal(e110.campo(E110_TOT_DED))
         gravar(E110_ICMS_RECOLHER, max(ZERO, saldo - deducoes),
                "ICMS a recolher = saldo apurado menos deduções (campo 11 - 12)")
     else:
@@ -942,6 +948,15 @@ def atualizar_e110(doc: Documento, delta: Decimal,
         gravar(E110_ICMS_RECOLHER, ZERO, "sem saldo devedor, nada a recolher")
         gravar(E110_SLD_CREDOR_TRANSPORTAR, -saldo,
                "saldo credor a transportar para o período seguinte")
+    if deducoes > max(ZERO, saldo):
+        # VL_TOT_DED (campo 12) não pode passar do saldo apurado (campo 11):
+        # o crédito novo encolheu o saldo e as deduções ficaram maiores que
+        # ele. O que não pôde ser deduzido é decisão de quem apura.
+        avisos.append(
+            f"O E110 declara {e110.campo(E110_TOT_DED)} de deduções (campo 12), "
+            f"mais que o saldo apurado de {decimal_para_texto(max(ZERO, saldo))} "
+            "depois da correção. As deduções não foram alteradas — o excesso "
+            "precisa ser tratado na apuração, no PVA.")
 
     return alteracoes, avisos
 

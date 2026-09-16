@@ -817,6 +817,7 @@ def aplicar(texto_sped: str) -> Resultado:
     """
     doc = ler_texto(texto_sped or "")
     resultado = Resultado()
+    resultado.avisos.extend(doc.avisos)
 
     cod_obs, ja_declarado = _resolver_cod_obs(doc)
     if cod_obs is None:

@@ -163,6 +163,10 @@ def prever(texto_original: str, patch: Patch, origem: str = "") -> Previa:
     """Roda o patch numa cópia descartável e conta o que aconteceria."""
     copia = ler_texto(texto_original, caminho=origem)
     resultado = aplicar(copia, patch)
+    # O que a LEITURA viu de errado (linha que não é registro, item sem
+    # documento, BOM) vai junto com os avisos da cascata: quem decide na
+    # prévia precisa saber que o arquivo já chegou torto.
+    resultado.avisos = list(copia.avisos) + list(resultado.avisos)
     relatorio = montar(resultado, copia, texto_original, origem=origem)
 
     # Quais documentos foram recusados inteiros, e por qual motivo.
