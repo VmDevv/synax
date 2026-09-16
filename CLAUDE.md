@@ -9,7 +9,7 @@ motor não conseguiu casar. FastAPI + SQLAlchemy + Jinja2/HTMX, Supabase (Postgr
 venv/Scripts/python.exe tests/run_all.py
 ```
 
-50 suítes, 2604 testes, SQLite em processo, sem rede, ~2 min. Suíte isolada:
+52 suítes, 2792 testes, SQLite em processo, sem rede, ~2 min. Suíte isolada:
 `venv/Scripts/python.exe tests/test_mapeamento_lote.py`.
 
 Cada suíte é um script que imprime `OK`/`FALHA` e sai com código 1 se algo falhar — não é
@@ -607,6 +607,19 @@ situar.
   antigo: cria a tabela, arranca as colunas registradas e confere que o startup
   as devolve.
 
+
+- **Biblioteca de terceiros no navegador entra com SRI, e o Tailwind é servido
+  daqui.** Todo `<script>`/`<link>` de CDN em `layout/base.html` e nas páginas
+  de login/senha leva `integrity` + `crossorigin`, com o hash calculado do
+  arquivo da versão fixa na URL. A exceção é o Tailwind Play CDN:
+  `cdn.tailwindcss.com` não manda `Access-Control-Allow-Origin`, e sem CORS o
+  navegador recusa recurso com SRI — a tela subiria sem estilo nenhum. Por isso
+  a cópia 3.4.17 está em `frontend/static/js/vendor/` (origem e hash no README
+  da pasta). Ao trocar a versão de qualquer biblioteca, recalcule o hash, ou o
+  navegador bloqueia o arquivo em silêncio. `requirements.txt` é espelho do
+  venv que roda o sistema: pacote instalado ou atualizado ali tem a linha
+  regravada aqui, senão o scanner acusa CVE em versão que ninguém usa
+  (16/09/2026). XML de terceiro é lido com `defusedxml`, nunca `xml.etree`.
 
 - Autorização passa por `backend/app/core/authz.py`. Toda rota que grava valida papel e
   tenant — operador só opera empresas de `user_tenants`.

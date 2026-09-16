@@ -1,0 +1,4 @@
+# Cópia byte a byte de biblioteca de terceiros: sem conversão de fim de linha,
+# senão o hash declarado em frontend/static/js/vendor/README.md deixa de bater
+# no checkout em Windows.
+frontend/static/js/vendor/*.js -text

@@ -1,4 +1,7 @@
-import xml.etree.ElementTree as ET
+# defusedxml, não xml.etree: o XML é de terceiros (fornecedor, SEFAZ, cofre)
+# e o stdlib só barra bomba de entidades se a libexpat da máquina for recente.
+# Só parse/fromstring/iterparse mudam de módulo; o Element devolvido é o mesmo.
+import defusedxml.ElementTree as ET
 
 def parse_nfe_xml(path):
     try:

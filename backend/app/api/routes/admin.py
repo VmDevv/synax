@@ -1777,12 +1777,21 @@ def generate_client_email(
     topics_str = " - ".join(subject_parts) if subject_parts else "Parecer de Auditoria"
     subject = f"[{tenant_name}] Synax - Auditoria Fiscal ({period}) - {topics_str}"
     
-    greeting = f"Prezado(a) {recipient_name}," if tone == "formal" else f"Olá, equipe {recipient_name}!"
-    intro_formal = f"Esperamos que esteja bem. Realizamos a verificação eletrônica e o cruzamento fiscal do SPED C100/D100/C170 e arquivos XML de NF-e/CT-e da empresa <b>{tenant_name}</b> {f'({tenant_cnpj})' if tenant_cnpj else ''} referente ao período de <b>{period}</b>."
-    intro_operacional = f"Seguem os apontamentos e divergências identificados na auditoria fiscal de <b>{tenant_name}</b> no período <b>{period}</b> para providências de correção."
-    intro_orientativo = f"Como parte da nossa rotina de compliance e orientação tributária, cruzamos os dados escriturados na empresa <b>{tenant_name}</b> no período <b>{period}</b>. Abaixo compartilhamos os itens que demandam atenção na legislação."
+    # A prévia renderiza html_body com `| safe`: sem escape, um "<script>" no
+    # nome do destinatário, no período ou nas observações executa no navegador
+    # do admin. O texto plano (WhatsApp) é montado à parte, com os valores crus.
+    from html import escape as _e, unescape as _unescape
+    import re as _re
+    nome_h, empresa_h, cnpj_h, periodo_h = _e(recipient_name), _e(tenant_name), _e(tenant_cnpj), _e(period)
+    greeting = f"Prezado(a) {nome_h}," if tone == "formal" else f"Olá, equipe {nome_h}!"
+    intro_formal = f"Esperamos que esteja bem. Realizamos a verificação eletrônica e o cruzamento fiscal do SPED C100/D100/C170 e arquivos XML de NF-e/CT-e da empresa <b>{empresa_h}</b> {f'({cnpj_h})' if cnpj_h else ''} referente ao período de <b>{periodo_h}</b>."
+    intro_operacional = f"Seguem os apontamentos e divergências identificados na auditoria fiscal de <b>{empresa_h}</b> no período <b>{periodo_h}</b> para providências de correção."
+    intro_orientativo = f"Como parte da nossa rotina de compliance e orientação tributária, cruzamos os dados escriturados na empresa <b>{empresa_h}</b> no período <b>{periodo_h}</b>. Abaixo compartilhamos os itens que demandam atenção na legislação."
     
     intro = intro_formal if tone == "formal" else (intro_operacional if tone == "operacional" else intro_orientativo)
+    # Mesmas frases sem as tags e sem entidades, para a versão em texto plano.
+    greeting_txt = _unescape(greeting)
+    intro_txt = _unescape(_re.sub(r"<[^>]+>", "", intro))
     
     sections_html = []
     sections_text = []
@@ -1852,7 +1861,7 @@ def generate_client_email(
         notes_html = f"""
         <div style="background-color: #fffbeb; border: 1px solid #fcd34d; padding: 12px 16px; margin: 16px 0; border-radius: 4px;">
             <h4 style="margin: 0 0 6px 0; color: #92400e; font-size: 14px;">📝 Observações Específicas da Equipe Fiscal:</h4>
-            <p style="margin: 0; color: #78350f; font-size: 14px; white-space: pre-line;">{custom_notes.strip()}</p>
+            <p style="margin: 0; color: #78350f; font-size: 14px; white-space: pre-line;">{_e(custom_notes.strip())}</p>
         </div>
         """
         notes_text = f"\\n[📝 OBSERVAÇÕES ESPECÍFICAS]\\n{custom_notes.strip()}\\n"
@@ -1868,9 +1877,9 @@ def generate_client_email(
     </div>
     """
 
-    text_body = f"""{greeting}
+    text_body = f"""{greeting_txt}
 
-{intro}
+{intro_txt}
 
 {''.join(sections_text)}{notes_text}
 Qualquer dúvida, estamos à disposição para auxiliar no saneamento dos itens indicados.

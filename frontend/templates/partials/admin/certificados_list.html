@@ -18,7 +18,6 @@
     </div>
 
     {% set inc = "[name='q'], [name='situacao'], [name='per_page']" %}
-    {% set attrs = 'hx-get="/admin/certificados" hx-target="#admin-content" hx-swap="outerHTML" hx-include="' ~ inc ~ '"' %}
 
     {# ===== Resumo de vencimento — conta todas as empresas, não só a página =====
        Classes escritas por extenso, e não montadas com o nome da cor: o Tailwind
@@ -62,10 +61,10 @@
         <div class="relative flex-1 min-w-[180px]">
             <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] text-slate-400"></i>
             <input type="text" name="q" value="{{ q }}" placeholder="Buscar empresa ou CNPJ…"
-                   {{ attrs|safe }} hx-trigger="keyup changed delay:400ms, search"
+                   hx-get="/admin/certificados" hx-target="#admin-content" hx-swap="outerHTML" hx-include="{{ inc }}" hx-trigger="keyup changed delay:400ms, search"
                    class="w-full pl-7 pr-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:border-[#037fb5] focus:outline-none">
         </div>
-        <select name="situacao" {{ attrs|safe }} hx-trigger="change"
+        <select name="situacao" hx-get="/admin/certificados" hx-target="#admin-content" hx-swap="outerHTML" hx-include="{{ inc }}" hx-trigger="change"
                 class="px-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:outline-none">
             <option value="" {% if not situacao %}selected{% endif %}>Todas</option>
             <option value="prontos" {% if situacao == 'prontos' %}selected{% endif %}>Prontos</option>
@@ -74,7 +73,7 @@
             <option value="problema" {% if situacao == 'problema' %}selected{% endif %}>Com problema</option>
             <option value="desconhecido" {% if situacao == 'desconhecido' %}selected{% endif %}>Não verificados</option>
         </select>
-        <select name="per_page" {{ attrs|safe }} hx-trigger="change"
+        <select name="per_page" hx-get="/admin/certificados" hx-target="#admin-content" hx-swap="outerHTML" hx-include="{{ inc }}" hx-trigger="change"
                 class="px-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:outline-none">
             {% for n in [25, 50, 100] %}
             <option value="{{ n }}" {% if per_page == n %}selected{% endif %}>{{ n }}/pág</option>

@@ -23,7 +23,7 @@ Não grava nada, não consulta banco: só lê os arquivos.
 import os
 import re
 import sys
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET  # XML de terceiros; motivo em audit_engine/xml_parser.py
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 

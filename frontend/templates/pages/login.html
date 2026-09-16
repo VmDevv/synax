@@ -5,11 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login | Synax | Auditor Fiscal Inteligente</title>
     
-    <!-- Tailwind via CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tailwind (Play CDN 3.4.17) servido daqui: cdn.tailwindcss.com não manda CORS,
+         então SRI nele faria o navegador recusar o script. Origem em static/js/vendor/README.md -->
+    <script src="/static/js/vendor/tailwind-3.4.17.js"></script>
     
     <!-- FontAwesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+          integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     

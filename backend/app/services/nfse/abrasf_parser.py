@@ -39,7 +39,7 @@ Nada aqui toca o motor de mercadoria/transporte.
 """
 import re
 import logging
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET  # XML de terceiros; motivo em audit_engine/xml_parser.py
 from datetime import datetime
 
 logger = logging.getLogger(__name__)

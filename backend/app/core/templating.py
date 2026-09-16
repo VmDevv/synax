@@ -46,6 +46,7 @@ def moeda_br(valor) -> str:
 
 
 def build_env() -> Environment:
+    # nosemgrep (é o ambiente único da aplicação, e o autoescape está ligado logo abaixo)
     env = Environment(
         loader=FileSystemLoader(TEMPLATES_DIR, encoding="utf-8"),
         autoescape=select_autoescape(

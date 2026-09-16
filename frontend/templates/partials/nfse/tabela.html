@@ -53,11 +53,10 @@
     <div class="syn-toolbar px-4 py-3">
         <div class="flex flex-wrap items-end gap-2">
             {% set inc = "[name='tenant_id'], [name='q_prestador'], [name='q_tomador'], [name='q_status'], [name='competencia'], [name='q_texto'], [name='per_page']" %}
-            {% set attrs = 'hx-get="/nfse/tabela" hx-target="#nfse-tabela" hx-swap="outerHTML" hx-include="' ~ inc ~ '"' %}
 
             <div class="flex flex-col gap-1 min-w-[200px]">
                 <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Empresa</label>
-                <select name="tenant_id" {{ attrs|safe }} hx-trigger="change"
+                <select name="tenant_id" hx-get="/nfse/tabela" hx-target="#nfse-tabela" hx-swap="outerHTML" hx-include="{{ inc }}" hx-trigger="change"
                         class="px-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition">
                     <option value="">Todas as empresas</option>
                     {% for e in empresas %}
@@ -69,27 +68,27 @@
             <div class="flex flex-col gap-1 min-w-[160px]">
                 <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Prestador</label>
                 <input type="text" name="q_prestador" value="{{ q_prestador }}" placeholder="CNPJ ou razão social"
-                       {{ attrs|safe }} hx-trigger="keyup changed delay:400ms, search"
+                       hx-get="/nfse/tabela" hx-target="#nfse-tabela" hx-swap="outerHTML" hx-include="{{ inc }}" hx-trigger="keyup changed delay:400ms, search"
                        class="px-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition">
             </div>
 
             <div class="flex flex-col gap-1 min-w-[160px]">
                 <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Tomador</label>
                 <input type="text" name="q_tomador" value="{{ q_tomador }}" placeholder="CNPJ ou razão social"
-                       {{ attrs|safe }} hx-trigger="keyup changed delay:400ms, search"
+                       hx-get="/nfse/tabela" hx-target="#nfse-tabela" hx-swap="outerHTML" hx-include="{{ inc }}" hx-trigger="keyup changed delay:400ms, search"
                        class="px-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition">
             </div>
 
             <div class="flex flex-col gap-1 w-[140px]">
                 <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Competência</label>
                 <input type="month" name="competencia" value="{{ competencia }}"
-                       {{ attrs|safe }} hx-trigger="change"
+                       hx-get="/nfse/tabela" hx-target="#nfse-tabela" hx-swap="outerHTML" hx-include="{{ inc }}" hx-trigger="change"
                        class="px-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition">
             </div>
 
             <div class="flex flex-col gap-1 w-[130px]">
                 <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Situação</label>
-                <select name="q_status" {{ attrs|safe }} hx-trigger="change"
+                <select name="q_status" hx-get="/nfse/tabela" hx-target="#nfse-tabela" hx-swap="outerHTML" hx-include="{{ inc }}" hx-trigger="change"
                         class="px-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition">
                     <option value="" {% if not q_status %}selected{% endif %}>Todas</option>
                     <option value="normais" {% if q_status == 'normais' %}selected{% endif %}>Normais</option>
@@ -100,13 +99,13 @@
             <div class="flex flex-col gap-1 min-w-[170px] flex-1">
                 <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Busca livre</label>
                 <input type="text" name="q_texto" value="{{ q_texto }}" placeholder="Nº, discriminação, cód. serviço"
-                       {{ attrs|safe }} hx-trigger="keyup changed delay:400ms, search"
+                       hx-get="/nfse/tabela" hx-target="#nfse-tabela" hx-swap="outerHTML" hx-include="{{ inc }}" hx-trigger="keyup changed delay:400ms, search"
                        class="px-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition">
             </div>
 
             <div class="flex flex-col gap-1 w-[86px]">
                 <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Por pág.</label>
-                <select name="per_page" {{ attrs|safe }} hx-trigger="change"
+                <select name="per_page" hx-get="/nfse/tabela" hx-target="#nfse-tabela" hx-swap="outerHTML" hx-include="{{ inc }}" hx-trigger="change"
                         class="px-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:outline-none">
                     {% for n in [25, 50, 100, 200] %}
                     <option value="{{ n }}" {% if per_page == n %}selected{% endif %}>{{ n }}</option>

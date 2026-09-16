@@ -74,7 +74,7 @@ def _pagina_danfe_indisponivel(chave: str) -> str:
         <head>
             <meta charset="UTF-8">
             <title>Synax | Erro ao Gerar DANFE</title>
-            <script src="https://cdn.tailwindcss.com"></script>
+            <script src="/static/js/vendor/tailwind-3.4.17.js"></script>
         </head>
         <body class="bg-slate-50 flex items-center justify-center min-h-screen p-4 font-sans">
             <div class="max-w-md w-full bg-white rounded-xl shadow-lg border border-slate-200 p-6 text-center">
@@ -192,7 +192,7 @@ async def verificar_nao_lancadas_sieg(
     )
 
     nao_lancadas = []
-    import xml.etree.ElementTree as ET
+    import defusedxml.ElementTree as ET  # XML do cofre; motivo em audit_engine/xml_parser.py
     for xml_str in xmls:
         try:
             root = ET.fromstring(xml_str)
