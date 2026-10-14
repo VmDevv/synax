@@ -143,6 +143,11 @@ app.include_router(correcao_sped_router)
 from .api.routes.ajuste_sped import router as ajuste_sped_router
 app.include_router(ajuste_sped_router)
 
+# Validar SPED: confere a EFD ICMS IPI pelo leiaute do PVA antes da
+# transmissão. Ferramenta interna; cada rota valida papel e empresa por dentro.
+from .api.routes.validar_sped import router as validar_sped_router
+app.include_router(validar_sped_router)
+
 from .api.routes.admin import router as admin_router, require_admin
 # RBAC: /admin inteiro é exclusivo de admin. Operador e cliente nunca entram.
 app.include_router(admin_router, prefix="/admin", dependencies=[Depends(require_admin)])

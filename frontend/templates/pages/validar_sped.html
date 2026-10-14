@@ -1,0 +1,86 @@
+{% extends "layout/base.html" %}
+{% block title %}Validar SPED | Synax{% endblock %}
+
+{% block content %}
+<main class="w-full">
+
+    <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-3">
+        <h2 class="syn-h2 text-xl font-bold flex items-center gap-2.5">
+            <i class="fa-solid fa-list-check text-base" style="color: var(--syn-700);"></i>
+            Validar SPED (EFD ICMS IPI)
+        </h2>
+        <p class="text-[13px] text-slate-500">Confere o arquivo do cliente pelo leiaute do PVA antes da transmissão.</p>
+    </div>
+
+    <section class="syn-card syn-card-accent overflow-hidden">
+        {# `hx-boost="false"`: o <body> tem boost e este form é multipart com
+           HTMX próprio — os dois disputando o submit mandam o arquivo duas
+           vezes. #}
+        <form id="formValidarSped" hx-post="/api/validar-sped"
+              hx-encoding="multipart/form-data" hx-target="#resultado-validar"
+              hx-swap="innerHTML" hx-indicator="#spinner-validar"
+              hx-boost="false" class="p-5">
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start mb-5">
+                <div>
+                    <label class="block text-[14px] font-bold text-slate-800 mb-2">
+                        <i class="fa-solid fa-building-user text-syn-600 text-sm mr-1"></i> Empresa
+                    </label>
+                    <select name="tenant_id" required
+                            class="select select-bordered w-full font-medium text-sm rounded-lg">
+                        <option value="" disabled selected>Selecione o cliente...</option>
+                        {% for t in tenants %}
+                        <option value="{{ t.id }}">{{ t.name }}{% if t.cnpj %} ({{ t.cnpj }}){% endif %}</option>
+                        {% endfor %}
+                    </select>
+                    <p class="text-[11px] text-slate-500 mt-1">
+                        O CNPJ do registro 0000 tem de ser o do cadastro: arquivo de
+                        outra empresa é recusado.
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-[14px] font-bold text-slate-800 mb-2">
+                        <i class="fa-regular fa-file-lines text-syn-600 text-sm mr-1"></i>
+                        EFD ICMS IPI (.txt)
+                    </label>
+                    <input type="file" name="sped_file" accept=".txt" required
+                           class="file-input file-input-bordered w-full">
+                    <p class="text-[11px] text-slate-500 mt-1">
+                        O arquivo não é alterado nem guardado — só o relatório, para baixar em CSV.
+                    </p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <button type="submit" class="btn bg-syn-700 hover:bg-syn-800 text-white font-bold px-6 shadow-sm">
+                    <i class="fa-solid fa-magnifying-glass-chart mr-1"></i> Validar
+                </button>
+                <span id="spinner-validar" class="htmx-indicator text-sm text-slate-500">
+                    <span class="loading loading-spinner loading-sm"></span>
+                    Conferindo registro por registro…
+                </span>
+            </div>
+        </form>
+    </section>
+
+    <div id="resultado-validar" class="mt-5"></div>
+
+    <section class="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-4">
+        <h3 class="font-bold text-sm text-amber-900 mb-1">
+            <i class="fa-solid fa-circle-info mr-1"></i> O que esta versão confere
+        </h3>
+        <p class="text-xs text-slate-700 leading-relaxed">
+            O leiaute vem do próprio PVA instalado no escritório: registros conhecidos,
+            hierarquia e ordem, ocorrência, registros e campos obrigatórios, número de
+            campos, tipo, tamanho e casas decimais, valores válidos, Tabelas Externas
+            (por UF e vigência), duplicidade de chave, cadastros do Bloco 0 (participante,
+            item, unidade, observação), totalizadores do Bloco 9 e as regras genéricas mais
+            usadas (data, CNPJ/CPF, chave de acesso, maior que zero, alíquota).
+            <strong>As regras específicas do PVA — cruzamento de valores entre registros,
+            apuração, CST × campos — ainda não</strong>: a tela diz quantas ficaram de fora
+            em cada arquivo. Sem inconsistência aqui não significa que o PVA vai aceitar.
+        </p>
+    </section>
+
+</main>
+{% endblock %}

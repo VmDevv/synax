@@ -65,6 +65,7 @@ SUITES = [
     ("test_sped_builder.py", "Gerar SPED a partir dos XMLs, para importar no Domínio"),
     ("test_sped_leitura.py", "Leitura do SPED: BOM, ponto decimal, linha torta e item sem documento"),
     ("test_sped_debito_subapuracao.py", "Ajuste C195/C197 (débito sub-apuração) nos C190 de CFOP 5106/6106"),
+    ("test_sped_validador.py", "Validar SPED: leiaute do PVA, regras genéricas, Bloco 9 e a aba por empresa"),
     ("test_busca_regras.py", "Busca única nas Regras por Empresa: no banco, sem vazar tenant"),
     ("test_planilhas.py", "Excel: estilo único, chave/CNPJ como texto e moeda formatada"),
     ("test_nfse_nacional.py", "NFS-e do ADN (layout nacional): nota completa, não só o número"),

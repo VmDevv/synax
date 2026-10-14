@@ -163,6 +163,11 @@
                 <a href="/nfse" class="{{ nav_base }} {% if path.startswith('/nfse') %}syn-nav-on{% endif %}">
                     <i class="fa-solid fa-file-invoice text-xs"></i> Notas de Serviço
                 </a>
+                {% if user_profile and user_profile.role in ('admin', 'operador') %}
+                <a href="/validar-sped" class="{{ nav_base }} {% if path.startswith('/validar-sped') %}syn-nav-on{% endif %}">
+                    <i class="fa-solid fa-list-check text-xs"></i> Validar SPED
+                </a>
+                {% endif %}
                 {% if user_profile and user_profile.role == 'admin' %}
                 <a href="/auditoria-pdf" class="{{ nav_base }} {% if path.startswith('/auditoria-pdf') %}syn-nav-on{% endif %}">
                     <i class="fa-solid fa-file-pdf text-xs"></i> Auditoria de PDF

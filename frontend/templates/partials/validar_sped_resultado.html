@@ -1,0 +1,116 @@
+{# Resultado da validação. Zero inconsistência NÃO sai verde: a v1 não confere
+   as regras específicas do PVA, e "aprovado" aqui faria alguém transmitir
+   achando que o PVA já foi. #}
+
+{% if erro %}
+<div class="alert bg-amber-50 border border-amber-200 text-amber-900 rounded-xl">
+    <i class="fa-solid fa-triangle-exclamation text-amber-600"></i>
+    <span class="text-sm">{{ erro }}</span>
+</div>
+
+{% else %}
+{% set r = resultado %}
+{% set nc = r.nao_conferidas %}
+<div class="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+    <div class="px-5 py-3 flex items-center justify-between flex-wrap gap-2 text-white
+                {% if r.erros %}bg-red-700{% else %}bg-slate-700{% endif %}">
+        <h4 class="font-bold flex items-center gap-2">
+            <i class="fa-solid {% if r.erros %}fa-circle-exclamation{% else %}fa-clipboard-check{% endif %}"></i>
+            {% if r.erros %}{{ r.erros }} erro(s) encontrados{% else %}Nenhum erro nas regras conferidas{% endif %}
+            {% if r.advertencias %}<span class="font-normal text-sm">· {{ r.advertencias }} advertência(s)</span>{% endif %}
+        </h4>
+        <span class="text-xs font-bold">{{ r.linhas }} linhas · {{ r.leiaute_rotulo }}</span>
+    </div>
+
+    <div class="p-5 space-y-5">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-[13px]">
+            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <div class="text-[11px] text-slate-500 uppercase tracking-wide">Empresa no 0000</div>
+                <div class="font-bold text-slate-800">{{ r.empresa.nome }}</div>
+                <div class="text-slate-600">{{ r.empresa.cnpj or r.empresa.cpf }} · {{ r.empresa.uf }}</div>
+            </div>
+            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <div class="text-[11px] text-slate-500 uppercase tracking-wide">Período</div>
+                <div class="font-bold text-slate-800">{{ br(r.empresa.dt_ini) }} a {{ br(r.empresa.dt_fin) }}</div>
+                <div class="text-slate-600">COD_VER {{ r.cod_ver }}</div>
+            </div>
+            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <div class="text-[11px] text-slate-500 uppercase tracking-wide">Não conferido nesta versão</div>
+                <div class="font-bold text-slate-800">{{ nc.values() | sum }} aplicações de {{ nc | length }} regras específicas</div>
+                <div class="text-slate-600">Leiaute do PVA {{ r.pva.versao }}</div>
+            </div>
+        </div>
+
+        {% if sem_cnpj_no_cadastro %}
+        <p class="text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3">
+            <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+            {{ empresa.name }} está sem CNPJ no cadastro: não deu para conferir se o
+            arquivo é mesmo dela.
+        </p>
+        {% endif %}
+
+        {% if r.total %}
+        <div>
+            <h5 class="font-bold text-sm text-slate-700 mb-2">
+                <i class="fa-solid fa-chart-simple mr-1 text-[#037fb5]"></i> Por regra
+            </h5>
+            <div class="flex flex-wrap gap-2">
+                {% for regra, n in r.por_regra.most_common() %}
+                <span class="px-2 py-1 rounded-md bg-slate-100 border border-slate-200 text-[11px] font-mono">
+                    {{ regra }} <strong>{{ n }}</strong>
+                </span>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div>
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+                <h5 class="font-bold text-sm text-slate-700">
+                    <i class="fa-solid fa-list mr-1 text-[#037fb5]"></i> Inconsistências
+                    {% if r.total > limite_tela %}
+                    <span class="font-normal text-slate-500">(as primeiras {{ limite_tela }} de {{ r.total }}; o CSV traz {% if r.truncado %}as primeiras {{ r.inconsistencias | length }}{% else %}todas{% endif %})</span>
+                    {% endif %}
+                </h5>
+                {# Download: fora do boost, ou o htmx injeta o CSV na página. #}
+                <a href="/api/validar-sped/{{ processo }}/csv" hx-boost="false"
+                   class="btn btn-sm bg-syn-700 hover:bg-syn-800 text-white">
+                    <i class="fa-solid fa-file-csv mr-1"></i> Baixar CSV
+                </a>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="table table-xs w-full border border-slate-200">
+                    <thead>
+                        <tr class="text-[11px] uppercase text-slate-500 bg-slate-50">
+                            <th>Linha</th><th>Registro</th><th>Campo</th><th>Valor</th>
+                            <th>Mensagem</th><th>Regra</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for i in r.inconsistencias[:limite_tela] %}
+                        <tr class="{% if i.gravidade == 'advertencia' %}bg-amber-50{% endif %}">
+                            <td class="font-mono">{{ i.linha or "—" }}</td>
+                            <td class="font-mono">{{ i.registro }}</td>
+                            <td class="font-mono">{{ i.campo }}</td>
+                            <td class="font-mono max-w-[160px] truncate" title="{{ i.valor }}">{{ i.valor }}</td>
+                            <td class="text-[12px]">
+                                {% if i.gravidade == 'advertencia' %}<span class="badge badge-warning badge-xs mr-1">advertência</span>{% endif %}
+                                {{ i.mensagem }}
+                            </td>
+                            <td class="font-mono text-[10px] text-slate-500">{{ i.regra }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        <p class="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3">
+            <i class="fa-solid fa-circle-info mr-1"></i>
+            {% if r.total %}Corrija os itens acima e valide de novo.{% else %}Leiaute, cadastros e regras genéricas conferem.{% endif %}
+            As {{ nc | length }} regras específicas que valem neste arquivo ainda não são
+            conferidas aqui — o PVA continua sendo a palavra final antes da transmissão.
+        </p>
+    </div>
+</div>
+{% endif %}
