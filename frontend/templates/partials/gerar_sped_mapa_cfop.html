@@ -7,7 +7,8 @@
    (CFOP do CT-e × UF do transportador). Cada linha tem um status — aprovada
    (regra do gerador que um admin aprovou), pendente (gravada, esperando o
    admin) ou a definir (sem regra; o campo vem com a conversão do 1º dígito
-   como sugestão).
+   como sugestão — ou, quando esse espelho não existe na tabela oficial de
+   CFOP, com a equivalência do mapa curto, marcada como tal, ou vazio).
 
    O botão de GERAR só destrava com tudo aprovado, e a rota confere de novo:
    gera só com o que está aprovado no banco, nunca com o que veio no POST
@@ -41,7 +42,7 @@
 </span>
 {% else %}
 <span class="badge badge-sm bg-amber-100 text-amber-800 border-none font-bold whitespace-nowrap"
-      title="Sem regra: o campo traz a conversão do 1º dígito como sugestão">
+      title="{% if l.sugestao_como == 'equivalente' %}Sem regra: o espelho do 1º dígito de {{ l.cfop_origem }} não existe na tabela oficial, e o campo traz a equivalência do mapa como sugestão{% elif l.sugestao_como == 'espelho' %}Sem regra: o campo traz a conversão do 1º dígito como sugestão{% else %}Sem regra e sem sugestão: o espelho do 1º dígito de {{ l.cfop_origem }} não existe na tabela oficial — escolha o CFOP{% endif %}">
     <i class="fa-solid fa-pen mr-1"></i> a definir
 </span>
 {% endif %}
@@ -60,6 +61,19 @@
                   {% if travada %}bg-emerald-50 border-emerald-200 text-emerald-800
                   {% elif l.status == 'pendente' %}border-sky-300 bg-sky-50/40
                   {% else %}border-amber-300 bg-amber-50/40{% endif %}">
+    {# A equivalência é escolha do escritório, não a mesma natureza do outro
+       lado como o espelho: fica à vista, como toda presunção. #}
+    {% if not travada and l.sugestao_como == 'equivalente' and l.cfop_entrada == l.cfop_sugerido %}
+    <span class="badge badge-xs bg-amber-50 text-amber-800 border border-amber-200 whitespace-nowrap"
+          title="{{ l.cfop_origem }} não tem espelho na tabela oficial de CFOP: {{ l.cfop_sugerido }} é a sugestão do mapa de equivalências. Confira antes de aprovar.">
+        equivalência
+    </span>
+    {% elif not travada and l.status == 'a_definir' and not l.cfop_entrada %}
+    <span class="badge badge-xs bg-slate-50 text-slate-600 border border-slate-200 whitespace-nowrap"
+          title="O espelho do 1º dígito de {{ l.cfop_origem }} não existe na tabela oficial de CFOP, e não há equivalência conhecida: escolha o CFOP de entrada.">
+        sem sugestão
+    </span>
+    {% endif %}
     {% if travada %}
     <button type="button" class="mapa-destravar btn btn-ghost btn-xs text-slate-500"
             title="Alterar esta regra aprovada (continua aprovada, porque quem altera é admin)">

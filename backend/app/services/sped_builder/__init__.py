@@ -20,18 +20,23 @@ não é limitação de implementação, é o que os XMLs contêm:
   para o frete) — separadas das da auditoria, com o mesmo maker-checker. Desde
   09/10/2026 as rotas geram com `exigir_regra`: sem regra aprovada para cada
   item e cada frete, o arquivo não sai. A conversão do primeiro dígito (5→1,
-  6→2, 7→3) virou só a sugestão que pré-preenche a tela de mapeamento.
+  6→2, 7→3) virou só a sugestão que pré-preenche a tela de mapeamento — e
+  só quando o espelho existe na tabela oficial de CFOP: 5405 não vira 1405.
+  Para algumas saídas sem espelho, um mapa curto sugere a equivalência (5405 →
+  1403), também como presunção e também exigindo aprovação.
 
 Tudo que o gerador preencheu sem ter no XML vira uma `Presuncao` e aparece no
 relatório. É a regra da casa: o que a máquina supôs tem de estar visível antes
 de alguém assinar embaixo.
 """
 from .gerador import (Cadastro, Presuncao, Resultado, cfop_de_entrada,
-                      cfop_de_entrada_valido, chave_frete, chave_item, gerar,
+                      cfop_de_entrada_valido, chave_frete, chave_item,
+                      deduzir_cfop, empresa_industrial, gerar,
                       gerar_de_pasta, id_documento, levantar_combinacoes,
                       levantar_combinacoes_da_pasta, rotulo_mes)
 
 __all__ = ["Cadastro", "Presuncao", "Resultado", "cfop_de_entrada",
-           "cfop_de_entrada_valido", "chave_frete", "chave_item", "gerar",
+           "cfop_de_entrada_valido", "chave_frete", "chave_item",
+           "deduzir_cfop", "empresa_industrial", "gerar",
            "gerar_de_pasta", "id_documento", "levantar_combinacoes",
            "levantar_combinacoes_da_pasta", "rotulo_mes"]

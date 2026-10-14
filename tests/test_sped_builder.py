@@ -943,6 +943,11 @@ check("mostra o que ficou de fora do pacote",
 check("mostra as presuncoes ANTES do download",
       "precisou presumir" in r_gera.text
       and r_gera.text.index("precisou presumir") < r_gera.text.index("Baixar"))
+# Os XMLs desta seção não trazem endereço da empresa: o 0005 sai sem CEP, e
+# isso tem de estar na tela antes do botão, não só no arquivo.
+check("0005 sem CEP aparece nos avisos ANTES do download",
+      "0005 saiu sem CEP" in r_gera.text
+      and r_gera.text.index("0005 saiu sem CEP") < r_gera.text.index("Baixar"))
 check("e oferece o download", "/arquivo" in r_gera.text)
 
 processo = _re.search(r"/api/gerar-sped/([0-9a-f-]{36})/arquivo", r_gera.text)
@@ -1170,6 +1175,302 @@ for d in (P_END, P_SEM):
     for nome in os.listdir(d):
         os.remove(os.path.join(d, nome))
     os.rmdir(d)
+
+
+def _gerar_xmls(xmls, ind_ativ="1", **kw):
+    """Gera de uma pasta descartável com estes XMLs; (resultado, linhas)."""
+    pasta = tempfile.mkdtemp(prefix="synax_caso_")
+    try:
+        for i, conteudo in enumerate(xmls):
+            io.open(os.path.join(pasta, f"doc{i}.xml"), "w",
+                    encoding="utf-8").write(conteudo)
+        res = gerar_de_pasta(pasta, Cadastro(cnpj=EMPRESA, nome="X", uf="ES",
+                                             ind_ativ=ind_ativ), **kw)
+    finally:
+        for nome in os.listdir(pasta):
+            os.remove(os.path.join(pasta, nome))
+        os.rmdir(pasta)
+    linhas = ([l.split("|") for l in res.documento.serializar().split("\r\n") if l]
+              if res.documento else [])
+    return res, linhas
+
+
+def _registro(linhas, reg):
+    return [l for l in linhas if l[1] == reg]
+
+
+# ============================================================================
+print("\n=== 10. CEP do 0005 (obrigatório no leiaute 020) ===")
+
+# O validador de EFD achou o 0005 com CEP vazio nos SPEDs gerados. O CEP do
+# destinatário é OPCIONAL na NF-e: ler só a primeira nota do mês deixava o
+# campo em branco mesmo com o CEP nas outras.
+NOTA_SEM_END = nfe("35260812345678000190550010000060011000006001", "6001",
+                   FORNECEDOR, "DIST LAURENCINI LTDA", EMPRESA, ITENS_1[:1],
+                   data="2026-04-05")
+NOTA_LGR_SEM_CEP = (XML_COM_ENDERECO
+                    .replace("0000050011000005001", "0000050021000005002")
+                    .replace("<nNF>5001</nNF>", "<nNF>5002</nNF>")
+                    .replace("2026-04-12T", "2026-04-03T")
+                    .replace("AVENIDA GETULIO VARGAS", "RUA SEM CEP")
+                    .replace("<CEP>29900500</CEP></enderDest>", "</enderDest>"))
+
+res, linhas = _gerar_xmls([NOTA_SEM_END, XML_COM_ENDERECO])
+l0005 = _registro(linhas, "0005")[0]
+check("1ª nota do mês sem endereço: o CEP vem da nota que o tem",
+      l0005[3] == "29900500", l0005[3])
+check("e nenhum aviso de 0005 incompleto",
+      not any("0005" in a for a in res.avisos), res.avisos)
+
+res, linhas = _gerar_xmls([NOTA_LGR_SEM_CEP, XML_COM_ENDERECO])
+l0005 = _registro(linhas, "0005")[0]
+check("o endereço sai INTEIRO do documento que tem CEP, sem misturar notas",
+      (l0005[3], l0005[4]) == ("29900500", "AVENIDA GETULIO VARGAS"),
+      (l0005[3], l0005[4]))
+check("e a presunção diz de qual documento veio",
+      any("0005" in p.campo and "NF-e 5001" in p.motivo for p in res.presuncoes),
+      [(p.campo, p.motivo) for p in res.presuncoes if "0005" in p.campo])
+
+res, linhas = _gerar_xmls([NOTA_LGR_SEM_CEP])
+l0005 = _registro(linhas, "0005")[0]
+check("nenhum XML com CEP: o arquivo sai, o CEP NÃO é inventado",
+      res.documento is not None and l0005[3] == "" and l0005[4] == "RUA SEM CEP",
+      (l0005[3], l0005[4]))
+check("e o CEP faltando vira aviso — a tela mostra antes do botão de baixar",
+      any("0005 saiu sem CEP" in a for a in res.avisos), res.avisos)
+
+res, linhas = _gerar_xmls([XML_COM_ENDERECO.replace("29900500", "2990050")])
+check("CEP com 7 dígitos não entra (0005 campo 03 é N 8, exato)",
+      _registro(linhas, "0005")[0][3] == ""
+      and any("0005 saiu sem CEP" in a for a in res.avisos),
+      _registro(linhas, "0005")[0][3])
+
+# Pacote só de frete: não há NF-e, e o endereço da empresa está no CT-e, no
+# papel de tomador (aqui, o destinatário: toma = 3).
+CTE_COM_END = CTE.replace(
+    "<dest><CNPJ>27865757000102</CNPJ><xNome>COMERCIAL MASSUCATTI LTDA</xNome></dest>",
+    "<dest><CNPJ>27865757000102</CNPJ><xNome>COMERCIAL MASSUCATTI LTDA</xNome>"
+    "<enderDest><xLgr>AVENIDA GETULIO VARGAS</xLgr><nro>742</nro>"
+    "<xBairro>SAO JOSE</xBairro><cMun>3203205</cMun><xMun>LINHARES</xMun>"
+    "<CEP>29900500</CEP><UF>ES</UF></enderDest></dest>")
+res, linhas = _gerar_xmls([CTE_COM_END])
+l0005 = _registro(linhas, "0005")[0] if linhas else []
+check("pacote só com CT-e: o 0005 sai com o endereço do tomador",
+      l0005[3:5] == ["29900500", "AVENIDA GETULIO VARGAS"] and l0005[7] == "SAO JOSE",
+      l0005)
+check("e a presunção aponta o CT-e",
+      any("0005" in p.campo and "tomador do CT-e 149831" in p.motivo
+          for p in res.presuncoes), [p.motivo for p in res.presuncoes])
+
+from backend.app.services.audit_engine.xml_parser import parse_cte_xml  # noqa: E402
+
+CTE_TOMA4 = CTE.replace("<toma3><toma>3</toma></toma3>", (
+    "<toma4><toma>4</toma><CNPJ>27865757000102</CNPJ><xNome>COMERCIAL</xNome>"
+    "<enderToma><xLgr>RUA DO TOMADOR</xLgr><nro>10</nro><xBairro>CENTRO</xBairro>"
+    "<cMun>3203205</cMun><xMun>LINHARES</xMun><CEP>29900600</CEP><UF>ES</UF>"
+    "</enderToma></toma4>"))
+p_toma = gravar("toma4.xml", CTE_TOMA4)
+lido = parse_cte_xml(p_toma)
+os.remove(p_toma)
+check("toma4: o leitor do CT-e traz o endereço de <enderToma>",
+      (lido.get("tomador_cep"), lido.get("tomador_lgr"), lido.get("tomador_bairro"))
+      == ("29900600", "RUA DO TOMADOR", "CENTRO"), lido.get("tomador_cep"))
+
+
+# ============================================================================
+print("\n=== 11. CFOP de entrada só da tabela oficial ===")
+
+from backend.app.domain.constants.cfops_entrada import CFOPS_ENTRADA  # noqa: E402
+from backend.app.domain.constants.tabela_cfop import CFOPS_VIGENTES  # noqa: E402
+from backend.app.services.sped_builder import (  # noqa: E402
+    cfop_de_entrada_valido, deduzir_cfop, levantar_combinacoes)
+
+# Achado do validador de EFD nos SPEDs gerados em 08/10/2026: 5405 virava 1405
+# e 6357 virava 2357 — série certa, quatro dígitos, e nenhum dos dois existe.
+check("1403 e 2353 existem e servem de entrada",
+      cfop_de_entrada_valido("1403") and cfop_de_entrada_valido("2353"))
+check("1405 e 2357 não existem na tabela: não servem",
+      not cfop_de_entrada_valido("1405") and not cfop_de_entrada_valido("2357"))
+check("3217 (vigência encerrada em 2009) também não",
+      not cfop_de_entrada_valido("3217"))
+check("5102 continua virando 1102 pelo espelho",
+      deduzir_cfop("5102") == ("1102", "espelho"))
+check("5405 não vira 1405: o mapa sugere 1403 (compra para comercialização com ST)",
+      deduzir_cfop("5405") == ("1403", "equivalente"), deduzir_cfop("5405"))
+check("6404 sugere 2403", deduzir_cfop("6404") == ("2403", "equivalente"),
+      deduzir_cfop("6404"))
+check("frete 6357 não vira 2357: o mapa sugere 2353 (estabelecimento comercial)",
+      deduzir_cfop("6357") == ("2353", "equivalente"), deduzir_cfop("6357"))
+check("e 2352 quando a empresa é industrial (IND_ATIV 0)",
+      deduzir_cfop("6357", industrial=True) == ("2352", "equivalente"),
+      deduzir_cfop("6357", industrial=True))
+check("5357/5359/6359 seguem o mesmo mapa",
+      [deduzir_cfop(c)[0] for c in ("5357", "5359", "6359")] == ["1353", "1353", "2353"]
+      and [deduzir_cfop(c, True)[0] for c in ("5357", "5359", "6359")]
+      == ["1352", "1352", "2352"])
+check("o IND_ATIV não mexe na equivalência da mercadoria (5405 segue 1403)",
+      deduzir_cfop("5405", industrial=True) == ("1403", "equivalente"))
+check("saída sem espelho fora do mapa (6106) fica sem dedução",
+      cfop_de_entrada("6106") == ("", False) and deduzir_cfop("6106") == ("", ""),
+      cfop_de_entrada("6106"))
+check("1xxx no XML do fornecedor é a entrada DELE, não é copiado",
+      deduzir_cfop("1202") == ("", ""), deduzir_cfop("1202"))
+check("regra aprovada com 1405 não vale: não conta como regra, volta à sugestão",
+      cfop_de_entrada("5405", "1405") == ("1403", False))
+check("regra aprovada com 1403 manda", cfop_de_entrada("5405", "1403") == ("1403", True))
+
+saidas = sorted(c for c in CFOPS_VIGENTES if c[0] in "567")
+deduzidos = {c: deduzir_cfop(c) for c in saidas}
+deduzidos_ind = {c: deduzir_cfop(c, industrial=True) for c in saidas}
+check("nenhuma das saídas vigentes deduz CFOP fora da tabela (nem na industrial)",
+      all(d == "" or cfop_de_entrada_valido(d)
+          for d, _ in list(deduzidos.values()) + list(deduzidos_ind.values())),
+      [c for c, (d, _) in deduzidos.items() if d and not cfop_de_entrada_valido(d)])
+check("das 77 sem espelho, 6 vêm do mapa e 71 ficam sem dedução",
+      (sum(1 for _, como in deduzidos.values() if como == "equivalente"),
+       sum(1 for d, _ in deduzidos.values() if not d)) == (6, 71),
+      (sum(1 for _, como in deduzidos.values() if como == "equivalente"),
+       sum(1 for d, _ in deduzidos.values() if not d)))
+
+from backend.app.api.routes.gerar_sped import CFOPS_FRETE  # noqa: E402
+
+check("toda opção de CFOP da tela de mapeamento existe na tabela (sem 2360)",
+      all(cfop_de_entrada_valido(c) for c in list(CFOPS_ENTRADA) + list(CFOPS_FRETE)),
+      [c for c in list(CFOPS_ENTRADA) + list(CFOPS_FRETE)
+       if not cfop_de_entrada_valido(c)])
+
+_dados_pva = os.path.join("backend", "app", "services", "sped_validador", "dados",
+                          "tabelas.json")
+if os.path.exists(_dados_pva):
+    _cfop_pva = json.load(io.open(_dados_pva, encoding="utf-8"))["tipos"]["CFOP"]["GLOBAL"]
+    check("a lista é a mesma da extração do PVA usada pelo validador",
+          CFOPS_VIGENTES == {c for c, _i, f in _cfop_pva["codigos"] if not f},
+          _cfop_pva.get("versao"))
+else:
+    print("  ...  | dados do validador de EFD ausentes: comparação com o PVA pulada")
+
+
+def _nota_com_cfop(num, cod, cfop):
+    return nfe(f"352608123456780001905500100000{num}100000{num}", num,
+               FORNECEDOR, "DIST LAURENCINI LTDA", EMPRESA,
+               [{**ITENS_1[0], "cod": cod, "cfop": cfop}])
+
+
+NOTA_5405 = _nota_com_cfop("7001", "REFRI2L", "5405")
+NOTA_6106 = _nota_com_cfop("7002", "PECA9", "6106")
+
+res, linhas = _gerar_xmls([NOTA_5405])
+check("gerador puro, sem regra: o 5405 sai com a equivalência 1403, não 1405",
+      [l[11] for l in _registro(linhas, "C170")] == ["1403"],
+      [l[11] for l in _registro(linhas, "C170")])
+check("e a equivalência é presunção própria, com o par e a contagem",
+      any(p.campo == "C170 · CFOP" and "5405→1403 (1)" in p.valor
+          and "tabela oficial" in p.motivo for p in res.presuncoes),
+      [(p.campo, p.valor) for p in res.presuncoes if "CFOP" in p.campo])
+check("separada da conversão do 1º dígito (que aqui não houve)",
+      not any("primeiro dígito" in p.valor for p in res.presuncoes))
+
+res, _ = _gerar_xmls([NOTA_6106])
+check("saída sem espelho e fora do mapa (6106): nada é gerado",
+      res.documento is None and res.sem_regra, res.avisos)
+check("e a combinação aparece como pendente de regra, com o motivo",
+      any("6106" in s and "PECA9" in s for s in res.sem_regra)
+      and any("tabela oficial" in a for a in res.avisos), (res.sem_regra, res.avisos))
+
+res, linhas = _gerar_xmls([NOTA_6106], regras_cfop={
+    chave_item(FORNECEDOR, "6106", "PECA9"): "2102"})
+check("com a regra aprovada, o 6106 sai com ela",
+      [l[11] for l in _registro(linhas, "C170")] == ["2102"],
+      [l[11] for l in _registro(linhas, "C170")])
+
+# O modo das rotas: a sugestão do mapa NÃO dispensa a aprovação, e regra
+# gravada com CFOP inexistente não conta como aprovada.
+res, _ = _gerar_xmls([NOTA_5405], exigir_regra=True)
+check("modo estrito: a equivalência não vai para o arquivo sem regra aprovada",
+      res.documento is None and any("5405" in s for s in res.sem_regra), res.avisos)
+res, _ = _gerar_xmls([NOTA_5405], exigir_regra=True, regras_cfop={
+    chave_item(FORNECEDOR, "5405", "REFRI2L"): "1405"})
+check("regra gravada com 1405 não destrava a geração",
+      res.documento is None and res.sem_regra, res.avisos)
+res, linhas = _gerar_xmls([NOTA_5405], exigir_regra=True, regras_cfop={
+    chave_item(FORNECEDOR, "5405", "REFRI2L"): "1403"})
+check("com a regra 1403 aprovada, o item sai com ela e sem presunção de CFOP",
+      [l[11] for l in _registro(linhas, "C170")] == ["1403"]
+      and not any(p.campo == "C170 · CFOP" for p in res.presuncoes),
+      [l[11] for l in _registro(linhas, "C170")])
+
+CTE_6357 = CTE.replace("<CFOP>6352</CFOP>", "<CFOP>6357</CFOP>")
+res, linhas = _gerar_xmls([CTE_6357])
+check("CT-e 6357 sem regra: D190 com 2353, não 2357",
+      [l[3] for l in _registro(linhas, "D190")] == ["2353"],
+      [l[3] for l in _registro(linhas, "D190")])
+check("e a presunção do frete mostra o par",
+      any(p.campo == "D190 · CFOP" and "6357→2353 (1)" in p.valor
+          for p in res.presuncoes),
+      [(p.campo, p.valor) for p in res.presuncoes if "CFOP" in p.campo])
+res, linhas = _gerar_xmls([CTE_6357], ind_ativ="0")
+check("empresa industrial: o mesmo CT-e sai com 2352",
+      [l[3] for l in _registro(linhas, "D190")] == ["2352"],
+      [l[3] for l in _registro(linhas, "D190")])
+
+# 6360 (transporte a contribuinte substituto) não tem espelho — o 2360 que a
+# tela oferecia não existe — e não está no mapa.
+CTE_6360 = CTE.replace("<CFOP>6352</CFOP>", "<CFOP>6360</CFOP>")
+res, _ = _gerar_xmls([CTE_6360])
+check("CT-e 6360 sem regra: nada é gerado",
+      res.documento is None and any("6360" in s for s in res.sem_regra), res.avisos)
+res, linhas = _gerar_xmls([CTE_6360], regras_cte={chave_frete("6360", ""): "2353"})
+check("com a regra do frete aprovada, o D190 sai com ela",
+      [l[3] for l in _registro(linhas, "D190")] == ["2353"],
+      [l[3] for l in _registro(linhas, "D190")])
+
+p_5405, p_6106 = gravar("nota5405.xml", NOTA_5405), gravar("nota6106.xml", NOTA_6106)
+p_6357 = gravar("cte6357.xml", CTE_6357)
+combos = levantar_combinacoes([p_5405, p_6106, p_6357], Cadastro(cnpj=EMPRESA))
+combos_ind = levantar_combinacoes([p_6357], Cadastro(cnpj=EMPRESA, ind_ativ="0"))
+for _p in (p_5405, p_6106, p_6357):
+    os.remove(_p)
+sug = {c["cfop_origem"]: (c["cfop_sugerido"], c["sugestao_como"]) for c in combos["nfe"]}
+check("a tela de mapeamento sugere 1403 para o 5405, marcada como equivalência",
+      sug.get("5405") == ("1403", "equivalente"), sug)
+check("e não sugere nada para o 6106 (fica a definir)",
+      sug.get("6106") == ("", ""), sug)
+check("frete: 2353, ou 2352 para empresa industrial",
+      [(c["cfop_sugerido"], c["sugestao_como"]) for c in combos["cte"]]
+      == [("2353", "equivalente")]
+      and [c["cfop_sugerido"] for c in combos_ind["cte"]] == ["2352"],
+      (combos["cte"], combos_ind["cte"]))
+
+# A tela marca a sugestão do mapa, e refaz a sugestão a partir do CFOP de
+# origem — o combinacoes.json guardado antes desta mudança trazia "1405".
+import types as _tipos  # noqa: E402
+
+from backend.app.api.routes import gerar_sped as _rota  # noqa: E402
+from backend.app.core.templating import build_templates  # noqa: E402
+
+combos["nfe"] = [{**c, "cfop_sugerido": "1405"} if c["cfop_origem"] == "5405" else c
+                 for c in combos["nfe"]]
+l_nfe, l_cte = _rota._linhas(combos, {}, {})
+check("pacote guardado com a sugestão antiga: a tela refaz para 1403",
+      {l["cfop_origem"]: l["cfop_entrada"] for l in l_nfe}.get("5405") == "1403",
+      [(l["cfop_origem"], l["cfop_entrada"]) for l in l_nfe])
+check("e com IND_ATIV industrial o frete vira 2352 na tela",
+      [l["cfop_entrada"] for l in _rota._linhas(combos, {}, {}, True)[1]] == ["2352"])
+html_mapa = build_templates().env.get_template("partials/gerar_sped_mapa_cfop.html").render(
+    request=None, empresa=_tipos.SimpleNamespace(name="X", cnpj=EMPRESA, id="t"),
+    pacote_id="p", competencia="", rotulo_mes=lambda m: m,
+    linhas_nfe=l_nfe, linhas_cte=l_cte, resumo_nfe=_rota._resumo(l_nfe),
+    resumo_cte=_rota._resumo(l_cte), itens=len(l_nfe), ctes=len(l_cte),
+    faltam=len(l_nfe) + len(l_cte), pode_gerar=False, pode_aprovar=False,
+    cfop_opcoes=_rota._cfop_opcoes(), cfop_opcoes_frete=_rota._cfop_opcoes_frete(),
+    ignorados=[], mensagem="", mensagem_tipo="ok")
+check("na tela, as linhas do 5405 e do 6357 levam o selo 'equivalência'",
+      html_mapa.count("equivalência\n    </span>") == 2
+      and "5405 não tem espelho na tabela oficial" in html_mapa
+      and "6357 não tem espelho na tabela oficial" in html_mapa,
+      html_mapa.count("equivalência\n    </span>"))
+check("e a do 6106 diz que veio sem sugestão, e por quê",
+      "sem sugestão" in html_mapa and "de 6106 não existe na tabela oficial" in html_mapa)
 
 
 # ============================================================================

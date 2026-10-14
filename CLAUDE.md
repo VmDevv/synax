@@ -204,8 +204,8 @@ situar.
   vale aqui — nem o contrário. O maker-checker é o de sempre
   (`rule_status_for`): o operador grava pendente e não mexe em regra aprovada;
   o admin grava aprovado e aprova nas abas **Gerador · NF-e / Gerador · CT-e**
-  da Curadoria, que também validam o CFOP (`cfop_entrada`: 4 dígitos, série 1,
-  2 ou 3 — as abas da auditoria seguem como eram). O botão de gerar fica
+  da Curadoria, que também validam o CFOP (`cfop_entrada`: série 1, 2 ou 3 e
+  presente na tabela oficial — as abas da auditoria seguem como eram). O botão de gerar fica
   travado até não faltar regra aprovada, e a trava NÃO é só da tela: o
   `/confirmar` e o `/regerar` geram só com o que está aprovado no BANCO (o CFOP
   do formulário é ignorado), o gerador roda com `exigir_regra=True` — item ou
@@ -222,6 +222,26 @@ situar.
   `scripts/separar_regras_do_gerador.py` (simula por padrão, `--aplicar`
   grava; acha pela assinatura `created_by` = UUID). Travado em
   `tests/test_gerar_sped_mapa.py` e na seção 8 de `tests/test_sped_builder.py`.
+
+- **CFOP de entrada do gerador só da tabela oficial — e o espelho do 1º dígito
+  nem sempre existe.** O validador de EFD achou 1405 e 2357 nos `sped_gerado.txt`
+  de 08/10/2026: série certa, quatro dígitos, e nenhum dos dois está na tabela
+  do PVA (77 das 331 saídas vigentes não têm espelho). `cfop_de_entrada_valido`
+  confere `domain/constants/tabela_cfop.py` (tabela SPEDFISCAL_GLOBAL$CFOP v14 do
+  PVA 6.1.1, só vigência aberta) e é a porta única: gerador, gravação da tela
+  de mapeamento e Curadoria. Para seis saídas sem espelho a sugestão vem de um
+  mapa CURTO (`EQUIVALENTES_SEM_ESPELHO`, decisão do Sandro em 14/10/2026):
+  5405→1403, 6404→2403 e frete 5357/6357/5359/6359→1353/2353, ou 1352/2352 com
+  IND_ATIV 0 (industrial). Só onde a equivalência vale para qualquer cliente que
+  compra para revenda; as outras 71 ficam "a definir", sem sugestão. Continua
+  sendo SUGESTÃO, que exige aprovação, e aparece marcada ("equivalência" na
+  linha da tela; presunção própria no relatório, separada da do 1º dígito). A
+  tela refaz a sugestão a partir do CFOP de origem em vez de confiar no
+  `combinacoes.json`, que guardava o 1405. Não aumente o mapa por palpite: cada
+  par novo é uma escolha fiscal que vira default de toda empresa. Junto veio o
+  CEP do 0005 (obrigatório): o endereço sai inteiro do primeiro documento com
+  CEP — NF-e, depois tomador do CT-e —, e campo obrigatório vazio vira aviso
+  antes do botão de baixar. Travado em `tests/test_sped_builder.py`, seções 10 e 11.
 
 - **O gerador de SPED escritura o direito do COMPRADOR, não os impostos do
   vendedor — a política está no cabeçalho de `sped_builder/gerador.py`.**

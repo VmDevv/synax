@@ -41,6 +41,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+from ...domain.constants.tabela_cfop import cfop_existe
 from ..sped_rewriter.cascata import (fechar_componentes, recalcular_c100,
                                      reconstruir_bloco_9, reconstruir_c190,
                                      reconstruir_totais_de_blocos,
@@ -212,13 +213,18 @@ def versao_do_leiaute(ano: int) -> tuple[str, bool]:
 
 
 def cfop_de_entrada_valido(cfop: str) -> bool:
-    """CFOP que pode ir num documento de ENTRADA: 4 dígitos, série 1, 2 ou 3.
+    """CFOP que pode ir num documento de ENTRADA: série 1, 2 ou 3, e que EXISTE.
 
     Regra com "5102" (saída) passaria no isdigit e escrituraria CFOP de saída
-    num C170 de entrada — o PVA recusa o arquivo inteiro.
+    num C170 de entrada — o PVA recusa o arquivo inteiro. E a série certa não
+    basta: "1405" tem os quatro dígitos e começa com 1, mas não está na tabela
+    oficial, e era justamente o que a sugestão do 1º dígito oferecia (e alguém
+    aprovava) para o 5405. Esta função é a única porta: o gerador, a gravação
+    da tela de mapeamento e a aprovação na Curadoria passam todos por ela.
     """
     texto = (cfop or "").strip()
-    return len(texto) == 4 and texto.isdigit() and texto[0] in "123"
+    return (len(texto) == 4 and texto.isdigit() and texto[0] in "123"
+            and cfop_existe(texto))
 
 
 def chave_item(fornecedor, cfop_origem, cod_produto) -> tuple:
@@ -237,26 +243,78 @@ def chave_frete(cfop_cte, uf_transportador) -> tuple:
     return ((cfop_cte or "").strip(), (uf_transportador or "").strip().upper()[:2])
 
 
-def cfop_de_entrada(cfop_xml: str, mapeado: str = "") -> tuple[str, bool]:
+ESPELHO_DA_SAIDA = {"5": "1", "6": "2", "7": "3"}
+IND_ATIV_INDUSTRIAL = "0"      # 0000 campo 15
+
+# CFOP de saída cujo espelho pelo 1º dígito NÃO existe na tabela oficial, e o
+# de entrada que vai no lugar. Mapa CURTO de propósito (decisão do Sandro em
+# 14/10/2026): só onde a equivalência é a mesma para qualquer cliente que
+# compra para revenda — que é o TIPO_ITEM 00 que o gerador já supõe. 5405 e
+# 6404 são venda de mercadoria com ST já retido: na entrada, compra para
+# comercialização com ST. 5357/6357 (transporte a não contribuinte) e
+# 5359/6359 (mercadoria dispensada de nota) chegam de transportador que não
+# usou o CFOP do tomador: na entrada, aquisição de transporte por
+# estabelecimento comercial — ou industrial, pelo IND_ATIV da tela. As outras
+# 71 saídas sem espelho ficam sem dedução até alguém mapear. Continua sendo
+# SUGESTÃO: nada disto vai para o arquivo sem regra aprovada.
+EQUIVALENTES_SEM_ESPELHO: dict[str, str] = {
+    "5405": "1403", "6404": "2403",
+    "5357": "1353", "6357": "2353", "5359": "1353", "6359": "2353",
+}
+EQUIVALENTES_INDUSTRIAL: dict[str, str] = {
+    "5357": "1352", "6357": "2352", "5359": "1352", "6359": "2352",
+}
+
+
+def deduzir_cfop(cfop_xml: str, industrial: bool = False) -> tuple[str, str]:
+    """(CFOP de entrada deduzido do CFOP do fornecedor, como foi deduzido).
+
+    `como` é "espelho" (o 1º dígito, 5→1, 6→2, 7→3), "equivalente" (saída sem
+    espelho, pela `EQUIVALENTES_SEM_ESPELHO`) ou "" — sem dedução, e aí o CFOP
+    também sai vazio. Nunca devolve código fora da tabela oficial: 77 das 331
+    saídas vigentes não têm espelho (6357 viraria 2357, 5405 viraria 1405), e um
+    CFOP inexistente faz o PVA recusar o arquivo inteiro. `industrial` é a
+    empresa com IND_ATIV 0, e só muda a equivalência do frete.
+    """
+    origem = (cfop_xml or "").strip()
+    primeiro = ESPELHO_DA_SAIDA.get(origem[:1])
+    if not (len(origem) == 4 and origem.isdigit() and primeiro):
+        # Não é CFOP de saída. Um 1xxx no XML do fornecedor é a ENTRADA dele
+        # (devolução que ele mesmo emitiu, por exemplo): repeti-lo como entrada
+        # da empresa seria presunção sem base nenhuma.
+        return "", ""
+    espelho = primeiro + origem[1:]
+    if cfop_existe(espelho):
+        return espelho, "espelho"
+    equivalente = ((industrial and EQUIVALENTES_INDUSTRIAL.get(origem))
+                   or EQUIVALENTES_SEM_ESPELHO.get(origem, ""))
+    if cfop_de_entrada_valido(equivalente):
+        return equivalente, "equivalente"
+    return "", ""
+
+
+def empresa_industrial(cadastro: Cadastro) -> bool:
+    return (cadastro.ind_ativ or "").strip() == IND_ATIV_INDUSTRIAL
+
+
+def cfop_de_entrada(cfop_xml: str, mapeado: str = "",
+                    industrial: bool = False) -> tuple[str, bool]:
     """(CFOP de entrada, veio de regra aprovada?).
 
-    A regra da empresa manda quando existe. Na falta dela, a conversão do
-    primeiro dígito — 5→1, 6→2, 7→3 — que é como todo escritório começa uma
-    escrituração: mesma natureza de operação, do outro lado. **É presunção, e
-    sai marcada**: quem confere no Domínio precisa saber quais CFOPs alguém
-    aprovou e quais o sistema deduziu. Desde 09/10/2026 as rotas geram em modo
-    estrito (`exigir_regra`), e a conversão só serve de SUGESTÃO na tela de
-    mapeamento — nenhum arquivo sai com ela.
+    A regra da empresa manda quando existe. Na falta dela, a dedução de
+    `deduzir_cfop` — a conversão do primeiro dígito, que é como todo escritório
+    começa uma escrituração: mesma natureza de operação, do outro lado. **É
+    presunção, e sai marcada**: quem confere no Domínio precisa saber quais
+    CFOPs alguém aprovou e quais o sistema deduziu. Desde 09/10/2026 as rotas
+    geram em modo estrito (`exigir_regra`), e a dedução só serve de SUGESTÃO na
+    tela de mapeamento — nenhum arquivo sai com ela. Sem dedução possível o
+    CFOP volta vazio, e a sugestão também: pré-preencher a tela com um código
+    que não existe era o caminho por onde o 1405 chegava aprovado ao arquivo.
     """
     regra = (mapeado or "").strip()
     if cfop_de_entrada_valido(regra):
         return regra, True
-
-    origem = (cfop_xml or "").strip()
-    equivalente = {"5": "1", "6": "2", "7": "3"}.get(origem[:1])
-    if len(origem) == 4 and equivalente:
-        return equivalente + origem[1:], False
-    return origem, False
+    return deduzir_cfop(cfop_xml, industrial)[0], False
 
 
 # ------------------------------------------------------------------ leitura
@@ -475,6 +533,40 @@ def _competencia(nfes: list, ctes: list, resultado: Resultado,
 
 # ------------------------------------------------------------------ Bloco 0
 
+def _endereco(documento: dict, prefixo: str) -> dict:
+    cep = _so_digitos(documento.get(f"{prefixo}_cep"))
+    return {"lgr": (documento.get(f"{prefixo}_lgr") or "").strip(),
+            "num": (documento.get(f"{prefixo}_num") or "").strip(),
+            "compl": (documento.get(f"{prefixo}_compl") or "").strip(),
+            "bairro": (documento.get(f"{prefixo}_bairro") or "").strip(),
+            # 0005 campo 03 é N 008, exato: CEP truncado não entra.
+            "cep": cep if len(cep) == 8 else ""}
+
+
+def _endereco_da_empresa(nfes: list, ctes: list) -> tuple[dict, str]:
+    """(endereço da empresa para o 0005, de onde veio). Vazio: nenhum XML tem.
+
+    O endereço sai INTEIRO de um documento só: o CEP de uma nota com o
+    logradouro de outra seria um endereço que ninguém declarou. Vale o primeiro
+    documento com CEP — na NF-e o CEP do destinatário é opcional, e ler só a
+    primeira nota do mês deixava o 0005 sem CEP mesmo quando as outras o
+    traziam —; sem CEP em nenhum, o primeiro com logradouro. NF-e antes de
+    CT-e: na nota a empresa é sempre a destinatária; no frete, o endereço é o
+    do papel de tomador, e é o caminho do pacote que só tem CT-e.
+    """
+    candidatos = [(_endereco(n, "dest"), f"destinatário da NF-e {n.get('num', '')}")
+                  for n in nfes]
+    candidatos += [(_endereco(c, "tomador"), f"tomador do CT-e {c.get('num', '')}")
+                   for c in ctes]
+    for endereco, origem in candidatos:
+        if endereco["cep"]:
+            return endereco, origem
+    for endereco, origem in candidatos:
+        if endereco["lgr"]:
+            return endereco, origem
+    return {}, ""
+
+
 def _bloco_0(cadastro: Cadastro, nfes: list, ctes: list, dt_ini: str,
              dt_fin: str, resultado: Resultado) -> tuple:
     """(linhas do bloco 0, índice de COD_ITEM por (fornecedor, cProd))."""
@@ -484,13 +576,7 @@ def _bloco_0(cadastro: Cadastro, nfes: list, ctes: list, dt_ini: str,
     ie = cadastro.ie or primeiro.get("dest_ie", "")
     uf = cadastro.uf or primeiro.get("dest_uf", "")
     cod_mun = cadastro.cod_mun or primeiro.get("dest_cod_mun", "")
-    # Endereço da empresa para o 0005: numa nota de ENTRADA a empresa é a
-    # DESTINATÁRIA, então o logradouro que o PVA exige está no enderDest do XML.
-    dest_lgr = primeiro.get("dest_lgr", "")
-    dest_num = primeiro.get("dest_num", "")
-    dest_compl = primeiro.get("dest_compl", "")
-    dest_bairro = primeiro.get("dest_bairro", "")
-    dest_cep = _so_digitos(primeiro.get("dest_cep", ""))
+    endereco, origem_endereco = _endereco_da_empresa(nfes, ctes)
     if not cadastro.ie and ie:
         resultado.presuncoes.append(Presuncao(
             "0000 · IE", ie, "lida do destinatário no XML, porque o cadastro da "
@@ -519,25 +605,40 @@ def _bloco_0(cadastro: Cadastro, nfes: list, ctes: list, dt_ini: str,
                             9: uf, 10: ie, 11: cod_mun, 14: cadastro.perfil,
                             15: cadastro.ind_ativ}, TAMANHOS["0000"]),
         nova_linha("0001", {2: IND_MOV_COM_DADOS}, 2),
-        # 0005: endereço da empresa. O PVA exige logradouro, número, bairro e
-        # CEP (obrigatórios no leiaute). Não são inventados: numa entrada a
-        # empresa é a destinatária, então vêm do enderDest do próprio XML. O 0100
+        # 0005: endereço da empresa. O PVA exige CEP, logradouro e bairro
+        # (obrigatórios no leiaute). Não são inventados: vêm do próprio XML,
+        # em que a empresa é a destinatária ou a tomadora. O 0100
         # (contabilista) continua em branco — esse SIM não existe em nota
         # nenhuma, e o Domínio preenche do cadastro dele no import.
-        nova_linha("0005", {2: nome, 3: dest_cep, 4: dest_lgr, 5: dest_num,
-                            6: dest_compl, 7: dest_bairro}, TAMANHOS["0005"]),
+        nova_linha("0005", {2: nome, 3: endereco.get("cep", ""),
+                            4: endereco.get("lgr", ""),
+                            5: endereco.get("num", ""),
+                            6: endereco.get("compl", ""),
+                            7: endereco.get("bairro", "")}, TAMANHOS["0005"]),
         nova_linha("0100", {}, TAMANHOS["0100"]),
     ]
-    if dest_lgr:
+    if endereco:
         resultado.presuncoes.append(Presuncao(
-            "0005 · Endereço da empresa", dest_lgr,
-            "logradouro, número, bairro e CEP lidos do destinatário no XML — "
-            "confira no Domínio"))
+            "0005 · Endereço da empresa",
+            f"{endereco['lgr'] or '(sem logradouro)'} · CEP "
+            f"{endereco['cep'] or '(em branco)'}",
+            f"lido do {origem_endereco} — confira no Domínio"))
     else:
         resultado.presuncoes.append(Presuncao(
             "0005 · Endereço da empresa", "(em branco)",
-            "não havia NF-e no pacote para ler o endereço da empresa — "
-            "complete no Domínio"))
+            "nenhum XML do pacote traz o endereço da empresa — complete no "
+            "Domínio"))
+    faltando = [nome_campo for nome_campo, chave in (
+        ("CEP", "cep"), ("logradouro", "lgr"), ("bairro", "bairro"))
+        if not endereco.get(chave)]
+    if faltando:
+        # Campo obrigatório vazio não é presunção, é arquivo que o PVA recusa:
+        # vai para os avisos, que a tela mostra antes do botão de baixar.
+        resultado.avisos.append(
+            "O registro 0005 saiu sem " + ", ".join(faltando) + " da empresa: "
+            "nenhum XML do pacote os traz (na NF-e o CEP do destinatário é "
+            "opcional). São campos obrigatórios — o PVA recusa o arquivo sem "
+            "eles. Preencha no Domínio antes de gerar o SPED de lá.")
     resultado.presuncoes.append(Presuncao(
         "0100 · Contabilista", "(em branco)",
         "dados do contabilista não estão no XML — complete no Domínio"))
@@ -628,6 +729,23 @@ def _bloco_0(cadastro: Cadastro, nfes: list, ctes: list, dt_ini: str,
 
 # ------------------------------------------------------------------ Bloco C
 
+def _presuncao_equivalencias(campo: str, equivalencias: Counter,
+                             documentos: str) -> Presuncao:
+    """A sugestão do mapa de equivalências, com cada par e a contagem.
+
+    Linha própria, separada da conversão do 1º dígito: o espelho é a mesma
+    natureza do outro lado, a equivalência é uma escolha do escritório — e
+    quem confere no Domínio precisa ver qual das duas o sistema fez.
+    """
+    pares = ", ".join(f"{par} ({n})" for par, n in sorted(equivalencias.items()))
+    return Presuncao(
+        campo, f"equivalência para saída sem espelho: {pares}",
+        f"não havia regra de CFOP aprovada para estes {documentos}, e o espelho "
+        "pelo 1º dígito não existe na tabela oficial de CFOP; o CFOP veio do "
+        "mapa de equivalências — confira no Domínio antes de fechar a "
+        "escrituração", quantidade=sum(equivalencias.values()))
+
+
 def _cst_icms_do_item(item: dict) -> tuple[str, bool]:
     """(CST_ICMS de três dígitos, veio de CSOSN?).
 
@@ -653,6 +771,7 @@ def _bloco_c(nfes: list, indice_item: dict, regras_cfop: dict,
 
     linhas = [nova_linha("C001", {2: IND_MOV_COM_DADOS}, 2)]
     presumidos = 0
+    equivalencias: Counter = Counter()
     contagem: Counter = Counter()
     totais: defaultdict = defaultdict(lambda: ZERO)
 
@@ -679,7 +798,10 @@ def _bloco_c(nfes: list, indice_item: dict, regras_cfop: dict,
                 item.get("cfop"),
                 regras_cfop.get(chave_item(forn, item.get("cfop"), cod_xml), ""))
             if not da_regra:
-                presumidos += 1
+                if deduzir_cfop(item.get("cfop"))[1] == "equivalente":
+                    equivalencias[f"{(item.get('cfop') or '').strip()}→{cfop}"] += 1
+                else:
+                    presumidos += 1
 
             cst, do_simples = _cst_icms_do_item(item)
             if do_simples:
@@ -754,6 +876,9 @@ def _bloco_c(nfes: list, indice_item: dict, regras_cfop: dict,
             "não havia regra de CFOP de entrada aprovada para estes itens; "
             "confira no Domínio antes de fechar a escrituração",
             quantidade=presumidos))
+    if equivalencias:
+        resultado.presuncoes.append(
+            _presuncao_equivalencias("C170 · CFOP", equivalencias, "itens"))
     if contagem["csosn"]:
         resultado.presuncoes.append(Presuncao(
             "C170 · CST_ICMS (fornecedor do Simples)",
@@ -802,7 +927,8 @@ def _bloco_c(nfes: list, indice_item: dict, regras_cfop: dict,
 
 # ------------------------------------------------------------------ Bloco D
 
-def _bloco_d(ctes: list, regras_cte: dict, resultado: Resultado) -> list:
+def _bloco_d(ctes: list, regras_cte: dict, resultado: Resultado,
+             industrial: bool = False) -> list:
     if not ctes:
         # Mês sem frete ainda tem Bloco D: o leiaute exige todo bloco, e o
         # arquivo saía sem D001/D990 quando o pacote não trazia CT-e.
@@ -812,6 +938,7 @@ def _bloco_d(ctes: list, regras_cte: dict, resultado: Resultado) -> list:
     linhas = [nova_linha("D001", {2: IND_MOV_COM_DADOS}, 2)]
     sem_cst = 0
     presumidos = 0
+    equivalencias: Counter = Counter()
     for cte in ctes:
         forn = _so_digitos(cte.get("emit_id"))
         # Até 09/10/2026 o CFOP do frete era deduzido aqui SEM regra e sem
@@ -820,9 +947,13 @@ def _bloco_d(ctes: list, regras_cte: dict, resultado: Resultado) -> list:
         # transportador), e a dedução, quando acontece, aparece.
         cfop, da_regra = cfop_de_entrada(
             cte.get("cfop"),
-            regras_cte.get(chave_frete(cte.get("cfop"), cte.get("emit_uf")), ""))
+            regras_cte.get(chave_frete(cte.get("cfop"), cte.get("emit_uf")), ""),
+            industrial)
         if not da_regra:
-            presumidos += 1
+            if deduzir_cfop(cte.get("cfop"), industrial)[1] == "equivalente":
+                equivalencias[f"{(cte.get('cfop') or '').strip()}→{cfop}"] += 1
+            else:
+                presumidos += 1
         vl_doc = _num(cte.get("vl_doc"))
         bc = _num(cte.get("vl_bc"))
         icms = _num(cte.get("vl_icms"))
@@ -874,6 +1005,9 @@ def _bloco_d(ctes: list, regras_cte: dict, resultado: Resultado) -> list:
             "não havia regra de CFOP de frete aprovada para estes CT-e; "
             "confira no Domínio antes de fechar a escrituração",
             quantidade=presumidos))
+    if equivalencias:
+        resultado.presuncoes.append(
+            _presuncao_equivalencias("D190 · CFOP", equivalencias, "CT-e"))
     if sem_cst:
         resultado.presuncoes.append(Presuncao(
             "D190 · CST", "deduzido do valor do ICMS do CT-e",
@@ -946,20 +1080,31 @@ def _fechar_documentos(doc: Documento, resultado: Resultado) -> None:
 
 
 def _sem_regra(nfes: list, ctes: list, regras_cfop: dict,
-               regras_cte: dict) -> list[str]:
-    """As combinações destes documentos sem CFOP de entrada aprovado, legíveis."""
+               regras_cte: dict, exigir_regra: bool = True) -> list[str]:
+    """As combinações destes documentos sem CFOP de entrada, legíveis.
+
+    Com `exigir_regra`, falta toda combinação sem regra aprovada. Sem ele, só a
+    que nem a dedução resolve — saída sem espelho na tabela oficial e sem
+    equivalente —, porque escrever o CFOP deduzido mesmo assim daria um arquivo
+    que o PVA recusa inteiro.
+    """
+    def falta(cfop_origem, regra) -> bool:
+        if cfop_de_entrada_valido(regra):
+            return False
+        return exigir_regra or not deduzir_cfop(cfop_origem)[0]
+
     faltam: dict = {}
     for nota in nfes:
         forn = _so_digitos(nota.get("emit_id"))
         for item in nota.get("items", []):
             chave = chave_item(forn, item.get("cfop"), item.get("cod_item"))
-            if not cfop_de_entrada_valido(regras_cfop.get(chave, "")):
+            if falta(chave[1], regras_cfop.get(chave, "")):
                 faltam.setdefault(("NF-e",) + chave, (
                     f"NF-e do fornecedor {chave[0]}, CFOP {chave[1] or '(vazio)'}, "
                     f"produto {chave[2] or '(sem código)'}"))
     for cte in ctes:
         chave = chave_frete(cte.get("cfop"), cte.get("emit_uf"))
-        if not cfop_de_entrada_valido(regras_cte.get(chave, "")):
+        if falta(chave[0], regras_cte.get(chave, "")):
             faltam.setdefault(("CT-e",) + chave, (
                 f"CT-e com CFOP {chave[0] or '(vazio)'} de transportador "
                 f"{chave[1] or '(sem UF)'}"))
@@ -1009,22 +1154,28 @@ def gerar(caminhos_xml: list, cadastro: Cadastro,
 
     regras_cfop = regras_cfop or {}
     regras_cte = regras_cte or {}
-    if exigir_regra:
-        # Depois do recorte da competência: o que trava é o que vai NESTE
-        # arquivo, inclusive as notas trazidas de mês anterior.
-        resultado.sem_regra = _sem_regra(nfes, ctes, regras_cfop, regras_cte)
-        if resultado.sem_regra:
-            n = len(resultado.sem_regra)
-            resultado.avisos.append(
-                f"{n} combinaç{'ões' if n != 1 else 'ão'} sem CFOP de entrada "
-                "aprovado — nada foi gerado. Mapeie e aprove antes de gerar: "
-                + "; ".join(resultado.sem_regra[:5]) + ("…" if n > 5 else "."))
-            return resultado
+    # Depois do recorte da competência: o que trava é o que vai NESTE arquivo,
+    # inclusive as notas trazidas de mês anterior. Sem `exigir_regra` também
+    # trava, mas só o que nem a dedução resolve: item sem CFOP válido não sai.
+    resultado.sem_regra = _sem_regra(nfes, ctes, regras_cfop, regras_cte,
+                                     exigir_regra)
+    if resultado.sem_regra:
+        n = len(resultado.sem_regra)
+        motivo = ("sem CFOP de entrada aprovado" if exigir_regra else
+                  "sem regra de CFOP e cujo CFOP do fornecedor não tem "
+                  "equivalente de entrada na tabela oficial (6357 viraria "
+                  "2357, que não existe)")
+        resultado.avisos.append(
+            f"{n} combinaç{'ões' if n != 1 else 'ão'} {motivo} — nada foi "
+            "gerado. Mapeie e aprove antes de gerar: "
+            + "; ".join(resultado.sem_regra[:5]) + ("…" if n > 5 else "."))
+        return resultado
 
     linhas_0, indice_item = _bloco_0(cadastro, nfes, ctes, dt_ini, dt_fin,
                                      resultado)
     linhas_c = _bloco_c(nfes, indice_item, regras_cfop, resultado)
-    linhas_d = _bloco_d(ctes, regras_cte, resultado)
+    linhas_d = _bloco_d(ctes, regras_cte, resultado,
+                        empresa_industrial(cadastro))
 
     doc = Documento(registros=linhas_0 + _bloco_b() + linhas_c + linhas_d + _blocos_vazios(),
                     caminho="", fim_padrao="\r\n")
@@ -1076,14 +1227,16 @@ def levantar_combinacoes(caminhos_xml: list, cadastro: Cadastro) -> dict:
     - "ignorados": o que o pacote tinha e não é entrada desta empresa.
 
     Cada linha leva a `chave` em texto ("a|b|c", o cProd por último porque é o
-    único campo que pode ter "|") e o `cfop_sugerido`: a conversão do 1º
-    dígito, que serve para pré-preencher a tela e NUNCA vai sozinha para o
-    arquivo. Varre o pacote inteiro (todos os meses): a regra não é mensal, e
+    único campo que pode ter "|"), o `cfop_sugerido` — a dedução de
+    `deduzir_cfop`, que serve para pré-preencher a tela e NUNCA vai sozinha
+    para o arquivo — e o `sugestao_como` ("espelho", "equivalente" ou "", sem
+    sugestão), para a tela marcar qual das duas o sistema fez. Varre o pacote inteiro (todos os meses): a regra não é mensal, e
     trazer uma nota de mês anterior não pode esbarrar em combinação que
     ninguém viu. Numa leitura só, porque é o mesmo pacote de centenas de XMLs.
     """
     descartavel = Resultado()
     nfes, ctes = _ler_xmls(list(caminhos_xml), cadastro.cnpj, descartavel)
+    industrial = empresa_industrial(cadastro)
 
     itens: dict = {}
     for nota in nfes:
@@ -1095,6 +1248,7 @@ def levantar_combinacoes(caminhos_xml: list, cadastro: Cadastro) -> dict:
             if linha is not None:
                 linha["qtd_itens"] += 1
                 continue
+            sugerido, como = deduzir_cfop(chave[1])
             itens[chave] = {
                 "chave": "|".join(chave),
                 "fornecedor_cnpj": chave[0],
@@ -1102,7 +1256,8 @@ def levantar_combinacoes(caminhos_xml: list, cadastro: Cadastro) -> dict:
                 "cfop_origem": chave[1],
                 "produto_cod": chave[2],
                 "produto_desc": (item.get("descr") or "").strip(),
-                "cfop_sugerido": cfop_de_entrada(chave[1])[0],
+                "cfop_sugerido": sugerido,
+                "sugestao_como": como,
                 "qtd_itens": 1,
             }
 
@@ -1111,11 +1266,13 @@ def levantar_combinacoes(caminhos_xml: list, cadastro: Cadastro) -> dict:
         chave = chave_frete(cte.get("cfop"), cte.get("emit_uf"))
         linha = fretes.get(chave)
         if linha is None:
+            sugerido, como = deduzir_cfop(chave[0], industrial)
             linha = fretes[chave] = {
                 "chave": "|".join(chave),
                 "cfop_origem": chave[0],
                 "uf": chave[1],
-                "cfop_sugerido": cfop_de_entrada(chave[0])[0],
+                "cfop_sugerido": sugerido,
+                "sugestao_como": como,
                 "qtd_ctes": 0,
                 "valor": 0.0,
                 "transportadoras": [],

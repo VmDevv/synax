@@ -428,6 +428,16 @@ check("e a regra pendente do CAFE ficou como estava (1102)",
       ss.query(GeradorCfopRegra).filter_by(product_code="CAFE500").one().entry_cfop == "1102")
 ss.close()
 
+# 1405 tem a série de entrada e os quatro dígitos, mas não existe na tabela
+# oficial: era a sugestão do 1º dígito para o 5405, e chegava aprovada ao C170.
+r = gravar("ope", pid, nfe=[(K_CAFE, "1405")])
+ss = SessionLocal()
+check("CFOP fora da tabela oficial (1405) nao vira regra",
+      "Nada foi gravado" in r.text and "1405" in r.text
+      and ss.query(GeradorCfopRegra).filter_by(product_code="CAFE500").one().entry_cfop
+      == "1102", re.findall(r"Nada foi gravado[^<]*", r.text))
+ss.close()
+
 r = gravar("ope", pid, nfe=[(f"{OUTRA}|5102|XYZ", "1102")])
 check("chave que nao e deste pacote e ignorada (o POST nao cadastra fornecedor qualquer)",
       "não é deste pacote" in r.text, re.findall(r"Nada foi gravado[^<]*", r.text))
@@ -471,6 +481,12 @@ r = as_("adm").post("/api/curation/rule/update", data={
     "rule_type": "gerador_cfop", "key": chave_cafe, "field": "entry_cfop", "value": "5102"})
 ss = SessionLocal()
 check("editar para CFOP de saida na Curadoria nao grava",
+      ss.query(GeradorCfopRegra).filter_by(product_code="CAFE500").one().entry_cfop == "1102")
+ss.close()
+r = as_("adm").post("/api/curation/rule/update", data={
+    "rule_type": "gerador_cfop", "key": chave_cafe, "field": "entry_cfop", "value": "1405"})
+ss = SessionLocal()
+check("nem para CFOP que nao existe na tabela oficial (1405)",
       ss.query(GeradorCfopRegra).filter_by(product_code="CAFE500").one().entry_cfop == "1102")
 ss.close()
 r = as_("adm").post("/api/curation/rule/approve", data={

@@ -566,7 +566,21 @@ def parse_cte_xml(path):
                     toma_cpf = cpf_el.text if cpf_el is not None else ""
         
         toma_id = toma_cnpj if toma_cnpj else toma_cpf
-        
+
+        # Endereço do tomador para o 0005 do gerador de SPED: no frete que a
+        # empresa escritura, o tomador é ELA, e pacote só com CT-e não tem NF-e
+        # de onde ler o CEP — campo obrigatório do 0005. Cada papel tem a sua
+        # tag de endereço (enderReme, enderExped...); o toma4, a enderToma.
+        ender_toma = None
+        if toma4 is not None:
+            ender_toma = toma4.find("ns:enderToma", ns)
+        elif toma_role:
+            papel = root.find(f".//ns:{toma_role}", ns)
+            tag_ender = {"rem": "enderReme", "exped": "enderExped",
+                         "receb": "enderReceb", "dest": "enderDest"}[toma_role]
+            ender_toma = (papel.find(f"ns:{tag_ender}", ns)
+                          if papel is not None else None)
+
         nfe_keys = []
         nfe_nums = []
         inf_nfes = root.findall(".//ns:infNFe", ns)
@@ -610,6 +624,11 @@ def parse_cte_xml(path):
             "tomador_id": toma_id,
             "tomador_name": toma_name,
             "tomador_role": toma_role,
+            "tomador_lgr": _txt(ender_toma, "ns:xLgr"),
+            "tomador_num": _txt(ender_toma, "ns:nro"),
+            "tomador_compl": _txt(ender_toma, "ns:xCpl"),
+            "tomador_bairro": _txt(ender_toma, "ns:xBairro"),
+            "tomador_cep": _txt(ender_toma, "ns:CEP"),
             "rem_name": rem_name,
             "dest_name": dest_name,
             "nfe_keys": nfe_keys,

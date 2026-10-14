@@ -50,7 +50,8 @@ from ...domain.models.auth_models import Tenant
 from ...domain.models.rules import GeradorCfopRegra, GeradorCteCfopRegra
 from ...infrastructure.database.session import get_db
 from ...services.sped_builder import (Cadastro, cfop_de_entrada_valido,
-                                       chave_frete, chave_item, gerar_de_pasta,
+                                       chave_frete, chave_item, deduzir_cfop,
+                                       empresa_industrial, gerar_de_pasta,
                                        levantar_combinacoes_da_pasta, rotulo_mes)
 from ...services.sped_rewriter.documento import ENCODING
 from .uploads import get_current_user_email
@@ -91,7 +92,8 @@ CFOPS_FRETE = {
     "2354": "Aquisição de transporte por prestador de comunicação (interestadual)",
     "2355": "Aquisição de transporte por geradora ou distribuidora de energia (interestadual)",
     "2356": "Aquisição de transporte por produtor rural (interestadual)",
-    "2360": "Aquisição de transporte por contribuinte substituto (interestadual)",
+    # Não há 2360: a tabela oficial só tem o 1360, e a opção que existia aqui
+    # seria recusada na gravação — `cfop_de_entrada_valido` confere a tabela.
     "2932": "Aquisição de transporte iniciado em UF diversa da do prestador (interestadual)",
 }
 
@@ -296,18 +298,27 @@ def _situacao(regra, sugerido: str) -> tuple[str, str, str]:
     return "pendente", regra.entry_cfop, regra.created_by or ""
 
 
-def _linhas(combinacoes: dict, regras_itens: dict, regras_fretes: dict) -> tuple:
+def _linhas(combinacoes: dict, regras_itens: dict, regras_fretes: dict,
+            industrial: bool = False) -> tuple:
+    """As linhas da tela. A sugestão é refeita aqui a partir do CFOP de origem,
+    e não lida do `combinacoes.json`: o pacote guardado antes de 14/10/2026
+    trazia "1405" para o 5405, e a tela continuaria oferecendo um CFOP que a
+    gravação recusa."""
     nfe, cte = [], []
     for c in combinacoes.get("nfe", []):
         k = chave_item(c["fornecedor_cnpj"], c["cfop_origem"], c["produto_cod"])
-        status, cfop, autor = _situacao(regras_itens.get(k), c.get("cfop_sugerido", ""))
+        sugerido, como = deduzir_cfop(c["cfop_origem"])
+        status, cfop, autor = _situacao(regras_itens.get(k), sugerido)
         nfe.append({**c, "chave": "|".join(k), "status": status,
-                    "cfop_entrada": cfop, "autor": autor})
+                    "cfop_entrada": cfop, "autor": autor,
+                    "cfop_sugerido": sugerido, "sugestao_como": como})
     for c in combinacoes.get("cte", []):
         k = chave_frete(c["cfop_origem"], c["uf"])
-        status, cfop, autor = _situacao(regras_fretes.get(k), c.get("cfop_sugerido", ""))
+        sugerido, como = deduzir_cfop(c["cfop_origem"], industrial)
+        status, cfop, autor = _situacao(regras_fretes.get(k), sugerido)
         cte.append({**c, "chave": "|".join(k), "status": status,
-                    "cfop_entrada": cfop, "autor": autor})
+                    "cfop_entrada": cfop, "autor": autor,
+                    "cfop_sugerido": sugerido, "sugestao_como": como})
     nfe.sort(key=lambda l: (ORDEM_STATUS[l["status"]], l["fornecedor_nome"],
                             l["cfop_origem"], l["produto_cod"]))
     cte.sort(key=lambda l: (ORDEM_STATUS[l["status"]], l["cfop_origem"], l["uf"]))
@@ -324,7 +335,8 @@ def _resumo(linhas: list) -> dict:
 def _tela_mapa(request: Request, profile, pacote: _Pacote, combinacoes: dict,
                regras_itens: dict, regras_fretes: dict, mensagem: str = "",
                tipo: str = "ok"):
-    nfe, cte = _linhas(combinacoes, regras_itens, regras_fretes)
+    nfe, cte = _linhas(combinacoes, regras_itens, regras_fretes,
+                       empresa_industrial(pacote.cadastro()))
     resumo_nfe, resumo_cte = _resumo(nfe), _resumo(cte)
     faltam = (resumo_nfe["total"] - resumo_nfe["aprovada"]
               + resumo_cte["total"] - resumo_cte["aprovada"])
@@ -689,7 +701,8 @@ def confirmar(request: Request,
         return _falha_regras(request, db_session)
 
     combinacoes = _combinacoes(pacote)
-    nfe, cte = _linhas(combinacoes, regras_itens, regras_fretes)
+    nfe, cte = _linhas(combinacoes, regras_itens, regras_fretes,
+                       empresa_industrial(pacote.cadastro()))
     faltam = sum(1 for linha in nfe + cte if linha["status"] != "aprovada")
     if faltam:
         return _tela_mapa(request, profile, pacote, combinacoes, regras_itens,
