@@ -10,6 +10,7 @@
         <div class="flex items-center gap-3">
             <span class="text-sm font-semibold text-slate-600">Empresa:</span>
             <select class="select select-bordered select-sm bg-white border-slate-300 text-slate-900 shadow-sm"
+                    data-busca="empresas" data-busca-classe="w-[26rem] max-w-full"
                     hx-get="/admin/rules" hx-target="#admin-content" hx-swap="outerHTML" name="tenant_id">
                 <option disabled {% if not tenant_id %}selected{% endif %}>Selecione uma Empresa</option>
                 {% for t in tenants %}

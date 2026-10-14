@@ -2,148 +2,325 @@
 {% block title %}Dashboard | Synax | Auditor Fiscal Inteligente{% endblock %}
 
 {% block content %}
+{# Estilo DENTRO do conteúdo, não no {% block head %}: o <body> tem
+   hx-boost, e o HTMX 1.9 troca só o body na navegação — o <head> da
+   página nova é descartado, e a tela chegaria sem estes estilos. #}
+<style>
+    /* Passos numerados: a tela é um formulário de três perguntas, e a ordem
+       delas é a ordem em que a pessoa responde. */
+    .syn-passo { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: .9rem; }
+    .syn-passo + .syn-passo { margin-top: 1.15rem; padding-top: 1.15rem; border-top: 1px dashed #dbe7ee; }
+    .syn-passo-num {
+        width: 2rem; height: 2rem; border-radius: 999px; display: grid; place-items: center;
+        font-size: 13px; font-weight: 800; color: var(--syn-700);
+        background: #fff; border: 2px solid var(--syn-300); transition: background-color .2s, border-color .2s, color .2s;
+    }
+    .syn-passo.syn-feito .syn-passo-num { background: var(--syn-700); border-color: var(--syn-700); color: #fff; }
+    .syn-passo-titulo { font-size: 15px; font-weight: 700; color: var(--syn-ink); line-height: 2rem; }
+    .syn-passo-sub { font-size: 12.5px; color: var(--syn-muted); margin-top: -.2rem; margin-bottom: .75rem; }
+    #passo-empresa .syn-combo { max-width: 36rem; }
+
+    /* Área de soltar arquivo */
+    .syn-drop {
+        position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: .6rem; width: 100%; height: 8.5rem; padding: 0 1rem; cursor: pointer; text-align: center;
+        border: 2px dashed #9ccfe4; border-radius: .9rem;
+        background: linear-gradient(180deg, #f5fbfe, #eaf5fa);
+        transition: border-color .15s, background .15s, box-shadow .15s;
+    }
+    .syn-drop:hover { border-color: var(--syn-500); background: #e3f2f9; }
+    .syn-drop.syn-drop-sobre { border-color: var(--syn-700); background: #d7eef8; box-shadow: 0 0 0 4px rgba(3, 119, 170, .12); }
+    .syn-drop.syn-drop-ok { border-style: solid; border-color: #34a37a; background: linear-gradient(180deg, #f3fbf7, #e7f6ee); }
+    .syn-drop.syn-drop-erro { border-color: #f87171; background: #fef2f2; }
+    .syn-drop-icone {
+        width: 2.75rem; height: 2.75rem; border-radius: .8rem; display: grid; place-items: center;
+        background: #fff; color: var(--syn-500); font-size: 1.15rem;
+        box-shadow: 0 2px 6px rgba(2, 96, 146, .12); transition: transform .15s, color .15s;
+    }
+    .syn-drop:hover .syn-drop-icone { transform: translateY(-2px); color: var(--syn-700); }
+    .syn-drop-ok .syn-drop-icone { color: #059669; }
+
+    /* Opções: interruptor dentro de um cartão que diz o que ele faz. A
+       explicação ficava num `title` que só quem passava o mouse lia. */
+    .syn-opcao {
+        display: flex; align-items: flex-start; gap: .7rem; padding: .75rem .85rem; cursor: pointer;
+        border: 1px solid #dbe4ea; border-radius: .75rem; background: #fff;
+        transition: border-color .15s, background .15s, box-shadow .15s;
+    }
+    .syn-opcao:hover { border-color: #b3cad6; }
+    .syn-opcao:has(input:checked) { border-color: var(--syn-300); background: #f0f8fc; box-shadow: inset 3px 0 0 var(--syn-700); }
+    .syn-opcao input { margin-top: .1rem; flex-shrink: 0; }
+    .syn-opcao-titulo { display: block; font-size: 13px; font-weight: 700; color: var(--syn-ink); }
+    .syn-opcao-titulo i { color: #94a3b8; font-size: 11px; margin-right: .25rem; }
+    .syn-opcao:has(input:checked) .syn-opcao-titulo i { color: var(--syn-700); }
+    .syn-opcao-desc { display: block; font-size: 11.5px; color: var(--syn-muted); line-height: 1.4; margin-top: .15rem; }
+
+    /* Painel lateral: o que falta e o botão */
+    .syn-check { display: flex; align-items: flex-start; gap: .6rem; padding: .45rem 0; }
+    .syn-check-marca {
+        width: 1.25rem; height: 1.25rem; border-radius: 999px; flex-shrink: 0; margin-top: .05rem;
+        display: grid; place-items: center; font-size: 9px;
+        border: 2px solid #cbd5e1; color: transparent; transition: background-color .2s, border-color .2s, color .2s;
+    }
+    .syn-check.syn-ok .syn-check-marca { background: #059669; border-color: #059669; color: #fff; }
+    .syn-check.syn-dispensado .syn-check-marca { background: #e2e8f0; border-color: #e2e8f0; color: #64748b; }
+    .syn-check-rotulo { font-size: 12px; font-weight: 700; color: #334155; }
+    .syn-check-valor { display: block; font-size: 11.5px; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 15rem; }
+    .syn-check.syn-ok .syn-check-valor { color: #475569; }
+
+    .syn-chip {
+        display: inline-flex; align-items: center; gap: .3rem; padding: .15rem .5rem; border-radius: 99px;
+        font-size: 11px; font-weight: 600; background: #e8f4fa; color: var(--syn-900);
+    }
+
+    /* Botão: enquanto o upload corre, troca o texto e não aceita outro clique. */
+    .syn-quando-ocupado { display: none; }
+    #uploadForm.htmx-request .syn-quando-ocioso { display: none; }
+    #uploadForm.htmx-request .syn-quando-ocupado { display: inline-flex; }
+    #uploadForm.htmx-request button[type="submit"] { pointer-events: none; opacity: .85; }
+    #upload-progresso-barra { transition: width .2s ease; }
+</style>
 <main class="w-full">
-    
-    <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-3">
-        <h2 class="syn-h2 text-xl font-bold flex items-center gap-2.5">
-            <i class="fa-solid fa-file-circle-check text-base" style="color: var(--syn-700);"></i> Nova Auditoria
-        </h2>
-        <p class="text-[13px] text-slate-500">Cruze o SPED Fiscal com os XMLs e receba os apontamentos.</p>
+
+    <div class="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 mb-4">
+        <div>
+            <h2 class="syn-h2 text-[22px] font-bold flex items-center gap-2.5 tracking-tight">
+                <i class="fa-solid fa-file-circle-check text-lg" style="color: var(--syn-700);"></i> Nova Auditoria
+            </h2>
+            <p class="text-[13px] text-slate-500 mt-0.5">Cruze o SPED com os XMLs das notas e receba os apontamentos, com o valor em jogo.</p>
+        </div>
     </div>
 
-    {# Empresa que não escritura não tem SPED para auditar — e é justamente ela
-       que precisa da outra ferramenta. O caminho tem de estar aqui, na tela em
-       que a pessoa descobre que não tem arquivo para subir. #}
-    {% if user_profile.role in ['admin', 'operador'] %}
-    <a href="/gerar-sped" hx-boost="false"
-       class="flex items-center justify-between gap-3 bg-white border border-emerald-200 rounded-xl px-4 py-3 mb-4 hover:bg-emerald-50 transition-colors">
-        <span class="text-[13px] text-slate-700">
-            <i class="fa-solid fa-file-import text-emerald-600 mr-1.5"></i>
-            <strong>A empresa não gera SPED?</strong>
-            Monte o arquivo a partir dos XMLs para importar no Domínio.
-        </span>
-        <span class="text-[12px] font-bold text-emerald-700 whitespace-nowrap">
-            Gerar SPED <i class="fa-solid fa-arrow-right ml-1"></i>
-        </span>
-    </a>
+    {% set interno = user_profile.role in ['admin', 'operador'] %}
+    {% set n_arquivos = 2 if interno else 1 %}
 
-    {% endif %}
+    {# A caixa "Chegou por e-mail" (/emails/caixa-inicio) saiu da tela inicial
+       em 30/09/2026, a pedido do Sandro: poluía a tela de todo mundo. Os SPEDs
+       e XMLs recebidos continuam na tela E-mails, onde se gerenciam. #}
 
-    <!-- Painel de Upload -->
-    <section class="syn-card syn-card-accent overflow-hidden hover:shadow-md transition-shadow duration-300">
+    <!-- Painel de Upload.
+         `overflow-clip`, não `overflow-hidden`: hidden cria um contêiner de
+         rolagem e mata o `sticky` do botão e do menu do relatório aqui dentro. -->
+    <section class="syn-card syn-card-accent overflow-clip">
         <form id="uploadForm"
               hx-post="/api/upload"
               hx-encoding="multipart/form-data"
               hx-target="#process-status"
               hx-swap="innerHTML"
-              class="p-5">
+              class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px]">
 
-            <!-- Linha 1: empresa + opções, lado a lado -->
-            <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-5 items-start mb-5">
-                {% if user_profile.role in ['admin', 'operador'] %}
-                <div>
-                    <label class="block text-[14px] font-bold text-slate-800 mb-2">
-                        <i class="fa-solid fa-building-user text-syn-600 text-sm mr-1"></i> Empresa auditada
-                    </label>
-                    <select name="tenant_id" required
-                            class="w-full max-w-lg px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white
-                                   focus:border-syn-700 focus:ring-2 focus:ring-syn-100/50 focus:outline-none transition-all shadow-sm hover:border-slate-300">
-                        <option value="" disabled selected>Selecione o cliente...</option>
-                        {% for t in tenants %}
-                        {# Só o admin chega a ver uma inativa aqui — para o operador,
-                           o backend já a removeu da lista. #}
-                        <option value="{{ t.id }}">{{ t.name }} ({{ t.cnpj }}){% if not t.ativo %} — Inativa{% endif %}</option>
-                        {% endfor %}
-                    </select>
+            <!-- Coluna principal: os passos -->
+            <div class="p-5 md:p-6 min-w-0">
+
+                {% if interno %}
+                <!-- Passo 1: empresa -->
+                <div class="syn-passo" id="passo-empresa">
+                    <span class="syn-passo-num">1</span>
+                    <div class="min-w-0">
+                        <div class="syn-passo-titulo">Empresa auditada</div>
+                        <p class="syn-passo-sub">Digite parte do nome ou do CNPJ. As últimas usadas aparecem no topo.</p>
+                        <select name="tenant_id" required data-busca="empresas"
+                                data-busca-placeholder="Buscar empresa por nome ou CNPJ…"
+                                class="w-full max-w-xl px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white
+                                       focus:border-syn-700 focus:ring-2 focus:ring-syn-100/50 focus:outline-none transition-all shadow-sm hover:border-slate-300">
+                            <option value="" disabled selected>Selecione o cliente...</option>
+                            {% for t in tenants %}
+                            {# Só o admin chega a ver uma inativa aqui — para o operador,
+                               o backend já a removeu da lista. #}
+                            <option value="{{ t.id }}">{{ t.name }} ({{ t.cnpj }}){% if not t.ativo %} — Inativa{% endif %}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
                 </div>
                 {% else %}
                 <input type="hidden" name="tenant_id" value="{{ user_profile.tenant_id }}">
-                <div></div>
                 {% endif %}
 
-                <div class="flex flex-wrap items-center gap-3">
-                    <label class="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer hover:border-slate-300 hover:bg-white shadow-sm transition-all"
-                           title="Audita apenas com base no SPED, sem exigir XMLs.">
-                        <input type="checkbox" name="sped_only_mode" id="sped_only_mode" value="true"
-                               class="toggle toggle-xs toggle-primary" onchange="toggleSpedOnlyMode(this)" />
-                        <span class="text-[13px] font-bold text-slate-800">Somente SPED</span>
-                    </label>
-                    <label class="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer hover:border-slate-300 hover:bg-white shadow-sm transition-all"
-                           title="Ignora notas de saída (ind_oper = 1) para não acusar falta de XML.">
-                        <input type="checkbox" name="ignore_saidas" id="ignore_saidas" value="true"
-                               class="toggle toggle-xs toggle-primary" checked />
-                        <span class="text-[13px] font-bold text-slate-800">Ignorar saídas</span>
-                    </label>
-                    <label class="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer hover:border-slate-300 hover:bg-white shadow-sm transition-all"
-                           title="Soma o ICMS monofásico do XML (combustíveis) ao ICMS normal e ao do Simples Nacional na apuração do crédito. A aba 'ICMS Mono' do relatório detalha item a item.">
-                        <input type="checkbox" name="considerar_icms_mono" id="considerar_icms_mono" value="true"
-                               class="toggle toggle-xs toggle-primary" />
-                        <span class="text-[13px] font-bold text-slate-800">
-                            <i class="fa-solid fa-gas-pump text-[11px] text-slate-500 mr-0.5"></i>
-                            Considerar ICMS Mono (combustíveis)
-                        </span>
-                    </label>
-                </div>
-            </div>
+                <!-- Passo: arquivos -->
+                <div class="syn-passo" id="passo-arquivos">
+                    <span class="syn-passo-num">{{ n_arquivos }}</span>
+                    <div class="min-w-0">
+                        <div class="syn-passo-titulo">Arquivos do mês</div>
+                        <p class="syn-passo-sub">Clique ou arraste cada arquivo para a sua área.</p>
 
-            <!-- Linha 2: os dois dropzones, mais baixos -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <div class="flex flex-col gap-2">
-                    <label class="text-[14px] font-bold text-slate-800 flex items-center gap-2">
-                        <i class="fa-regular fa-file-lines text-syn-600"></i> SPED Fiscal (.txt)
-                    </label>
-                    <label id="dropzone_sped" for="sped_file"
-                           class="flex flex-col items-center justify-center gap-3 w-full h-32 border-2 border-syn-300 border-dashed rounded-xl cursor-pointer bg-syn-100/30 hover:bg-syn-100/60 hover:border-syn-500 transition-all group px-4">
-                        <div class="flex flex-col items-center gap-2 text-center" id="dropzone_sped_content">
-                            <div class="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-sm text-syn-500 group-hover:scale-110 group-hover:text-syn-700 transition-transform">
-                                <i class="fa-solid fa-cloud-arrow-up text-lg"></i>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="flex flex-col gap-2 min-w-0">
+                                <label class="text-[13px] font-bold text-slate-700 flex items-center gap-2">
+                                    <i class="fa-regular fa-file-lines text-syn-600"></i>
+                                    <span id="rotulo_sped">SPED Fiscal (.txt)</span>
+                                </label>
+                                <label id="dropzone_sped" for="sped_file" class="syn-drop group">
+                                    <div class="flex flex-col items-center gap-2 text-center w-full" id="dropzone_sped_content">
+                                        <div class="syn-drop-icone"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+                                        <p class="text-[13px] text-slate-600 font-medium">
+                                            <span class="text-syn-700 font-bold underline decoration-syn-300 underline-offset-2">Clique</span> ou arraste o SPED
+                                        </p>
+                                        <p class="text-[11px] text-slate-400">Arquivo texto do EFD, como sai do PVA ou do Domínio</p>
+                                    </div>
+                                    <input id="sped_file" type="file" name="sped_file" required accept=".txt" class="hidden"
+                                           onchange="updateDropzoneUI('dropzone_sped', this.files[0]?.name)" />
+                                </label>
+                                {# Empresa que não escritura não tem SPED para auditar — e é justamente ela
+                                   que precisa da outra ferramenta. O caminho fica aqui, embaixo da área
+                                   do SPED, que é onde a pessoa descobre que não tem arquivo para subir. #}
+                                {% if interno %}
+                                <a href="/gerar-sped" hx-boost="false"
+                                   class="group/g flex items-center justify-between gap-2 text-[12px] text-slate-500 hover:text-emerald-700 px-1 transition-colors">
+                                    <span><i class="fa-solid fa-file-import text-emerald-600 mr-1"></i>
+                                    <strong class="text-slate-600 group-hover/g:text-emerald-700">A empresa não gera SPED?</strong>
+                                    Monte o arquivo a partir dos XMLs.</span>
+                                    <i class="fa-solid fa-arrow-right text-[10px] shrink-0 transition-transform group-hover/g:translate-x-0.5"></i>
+                                </a>
+                                {% endif %}
                             </div>
-                            <p class="text-[13px] text-slate-600 font-medium">
-                                <span class="text-syn-700 font-bold underline decoration-syn-300">Clique</span> ou arraste o SPED
-                            </p>
+
+                            <div class="flex flex-col gap-2 relative transition-all duration-300 min-w-0" id="xmls_container">
+                                <label class="text-[13px] font-bold text-slate-700 flex items-center justify-between gap-2">
+                                    <span><i class="fa-solid fa-file-zipper text-syn-600 mr-1"></i> Pacote de XMLs (.zip ou .rar)</span>
+                                    <label class="cursor-pointer flex items-center gap-1.5" title="Importar XMLs automaticamente via API do SIEG">
+                                        <span class="text-[11px] text-syn-700 font-bold uppercase tracking-wide"><i class="fa-solid fa-cloud"></i> SIEG</span>
+                                        <input type="checkbox" name="use_sieg" value="true" id="use_sieg_toggle" class="toggle toggle-xs toggle-info" onchange="toggleSieg(this)" />
+                                    </label>
+                                </label>
+                                <label id="dropzone_xml" for="xmls_zip" class="syn-drop group">
+                                    <div class="flex flex-col items-center gap-2 text-center w-full" id="dropzone_xml_content">
+                                        <div class="syn-drop-icone"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+                                        <p class="text-[13px] text-slate-600 font-medium">
+                                            <span class="text-syn-700 font-bold underline decoration-syn-300 underline-offset-2">Clique</span> ou arraste os XMLs
+                                        </p>
+                                        <p class="text-[11px] text-slate-400">NF-e e CT-e de entrada do mesmo mês, compactados</p>
+                                    </div>
+                                    <input id="xmls_zip" type="file" name="xmls_zip" required accept=".zip,.rar" class="hidden"
+                                           onchange="updateDropzoneUI('dropzone_xml', this.files[0]?.name)" />
+                                </label>
+                                <div id="sieg_overlay" class="absolute inset-x-0 bottom-0 h-[8.5rem] bg-syn-100/90 backdrop-blur-[2px] border-2 border-syn-400 border-dashed rounded-[.9rem] hidden flex-col items-center justify-center text-center z-10 shadow-inner">
+                                    <div class="w-10 h-10 rounded-full bg-white/80 flex items-center justify-center shadow-sm text-syn-700 mb-2">
+                                        <i class="fa-solid fa-cloud-arrow-down text-lg"></i>
+                                    </div>
+                                    <p class="text-[13px] text-syn-900 font-bold">Automação SIEG ativa</p>
+                                    <p class="text-[11px] text-syn-700 font-medium mt-1">Os XMLs virão da nuvem.</p>
+                                </div>
+                                {# O aviso "XMLs recebidos por e-mail" (/emails/recebidos)
+                                   saiu daqui em 30/09/2026, a pedido do Sandro, junto com a
+                                   caixa da tela inicial: o fluxo de e-mail vai ser revisto, e
+                                   a cada empresa escolhida ele disparava 3 a 4 consultas —
+                                   era a maior parte do que aparecia no terminal. #}
+                            </div>
                         </div>
-                        <input id="sped_file" type="file" name="sped_file" required accept=".txt" class="hidden"
-                               onchange="updateDropzoneUI('dropzone_sped', this.files[0]?.name)" />
-                    </label>
+                    </div>
                 </div>
 
-                <div class="flex flex-col gap-2 relative transition-all duration-300" id="xmls_container">
-                    <label class="text-[14px] font-bold text-slate-800 flex items-center justify-between gap-2">
-                        <span><i class="fa-solid fa-file-zipper text-syn-600"></i> Pacote de XMLs (.zip ou .rar)</span>
-                        <label class="cursor-pointer flex items-center gap-1.5" title="Importar XMLs automaticamente via API do SIEG">
-                            <span class="text-[11px] text-syn-700 font-bold uppercase tracking-wide"><i class="fa-solid fa-cloud"></i> SIEG</span>
-                            <input type="checkbox" name="use_sieg" value="true" id="use_sieg_toggle" class="toggle toggle-xs toggle-info" onchange="toggleSieg(this)" />
-                        </label>
-                    </label>
-                    <label id="dropzone_xml" for="xmls_zip"
-                           class="flex flex-col items-center justify-center gap-3 w-full h-32 border-2 border-syn-300 border-dashed rounded-xl cursor-pointer bg-syn-100/30 hover:bg-syn-100/60 hover:border-syn-500 transition-all group px-4">
-                        <div class="flex flex-col items-center gap-2 text-center" id="dropzone_xml_content">
-                            <div class="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-sm text-syn-500 group-hover:scale-110 group-hover:text-syn-700 transition-transform">
-                                <i class="fa-solid fa-cloud-arrow-up text-lg"></i>
-                            </div>
-                            <p class="text-[13px] text-slate-600 font-medium">
-                                <span class="text-syn-700 font-bold underline decoration-syn-300">Clique</span> ou arraste os XMLs
-                            </p>
+                <!-- Passo: opções -->
+                <div class="syn-passo syn-feito" id="passo-opcoes">
+                    <span class="syn-passo-num">{{ n_arquivos + 1 }}</span>
+                    <div class="min-w-0">
+                        <div class="syn-passo-titulo">Opções da conferência</div>
+                        <p class="syn-passo-sub">Já vêm no padrão do escritório. Mude só se o caso pedir.</p>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <label class="syn-opcao" title="Audita apenas com base no SPED, sem exigir XMLs.">
+                                <input type="checkbox" name="sped_only_mode" id="sped_only_mode" value="true"
+                                       class="toggle toggle-sm toggle-primary" onchange="toggleSpedOnlyMode(this)" />
+                                <span>
+                                    <span class="syn-opcao-titulo"><i class="fa-solid fa-file-lines"></i> Somente SPED</span>
+                                    <span class="syn-opcao-desc">Audita só com o SPED, sem exigir os XMLs. O cruzamento com as notas não acontece.</span>
+                                </span>
+                            </label>
+                            <label class="syn-opcao" title="Ignora notas de saída (ind_oper = 1) para não acusar falta de XML.">
+                                <input type="checkbox" name="ignore_saidas" id="ignore_saidas" value="true"
+                                       class="toggle toggle-sm toggle-primary" checked />
+                                <span>
+                                    <span class="syn-opcao-titulo"><i class="fa-solid fa-arrow-right-from-bracket"></i> Ignorar saídas</span>
+                                    <span class="syn-opcao-desc">Notas de saída (IND_OPER = 1) não entram, para não acusar falta de XML delas.</span>
+                                </span>
+                            </label>
+                            <label class="syn-opcao" title="Soma o ICMS monofásico do XML (combustíveis) ao ICMS normal e ao do Simples Nacional na apuração do crédito. A aba 'ICMS Mono' do relatório detalha item a item.">
+                                <input type="checkbox" name="considerar_icms_mono" id="considerar_icms_mono" value="true"
+                                       class="toggle toggle-sm toggle-primary" />
+                                <span>
+                                    <span class="syn-opcao-titulo"><i class="fa-solid fa-gas-pump"></i> Considerar ICMS Mono (combustíveis)</span>
+                                    <span class="syn-opcao-desc">Soma o ICMS monofásico do XML ao crédito. A aba "ICMS Mono" detalha item a item.</span>
+                                </span>
+                            </label>
+                            {# O outro arquivo da mesma empresa e do mesmo mês. O leiaute
+                               muda a leitura do cabeçalho; as regras da auditoria são as
+                               mesmas. Arquivo trocado é recusado no envio, com o motivo. #}
+                            <label class="syn-opcao" title="Lê o arquivo pelo leiaute do EFD Contribuições (PIS/COFINS), onde a base de PIS/COFINS existe de verdade. O EFD ICMS/IPI quase não preenche esse campo. As regras da auditoria não mudam, e a correção do SPED continua valendo só para o arquivo Fiscal.">
+                                <input type="checkbox" name="sped_contribuicoes" id="sped_contribuicoes" value="true"
+                                       class="toggle toggle-sm toggle-primary" onchange="alternarLeiaute(this)" />
+                                <span>
+                                    <span class="syn-opcao-titulo"><i class="fa-solid fa-percent"></i> SPED Contribuições (PIS/COFINS)</span>
+                                    <span class="syn-opcao-desc">O arquivo enviado é o EFD Contribuições, onde a base de PIS/COFINS existe de verdade. As regras da auditoria não mudam.</span>
+                                </span>
+                            </label>
                         </div>
-                        <input id="xmls_zip" type="file" name="xmls_zip" required accept=".zip,.rar" class="hidden"
-                               onchange="updateDropzoneUI('dropzone_xml', this.files[0]?.name)" />
-                    </label>
-                    <div id="sieg_overlay" class="absolute inset-x-0 bottom-0 h-32 bg-syn-100/90 backdrop-blur-[2px] border-2 border-syn-400 border-dashed rounded-xl hidden flex-col items-center justify-center text-center z-10 shadow-inner">
-                        <div class="w-10 h-10 rounded-full bg-white/80 flex items-center justify-center shadow-sm text-syn-700 mb-2">
-                            <i class="fa-solid fa-cloud-arrow-down text-lg"></i>
-                        </div>
-                        <p class="text-[13px] text-syn-900 font-bold">Automação SIEG ativa</p>
-                        <p class="text-[11px] text-syn-700 font-medium mt-1">Os XMLs virão da nuvem.</p>
                     </div>
                 </div>
             </div>
 
-            <div class="mt-6 flex justify-end">
-                <button type="submit"
-                        class="bg-syn-700 hover:bg-syn-900 text-white px-6 py-2.5 rounded-lg text-sm font-bold transition-all shadow-md shadow-syn-700/30 flex items-center gap-2 hover:-translate-y-0.5">
-                    <i class="fa-solid fa-play text-xs"></i> Processar Auditoria
-                </button>
-            </div>
+            <!-- Coluna lateral: o que falta, e o botão -->
+            <aside class="border-t lg:border-t-0 lg:border-l border-slate-200/80 bg-gradient-to-b from-slate-50/80 to-white p-5 md:p-6">
+              {# Fixo ao rolar: o botão fica sempre à vista, qualquer que seja o passo. #}
+              <div class="lg:sticky lg:top-20">
+                <h3 class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Conferência antes de enviar</h3>
+
+                <div class="divide-y divide-slate-100">
+                    {% if interno %}
+                    <div class="syn-check" id="check-empresa">
+                        <span class="syn-check-marca"><i class="fa-solid fa-check"></i></span>
+                        <span class="min-w-0">
+                            <span class="syn-check-rotulo">Empresa</span>
+                            <span class="syn-check-valor" data-vazio="Falta escolher">Falta escolher</span>
+                        </span>
+                    </div>
+                    {% endif %}
+                    <div class="syn-check" id="check-sped">
+                        <span class="syn-check-marca"><i class="fa-solid fa-check"></i></span>
+                        <span class="min-w-0">
+                            <span class="syn-check-rotulo">SPED</span>
+                            <span class="syn-check-valor" data-vazio="Falta o arquivo">Falta o arquivo</span>
+                        </span>
+                    </div>
+                    <div class="syn-check" id="check-xml">
+                        <span class="syn-check-marca"><i class="fa-solid fa-check"></i></span>
+                        <span class="min-w-0">
+                            <span class="syn-check-rotulo">XMLs</span>
+                            <span class="syn-check-valor" data-vazio="Falta o pacote">Falta o pacote</span>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="mt-3 mb-5">
+                    <span class="text-[11px] font-semibold text-slate-400">Opções ligadas</span>
+                    <div id="resumo-opcoes" class="flex flex-wrap gap-1.5 mt-1.5"></div>
+                </div>
+
+                <div>
+                    <button type="submit"
+                            class="w-full bg-syn-700 hover:bg-syn-900 text-white px-6 py-3 rounded-xl text-[14px] font-bold transition-all shadow-md shadow-syn-700/30 flex items-center justify-center gap-2 hover:-translate-y-0.5">
+                        <span class="syn-quando-ocioso items-center gap-2 inline-flex"><i class="fa-solid fa-play text-xs"></i> Processar Auditoria</span>
+                        <span class="syn-quando-ocupado items-center gap-2"><span class="loading loading-spinner loading-xs"></span> Enviando arquivos…</span>
+                    </button>
+
+                    {# Pacote de XMLs passa fácil de 100 MB: sem o percentual, a tela
+                       parecia travada durante o envio e a pessoa clicava de novo. #}
+                    <div id="upload-progresso" class="hidden mt-3">
+                        <div class="flex justify-between text-[11px] font-semibold text-slate-500 mb-1">
+                            <span id="upload-progresso-texto">Enviando…</span>
+                            <span id="upload-progresso-pct" class="tabular-nums">0%</span>
+                        </div>
+                        <div class="h-1.5 rounded-full bg-slate-200 overflow-hidden">
+                            <div id="upload-progresso-barra" class="h-full rounded-full bg-syn-700" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <p class="text-[11px] text-slate-400 leading-snug mt-3 text-center">
+                        Pode levar alguns minutos. Dá para trocar de aba:
+                        o título dela avisa quando terminar.
+                    </p>
+                </div>
+              </div>
+            </aside>
         </form>
 
         <div id="process-status" class="px-4 pb-4 empty:p-0">
@@ -153,8 +330,9 @@
 
     {# Ferramenta de uma vez por mês: fica achável, não fica na frente de quem
        veio auditar. Era um card colorido de largura inteira e competia com o
-       painel de upload todo dia por algo usado no fechamento. #}
-    {% if user_profile.role in ['admin', 'operador'] %}
+       painel de upload todo dia por algo usado no fechamento. Também está no
+       menu "Ferramentas SPED" do topo. #}
+    {% if interno %}
     <div class="mt-4 text-right">
         <a href="/ajuste-sped" hx-boost="false"
            class="text-[12px] text-slate-400 hover:text-slate-600 hover:underline transition-colors">
@@ -192,13 +370,13 @@
         // Estilos visuais
         ['dragenter', 'dragover'].forEach(eventName => {
             dropzone.addEventListener(eventName, () => {
-                dropzone.classList.add('border-syn-700', 'bg-syn-200/50');
+                dropzone.classList.add('syn-drop-sobre');
             });
         });
 
         ['dragleave', 'drop'].forEach(eventName => {
             dropzone.addEventListener(eventName, () => {
-                dropzone.classList.remove('border-syn-700', 'bg-syn-200/50');
+                dropzone.classList.remove('syn-drop-sobre');
             });
         });
 
@@ -259,44 +437,57 @@
 
         const original = conteudo.innerHTML;
         conteudo.innerHTML = `
-            <div class="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-sm text-red-500 shrink-0">
-                <i class="fa-solid fa-triangle-exclamation text-lg"></i>
-            </div>
+            <div class="syn-drop-icone" style="color:#dc2626"><i class="fa-solid fa-triangle-exclamation"></i></div>
             <p class="text-[12px] text-red-600 font-bold px-2">${mensagem}</p>`;
-        zona.classList.add('border-red-400', 'bg-red-50/60');
+        zona.classList.add('syn-drop-erro');
 
         setTimeout(() => {
             // Só restaura se nada foi escolhido nesse meio tempo.
             if (conteudo.querySelector('.fa-triangle-exclamation')) {
                 conteudo.innerHTML = original;
-                zona.classList.remove('border-red-400', 'bg-red-50/60');
+                zona.classList.remove('syn-drop-erro');
             }
         }, 4000);
+    }
+
+    function tamanhoLegivel(bytes) {
+        if (!bytes && bytes !== 0) return '';
+        if (bytes < 1024 * 1024) return Math.max(1, Math.round(bytes / 1024)) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1).replace('.', ',') + ' MB';
     }
 
     // Função global chamada pelos inputs no onchange e pelo drag&drop
     window.updateDropzoneUI = function(zoneId, fileName) {
         if(!fileName) return;
         const contentDiv = document.getElementById(zoneId + '_content');
-        // Layout flex-col para caber no novo h-32 mantendo legibilidade
+        const dropzone = document.getElementById(zoneId);
+        const entrada = dropzone.querySelector('input[type="file"]');
+        const arquivo = entrada && entrada.files && entrada.files[0];
+        const tamanho = arquivo ? tamanhoLegivel(arquivo.size) : '';
         contentDiv.innerHTML = `
-            <div class="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-sm text-syn-700 shrink-0">
-                <i class="fa-solid fa-file-circle-check text-lg"></i>
-            </div>
+            <div class="syn-drop-icone"><i class="fa-solid fa-file-circle-check"></i></div>
             <div class="min-w-0 text-center px-2 w-full">
-                <p class="text-[13px] text-slate-800 font-bold truncate w-full" title="${fileName}">${fileName}</p>
-                <p class="text-[11px] text-syn-600 font-bold uppercase tracking-wide mt-0.5">Pronto para envio</p>
+                <p class="text-[13px] text-slate-800 font-bold truncate w-full"></p>
+                <p class="text-[11px] text-emerald-700 font-bold uppercase tracking-wide mt-0.5">
+                    Pronto para envio${tamanho ? ' · ' + tamanho : ''}
+                </p>
+                <p class="text-[11px] text-slate-400 mt-0.5">Clique para trocar o arquivo</p>
             </div>
         `;
-        const dropzone = document.getElementById(zoneId);
-        dropzone.classList.add('border-syn-700', 'bg-syn-100/80');
-        dropzone.classList.remove('border-syn-300', 'bg-syn-100/30', 'hover:border-syn-500', 'hover:bg-syn-100/60');
+        // Nome do arquivo vem do disco do usuário: vai por textContent, nunca
+        // interpolado no HTML.
+        const nome = contentDiv.querySelector('p');
+        nome.textContent = fileName;
+        nome.title = fileName;
+        dropzone.classList.add('syn-drop-ok');
+        dropzone.classList.remove('syn-drop-erro');
+        atualizarResumo();
     }
 
     // Iniciar Dropzones
     setupDropzone('dropzone_sped', 'sped_file');
     setupDropzone('dropzone_xml', 'xmls_zip');
-    
+
     // Toggle SIEG Import
     function toggleSieg(checkbox) {
         const fileInput = document.getElementById('xmls_zip');
@@ -312,12 +503,28 @@
         }
     }
 
+    // XMLs recebidos por e-mail: marcar dispensa o pacote, como o Somente SPED.
+    // Quem barra o envio continua sendo o `required` e a rota — aqui só se
+    // desliga a exigência do arquivo.
+    window.alternarXmlsEmail = function (checkbox) {
+        const xml = document.getElementById('xmls_zip');
+        const somenteSped = document.getElementById('sped_only_mode').checked;
+        const sieg = document.getElementById('use_sieg_toggle').checked;
+        xml.required = !(checkbox.checked || somenteSped || sieg);
+        atualizarResumo();
+    };
+
+    function xmlsPorEmail() {
+        const c = document.getElementById('usar_xmls_email');
+        return !!(c && c.checked);
+    }
+
     // Toggle SPED Only Mode
     function toggleSpedOnlyMode(checkbox) {
         const xmlInput = document.getElementById('xmls_zip');
         const siegToggle = document.getElementById('use_sieg_toggle');
         const xmlContainer = document.getElementById('xmls_container');
-        
+
         if (checkbox.checked) {
             xmlInput.required = false;
             xmlInput.disabled = true;
@@ -326,7 +533,7 @@
             xmlContainer.classList.add('opacity-40', 'pointer-events-none', 'grayscale');
         } else {
             // Volta a ser required apenas se o SIEG não estiver marcado
-            xmlInput.required = !siegToggle.checked;
+            xmlInput.required = !(siegToggle.checked || xmlsPorEmail());
             xmlInput.disabled = false;
             siegToggle.disabled = false;
             // Remove o efeito de bloqueio
@@ -334,13 +541,156 @@
         }
     }
 
+    // O rótulo acompanha o leiaute escolhido: com a caixa marcada, o arquivo
+    // esperado é o de Contribuições, e o arquivo trocado é recusado no envio.
+    function alternarLeiaute(checkbox) {
+        const rotulo = document.getElementById('rotulo_sped');
+        if (rotulo) rotulo.textContent = checkbox.checked ? 'SPED Contribuições (.txt)' : 'SPED Fiscal (.txt)';
+    }
+
+    // ---------------------------------------------------------------
+    // Painel "Conferência antes de enviar"
+    // ---------------------------------------------------------------
+    // Só MOSTRA o que falta — quem barra o envio continua sendo o `required`
+    // dos campos e a rota. Não há regra nova aqui.
+    function marcarCheck(id, estado, texto) {
+        const item = document.getElementById(id);
+        if (!item) return;
+        const valor = item.querySelector('.syn-check-valor');
+        item.classList.toggle('syn-ok', estado === 'ok');
+        item.classList.toggle('syn-dispensado', estado === 'dispensado');
+        valor.textContent = texto || valor.dataset.vazio;
+        valor.title = texto || '';
+    }
+
+    function atualizarResumo() {
+        const form = document.getElementById('uploadForm');
+        if (!form) return;
+
+        const empresa = form.querySelector('select[name="tenant_id"]');
+        if (empresa) {
+            const opt = empresa.selectedIndex >= 0 ? empresa.options[empresa.selectedIndex] : null;
+            const nome = empresa.value && opt ? opt.textContent.replace(/\s*\([\d./-]+\).*$/, '').trim() : '';
+            marcarCheck('check-empresa', nome ? 'ok' : '', nome);
+            const passo = document.getElementById('passo-empresa');
+            if (passo) passo.classList.toggle('syn-feito', !!nome);
+        }
+
+        const sped = document.getElementById('sped_file').files[0];
+        const somenteSped = document.getElementById('sped_only_mode').checked;
+        const sieg = document.getElementById('use_sieg_toggle').checked;
+        const xml = document.getElementById('xmls_zip').files[0];
+
+        marcarCheck('check-sped', sped ? 'ok' : '', sped ? sped.name : '');
+        if (somenteSped) marcarCheck('check-xml', 'dispensado', 'Dispensados (Somente SPED)');
+        else if (xmlsPorEmail()) marcarCheck('check-xml', 'ok',
+            xml ? ('Recebidos por e-mail + ' + xml.name) : 'Recebidos por e-mail');
+        // A rota recusa o SIEG enquanto a importação não existe (uploads.py):
+        // dizer "virão do SIEG" aqui seria prometer o que o envio vai negar.
+        else if (sieg) marcarCheck('check-xml', '', 'SIEG ainda indisponível — envie o ZIP');
+        else marcarCheck('check-xml', xml ? 'ok' : '', xml ? xml.name : '');
+
+        const passoArquivos = document.getElementById('passo-arquivos');
+        if (passoArquivos) passoArquivos.classList.toggle('syn-feito',
+            !!sped && (somenteSped || !!xml || xmlsPorEmail()));
+
+        const chips = document.getElementById('resumo-opcoes');
+        if (chips) {
+            const ligadas = [
+                ['sped_only_mode', 'Somente SPED'],
+                ['ignore_saidas', 'Ignorar saídas'],
+                ['considerar_icms_mono', 'ICMS Mono'],
+                ['sped_contribuicoes', 'Contribuições']
+            ].filter(([id]) => document.getElementById(id).checked);
+            chips.innerHTML = '';
+            if (!ligadas.length) {
+                chips.innerHTML = '<span class="text-[11px] text-slate-400">Nenhuma</span>';
+            }
+            ligadas.forEach(([, rotulo]) => {
+                const chip = document.createElement('span');
+                chip.className = 'syn-chip';
+                chip.innerHTML = '<i class="fa-solid fa-check text-[9px]"></i>';
+                chip.appendChild(document.createTextNode(rotulo));
+                chips.appendChild(chip);
+            });
+        }
+    }
+
+    (function () {
+        const form = document.getElementById('uploadForm');
+        if (!form) return;
+        form.addEventListener('change', atualizarResumo);
+        atualizarResumo();
+
+        // Percentual do envio. O HTMX repassa o progresso do XHR; quando o
+        // envio chega a 100%, o que falta é o servidor abrir o pacote.
+        const caixa = document.getElementById('upload-progresso');
+        const barra = document.getElementById('upload-progresso-barra');
+        const pct = document.getElementById('upload-progresso-pct');
+        const texto = document.getElementById('upload-progresso-texto');
+        form.addEventListener('htmx:beforeRequest', function () {
+            caixa.classList.remove('hidden');
+            barra.style.width = '0%';
+            pct.textContent = '0%';
+            texto.textContent = 'Enviando arquivos…';
+        });
+        form.addEventListener('htmx:xhr:progress', function (e) {
+            const d = e.detail || {};
+            if (!d.lengthComputable || !d.total) return;
+            const p = Math.min(100, Math.round((d.loaded / d.total) * 100));
+            barra.style.width = p + '%';
+            pct.textContent = p + '%';
+            if (p >= 100) texto.textContent = 'Recebido — abrindo o pacote…';
+        });
+        form.addEventListener('htmx:afterRequest', function () {
+            caixa.classList.add('hidden');
+        });
+
+        // Envio RECUSADO (400, 404, 413…): a rota explica o motivo no `detail`
+        // — "é o SPED Contribuições, marque a opção", "não é um ZIP válido" —,
+        // mas o HTMX não troca o alvo em resposta 4xx, e até 30/09/2026 a
+        // explicação ia para o lixo: a pessoa clicava e nada acontecia. Agora
+        // o motivo aparece onde apareceria o andamento. `textContent`, nunca
+        // innerHTML: o texto pode trazer nome de arquivo do cliente.
+        form.addEventListener('htmx:responseError', function (e) {
+            const xhr = (e.detail || {}).xhr;
+            if (!xhr) return;
+            let motivo = 'O envio foi recusado pelo servidor (HTTP ' + xhr.status + ').';
+            try {
+                const corpo = JSON.parse(xhr.responseText || '{}');
+                if (corpo && corpo.detail) {
+                    motivo = typeof corpo.detail === 'string' ? corpo.detail
+                        : corpo.detail.map(function (d) { return d.msg || JSON.stringify(d); }).join(' · ');
+                }
+            } catch (erro) { /* resposta não-JSON: fica a mensagem genérica */ }
+            const alvo = document.getElementById('process-status');
+            if (!alvo) return;
+            alvo.innerHTML = '';
+            const aviso = document.createElement('div');
+            aviso.className = 'mt-2 flex items-start gap-2 rounded-xl px-4 py-3 text-sm bg-red-50 border border-red-200 text-red-800';
+            aviso.setAttribute('role', 'alert');
+            const icone = document.createElement('i');
+            icone.className = 'fa-solid fa-circle-exclamation text-red-600 mt-0.5';
+            const texto = document.createElement('span');
+            texto.textContent = 'Não foi possível iniciar a auditoria: ' + motivo;
+            aviso.appendChild(icone);
+            aviso.appendChild(texto);
+            alvo.appendChild(aviso);
+            alvo.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+    })();
+
     // Navegação a partir dos KPIs
     window.openCurationTab = function(tabId) {
         const tabBtn = document.querySelector(`button[data-tab="${tabId}"]`);
         if (tabBtn && typeof switchVerticalTab === 'function') {
             switchVerticalTab(tabId, tabBtn);
-            // Scroll suave até o relatório
-            document.getElementById('audit-report').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // Scroll suave até o topo da aba aberta. Rolava para #audit-report,
+            // que fica DEPOIS do relatório (o resultado entra em
+            // #process-status): o clique levava ao fim da página.
+            const conteudo = document.getElementById('vertical-tab-content')
+                             || document.getElementById('audit-report');
+            conteudo.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
     }
 </script>

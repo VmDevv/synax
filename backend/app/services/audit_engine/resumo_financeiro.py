@@ -223,6 +223,17 @@ def resumo_financeiro(resultado: dict) -> dict:
     }
 
 
+def valores_para_colunas(resultado: dict) -> dict:
+    """Os quatro totais, com o nome das colunas de `audit_tasks`.
+
+    Um lugar só para o motor (ao concluir) e o resumo por e-mail (ao preencher
+    auditoria antiga) gravarem a MESMA conta da Visão Geral.
+    """
+    totais = resumo_financeiro(resultado)["totais"]
+    return {"vl_estornar": totais["estornar"], "vl_aproveitar": totais["aproveitar"],
+            "vl_recolher": totais["recolher"], "vl_conferir": totais["conferir"]}
+
+
 def abas_com_conteudo(resultado: dict) -> set:
     """Chaves do result_data que têm alguma linha — para a tela dobrar o resto."""
     resultado = resultado or {}

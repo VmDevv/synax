@@ -34,18 +34,64 @@
 {%- endif -%}
 {%- endmacro %}
 
-<div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden mb-8 animate-fade-in-up">
-    <!-- Header -->
-    <div class="bg-slate-50 border-b border-slate-200 px-6 py-4 flex justify-between items-center">
-        <div>
-            <h3 class="text-xl font-bold text-slate-800 flex items-center gap-2">
-                <i class="fa-solid fa-square-poll-vertical text-blue-600"></i> Relatório de Auditoria
-            </h3>
-            <div class="flex items-center gap-3 mt-1">
-                <span class="text-sm text-slate-500 font-medium">Task: {{ task_id }}</span>
+<div class="syn-relatorio bg-white border border-slate-200 rounded-2xl shadow-sm mb-8 animate-fade-in-up" data-syn-status="concluido">
+    {# ================= CABEÇALHO =================
+       Dizia "Task: <uuid>" — um código que ninguém lê. O que a pessoa precisa
+       confirmar antes de agir é DE QUEM e DE QUANDO é este relatório: rodar a
+       mesma empresa em dois meses, ou os dois leiautes do mesmo mês, é
+       rotina, e as telas ficavam idênticas. Tudo sai do próprio `result` (ou
+       da tarefa, quando a rota a manda), então auditoria antiga abre igual —
+       campo ausente só some da linha. #}
+    {% set _cnpj = (result.company_cnpj | default('', true)) | string %}
+    {% set _cnpj_fmt = (_cnpj[:2] ~ '.' ~ _cnpj[2:5] ~ '.' ~ _cnpj[5:8] ~ '/' ~ _cnpj[8:12] ~ '-' ~ _cnpj[12:]) if _cnpj | length == 14 else _cnpj %}
+    {% set _empresa = (tenant.name if tenant is defined and tenant and tenant.name else result.company_name | default('', true)) %}
+    {% set _periodo = (result.periodo_inicio | default('', true)) | string %}
+    {% set _tarefa = task if task is defined and task else none %}
+    <div class="syn-relatorio-topo px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-t-2xl">
+        <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <h3 class="text-xl font-bold text-slate-800 flex items-center gap-2">
+                    <i class="fa-solid fa-square-poll-vertical text-blue-600"></i> Relatório de Auditoria
+                </h3>
+                <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-bold">
+                    <i class="fa-solid fa-circle-check"></i> Concluída
+                </span>
+            </div>
+            {% if _empresa %}
+            <div class="mt-1 text-[14px] text-slate-700 truncate">
+                <span class="font-semibold">{{ _empresa }}</span>
+                {% if _cnpj_fmt %}<span class="text-slate-400 tabular-nums ml-1.5">{{ _cnpj_fmt }}</span>{% endif %}
+            </div>
+            {% endif %}
+            <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[11.5px]">
+                {% if _periodo | length >= 7 %}
+                <span class="syn-meta" title="Competência lida do registro 0000 do SPED">
+                    <i class="fa-regular fa-calendar"></i> Competência <b>{{ _periodo[5:7] }}/{{ _periodo[:4] }}</b>
+                </span>
+                {% endif %}
+                {% if result.resumo and result.resumo.leiaute_rotulo %}
+                <span class="syn-meta" title="Leiaute do arquivo auditado">
+                    <i class="fa-regular fa-file-lines"></i> {{ result.resumo.leiaute_rotulo }}
+                </span>
+                {% endif %}
+                {% if _tarefa and _tarefa.file_name %}
+                <span class="syn-meta max-w-[260px]" title="{{ _tarefa.file_name }}">
+                    <i class="fa-regular fa-folder-open"></i> <span class="truncate">{{ _tarefa.file_name }}</span>
+                </span>
+                {% endif %}
+                {% if _tarefa and _tarefa.created_at %}
+                <span class="syn-meta" title="Quando a auditoria foi enviada (horário de Brasília)">
+                    <i class="fa-regular fa-clock"></i> {{ _tarefa.created_at | hora_br }}
+                </span>
+                {% endif %}
+                <button type="button" class="syn-meta hover:!border-slate-300 hover:!text-slate-600" data-copiar="{{ task_id }}"
+                        title="Copiar o código desta auditoria (para o suporte)"
+                        onclick="var b=this; navigator.clipboard && navigator.clipboard.writeText(b.dataset.copiar).then(function(){ b.querySelector('span').textContent='Copiado!'; setTimeout(function(){ b.querySelector('span').textContent='Copiar ID'; }, 1500); });">
+                    <i class="fa-regular fa-copy"></i> <span>Copiar ID</span>
+                </button>
             </div>
         </div>
-        <div>
+        <div class="flex items-center gap-2 shrink-0">
             <a href="/api/export/excel/{{ task_id }}" target="_blank" class="btn btn-sm bg-emerald-600 hover:bg-emerald-700 border-none text-white font-bold shadow-sm">
                 <i class="fa-solid fa-file-excel mr-1"></i> Exportar para Excel
             </a>
@@ -53,56 +99,82 @@
     </div>
 
     <!-- Tabs DaisyUI -->
-    <div class="px-6 py-4">
+    <div class="px-4 md:px-6 py-4">
         <div class="flex flex-col lg:flex-row gap-6 w-full">
             <!-- Coluna Esquerda (Menu de Navegação) -->
-            {# `lg:max-h-[75vh] lg:overflow-y-auto`: são 27 abas, e sem isso o
-               MENU define a altura do card inteiro — o conteúdo da aba escolhida
-               nasce no topo da coluna da direita e o resto vira um corredor
-               branco de mil pixels. Com rolagem própria, o card encolhe e o
-               painel fica sempre ao lado do menu, à vista. #}
-            <div class="w-full lg:w-1/4 border-r border-slate-200 pr-4 flex flex-col gap-1 lg:max-h-[75vh] lg:overflow-y-auto lg:self-start" id="vertical-tab-menu">
-                <button type="button" onclick="switchVerticalTab('tab-overview', this)" class="btn btn-ghost w-full justify-start text-left mb-1 bg-blue-50 text-blue-600" data-tab="tab-overview">Visão Geral</button>
+            {# Menu fixo ao rolar e com rolagem própria: são 27 abas, e sem isso
+               o MENU define a altura do card inteiro — o conteúdo da aba
+               escolhida nasce no topo da coluna da direita e o resto vira um
+               corredor branco de mil pixels. Com o menu grudado na lateral, ele
+               continua à mão no fim de uma tabela de mil linhas.
+
+               As abas vêm AGRUPADAS por assunto (documento, CFOP, ICMS, frete,
+               IPI, PIS/COFINS): a lista corrida obrigava a ler as 27 para achar
+               a de IPI. Os títulos de grupo sem aba visível somem junto com a
+               dobra das vazias (ver dobrarAbasVazias). #}
+            <nav class="w-full lg:w-[258px] shrink-0 flex flex-col gap-0.5 lg:sticky lg:top-[72px] lg:max-h-[calc(100vh-88px)] lg:overflow-y-auto lg:self-start lg:pr-2 lg:border-r border-slate-200" id="vertical-tab-menu" aria-label="Abas do relatório">
+                <div class="syn-vtab-filtro">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="search" id="filtro-abas" placeholder="Filtrar abas…" autocomplete="off"
+                           oninput="filtrarAbasRelatorio(this.value)" aria-label="Filtrar abas do relatório">
+                    <span class="syn-kbd" title="Atalho: tecle / para filtrar">/</span>
+                </div>
+
+                <button type="button" onclick="switchVerticalTab('tab-overview', this)" class="syn-vtab is-active" aria-current="page" data-tab="tab-overview"><i class="fa-solid fa-gauge-high"></i><span>Visão Geral</span></button>
                 {# Ferramenta interna, e a única aqui que ESCREVE arquivo: fica no
                    topo, logo abaixo da Visão Geral. Estava no rodapé junto do
                    gerador de e-mail e, sem badge, a rotina que dobra as abas
                    vazias ainda a empurrava para dentro do grupo fechado — some
                    duas vezes. #}
                 {% if is_internal %}
-                <button type="button" onclick="switchVerticalTab('tab-correcao-sped', this)" class="btn btn-ghost w-full justify-start text-left mb-1 border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-bold shadow-xs" data-tab="tab-correcao-sped"><i class="fa-solid fa-file-pen mr-2 text-emerald-600"></i> Corrigir SPED</button>
+                <button type="button" onclick="switchVerticalTab('tab-correcao-sped', this)" class="syn-vtab syn-vtab-acao syn-vtab-verde" data-tab="tab-correcao-sped"><i class="fa-solid fa-file-pen"></i><span>Corrigir SPED</span></button>
                 {% endif %}
-                <button type="button" onclick="switchVerticalTab('tab-general-report', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100 font-medium" data-tab="tab-general-report"><i class="fa-solid fa-table-list mr-1.5 text-[#037fb5]"></i> Relatório de NFs {% if result.relatorio_geral %}<span class="badge badge-sm badge-info text-white font-bold ml-auto">{{ result.relatorio_geral | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-missing-xmls', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-missing-xmls">XMLs Faltantes {% if result.xmls_faltantes %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.xmls_faltantes | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-new-cfops', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-new-cfops">Novos CFOPs {% if (result.unmapped_items|length) > 0 %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ (result.unmapped_items|length) }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-divergences', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-divergences">Diverg. de Valor {% if result.divergencias_valor %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.divergencias_valor | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-cnpj-emitente', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-cnpj-emitente">CNPJ do Emitente {% if result.cnpj_emitente_issues %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.cnpj_emitente_issues | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-cfop-issues', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-cfop-issues">Divergências CFOP {% if result.cfop_classifications_issues %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.cfop_classifications_issues | length }}</span>{% endif %}</button>
-                                <button type="button" onclick="switchVerticalTab('tab-icms-pending', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-icms-pending">Regras ICMS Pendentes {% if result.unmapped_icms_cfops %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.unmapped_icms_cfops | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-icms-issues', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-icms-issues">Inconformidades ICMS {% if result.icms_issues %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.icms_issues | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-nao-conferidos', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-nao-conferidos">Itens Não Conferidos {% if result.itens_nao_conferidos %}<span class="badge badge-sm badge-warning text-white font-bold ml-auto">{{ result.itens_nao_conferidos | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-cte-issues', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-cte-issues">CT-e Tomador {% if result.cte_tomador_issues %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.cte_tomador_issues | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-icms-st', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-icms-st">ICMS ST {% if result.icms_st_notes %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.icms_st_notes | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-icms-mono', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-icms-mono"><i class="fa-solid fa-gas-pump mr-1.5 text-amber-600"></i> ICMS Mono {% if result.icms_mono %}<span class="badge badge-sm {% if result.icms_mono_considerado %}badge-success{% else %}badge-warning{% endif %} text-white font-bold ml-auto">{{ result.icms_mono | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-difal-int', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-difal-int">DIFAL Interno {% if result.difal_interno %}<span class="badge badge-sm badge-ghost font-bold ml-auto">{{ result.difal_interno | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-difal-ext', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-difal-ext">DIFAL Interestadual {% if result.difal_interestadual %}<span class="badge badge-sm badge-ghost font-bold ml-auto">{{ result.difal_interestadual | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-icms-st-calc', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100 font-medium" data-tab="tab-icms-st-calc"><i class="fa-solid fa-calculator mr-1.5 text-blue-600"></i> Cálculo ICMS ST {% if result.icms_st_calculation %}<span class="badge badge-sm badge-info text-white font-bold ml-auto">{{ result.icms_st_calculation | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-antecipacao', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-antecipacao">Antecipação ICMS (Revenda) {% if result.antecipacao_icms %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.antecipacao_icms | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-cte-cfop-disc', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-cte-cfop-disc">CFOP CT-e {% if (result.cte_cfop_classifications_issues|length + result.unmapped_cte_items|length) > 0 %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ (result.cte_cfop_classifications_issues|length + result.unmapped_cte_items|length) }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-cte-gen-rep', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-cte-gen-rep">Relatório CT-e {% if result.cte_xml_list %}<span class="badge badge-sm badge-ghost font-bold ml-auto">{{ result.cte_xml_list | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-ipi-issues', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-ipi-issues">Conferência IPI {% if result.ipi_issues %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.ipi_issues | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-ipi-pending', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-ipi-pending">Regras IPI Pendentes {% if result.unmapped_ipi_rules %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.unmapped_ipi_rules | length }}</span>{% endif %}</button>
-                                <button type="button" onclick="switchVerticalTab('tab-pis-cofins-pending', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-pis-cofins-pending">Regras PIS/COFINS Pendentes {% if result.unmapped_pis_cofins_rules %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.unmapped_pis_cofins_rules | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-pis-cofins-issues', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-pis-cofins-issues">Conferência PIS/COFINS {% if result.pis_cofins_issues %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.pis_cofins_issues | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-pis-cofins-frete', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-pis-cofins-frete">PIS/COFINS sobre Frete {% if result.pis_cofins_frete %}<span class="badge badge-sm badge-ghost font-bold ml-auto">{{ result.pis_cofins_frete | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-anticipation', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-anticipation">Cálculo Antecipação {% if result.anticipation_results %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.anticipation_results | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-missing-invoices-log', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-missing-invoices-log">Notas Não Lançadas {% if result.unrecorded_invoices %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.unrecorded_invoices | length }}</span>{% endif %}</button>
-                <button type="button" onclick="switchVerticalTab('tab-duplicadas', this)" class="btn btn-ghost w-full justify-start text-left mb-1 text-slate-600 hover:bg-slate-100" data-tab="tab-duplicadas">NFs Duplicadas {% if result.notas_duplicadas %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.notas_duplicadas | length }}</span>{% endif %}</button>
+
+                <div class="syn-vtab-grupo">Documentos</div>
+                <button type="button" onclick="switchVerticalTab('tab-general-report', this)" class="syn-vtab" data-tab="tab-general-report"><i class="fa-solid fa-table-list"></i><span>Relatório de NFs</span>{% if result.relatorio_geral %}<span class="badge badge-sm badge-info text-white font-bold ml-auto">{{ result.relatorio_geral | length }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-missing-xmls', this)" class="syn-vtab" data-tab="tab-missing-xmls"><i class="fa-solid fa-file-circle-xmark"></i><span>XMLs Faltantes</span>{% if result.xmls_faltantes %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.xmls_faltantes | length }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-divergences', this)" class="syn-vtab" data-tab="tab-divergences"><i class="fa-solid fa-scale-unbalanced"></i><span>Diverg. de Valor</span>{% if result.divergencias_valor %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.divergencias_valor | length }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-cnpj-emitente', this)" class="syn-vtab" data-tab="tab-cnpj-emitente"><i class="fa-solid fa-id-card"></i><span>CNPJ do Emitente</span>{% if result.cnpj_emitente_issues %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.cnpj_emitente_issues | length }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-nao-conferidos', this)" class="syn-vtab" data-tab="tab-nao-conferidos"><i class="fa-solid fa-circle-question"></i><span>Itens Não Conferidos</span>{% if result.itens_nao_conferidos %}<span class="badge badge-sm badge-warning text-white font-bold ml-auto">{{ result.itens_nao_conferidos | length }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-missing-invoices-log', this)" class="syn-vtab" data-tab="tab-missing-invoices-log"><i class="fa-solid fa-file-circle-exclamation"></i><span>Notas Não Lançadas</span>{% if result.unrecorded_invoices %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.unrecorded_invoices | length }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-duplicadas', this)" class="syn-vtab" data-tab="tab-duplicadas"><i class="fa-solid fa-clone"></i><span>NFs Duplicadas</span>{% if result.notas_duplicadas %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.notas_duplicadas | length }}</span>{% endif %}</button>
+
+                <div class="syn-vtab-grupo">CFOP</div>
+                <button type="button" onclick="switchVerticalTab('tab-new-cfops', this)" class="syn-vtab" data-tab="tab-new-cfops"><i class="fa-solid fa-tags"></i><span>Novos CFOPs</span>{% if (result.unmapped_items|length) > 0 %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ (result.unmapped_items|length) }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-cfop-issues', this)" class="syn-vtab" data-tab="tab-cfop-issues"><i class="fa-solid fa-right-left"></i><span>Divergências CFOP</span>{% if result.cfop_classifications_issues %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.cfop_classifications_issues | length }}</span>{% endif %}</button>
+
+                <div class="syn-vtab-grupo">ICMS</div>
+                <button type="button" onclick="switchVerticalTab('tab-icms-pending', this)" class="syn-vtab" data-tab="tab-icms-pending"><i class="fa-solid fa-hourglass-half"></i><span>Regras ICMS Pendentes</span>{% if result.unmapped_icms_cfops %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.unmapped_icms_cfops | length }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-icms-issues', this)" class="syn-vtab" data-tab="tab-icms-issues"><i class="fa-solid fa-triangle-exclamation"></i><span>Inconformidades ICMS</span>{% if result.icms_issues %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.icms_issues | length }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-icms-st', this)" class="syn-vtab" data-tab="tab-icms-st"><i class="fa-solid fa-link"></i><span>ICMS ST</span>{% if result.icms_st_notes %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.icms_st_notes | length }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-icms-st-calc', this)" class="syn-vtab" data-tab="tab-icms-st-calc"><i class="fa-solid fa-calculator"></i><span>Cálculo ICMS ST</span>{% if result.icms_st_calculation %}<span class="badge badge-sm badge-info text-white font-bold ml-auto">{{ result.icms_st_calculation | length }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-icms-mono', this)" class="syn-vtab" data-tab="tab-icms-mono"><i class="fa-solid fa-gas-pump"></i><span>ICMS Mono</span>{% if result.icms_mono %}<span class="badge badge-sm {% if result.icms_mono_considerado %}badge-success{% else %}badge-warning{% endif %} text-white font-bold ml-auto">{{ result.icms_mono | length }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-difal-int', this)" class="syn-vtab" data-tab="tab-difal-int"><i class="fa-solid fa-location-dot"></i><span>DIFAL Interno</span>{% if result.difal_interno %}<span class="badge badge-sm badge-ghost font-bold ml-auto">{{ result.difal_interno | length }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-difal-ext', this)" class="syn-vtab" data-tab="tab-difal-ext"><i class="fa-solid fa-route"></i><span>DIFAL Interestadual</span>{% if result.difal_interestadual %}<span class="badge badge-sm badge-ghost font-bold ml-auto">{{ result.difal_interestadual | length }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-antecipacao', this)" class="syn-vtab" data-tab="tab-antecipacao"><i class="fa-solid fa-forward"></i><span>Antecipação ICMS (Revenda)</span>{% if result.antecipacao_icms %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.antecipacao_icms | length }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-anticipation', this)" class="syn-vtab" data-tab="tab-anticipation"><i class="fa-solid fa-square-root-variable"></i><span>Cálculo Antecipação</span>{% if result.anticipation_results %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.anticipation_results | length }}</span>{% endif %}</button>
+
+                <div class="syn-vtab-grupo">Frete (CT-e)</div>
+                <button type="button" onclick="switchVerticalTab('tab-cte-issues', this)" class="syn-vtab" data-tab="tab-cte-issues"><i class="fa-solid fa-truck"></i><span>CT-e Tomador</span>{% if result.cte_tomador_issues %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.cte_tomador_issues | length }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-cte-cfop-disc', this)" class="syn-vtab" data-tab="tab-cte-cfop-disc"><i class="fa-solid fa-truck-ramp-box"></i><span>CFOP CT-e</span>{% if (result.cte_cfop_classifications_issues|length + result.unmapped_cte_items|length) > 0 %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ (result.cte_cfop_classifications_issues|length + result.unmapped_cte_items|length) }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-cte-gen-rep', this)" class="syn-vtab" data-tab="tab-cte-gen-rep"><i class="fa-solid fa-truck-fast"></i><span>Relatório CT-e</span>{% if result.cte_xml_list %}<span class="badge badge-sm badge-ghost font-bold ml-auto">{{ result.cte_xml_list | length }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-pis-cofins-frete', this)" class="syn-vtab" data-tab="tab-pis-cofins-frete"><i class="fa-solid fa-truck-moving"></i><span>PIS/COFINS sobre Frete</span>{% if result.pis_cofins_frete %}<span class="badge badge-sm badge-ghost font-bold ml-auto">{{ result.pis_cofins_frete | length }}</span>{% endif %}</button>
+
+                <div class="syn-vtab-grupo">IPI</div>
+                <button type="button" onclick="switchVerticalTab('tab-ipi-issues', this)" class="syn-vtab" data-tab="tab-ipi-issues"><i class="fa-solid fa-industry"></i><span>Conferência IPI</span>{% if result.ipi_issues %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.ipi_issues | length }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-ipi-pending', this)" class="syn-vtab" data-tab="tab-ipi-pending"><i class="fa-solid fa-hourglass-half"></i><span>Regras IPI Pendentes</span>{% if result.unmapped_ipi_rules %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.unmapped_ipi_rules | length }}</span>{% endif %}</button>
+
+                <div class="syn-vtab-grupo">PIS/COFINS</div>
+                <button type="button" onclick="switchVerticalTab('tab-pis-cofins-issues', this)" class="syn-vtab" data-tab="tab-pis-cofins-issues"><i class="fa-solid fa-percent"></i><span>Conferência PIS/COFINS</span>{% if result.pis_cofins_issues %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.pis_cofins_issues | length }}</span>{% endif %}</button>
+                <button type="button" onclick="switchVerticalTab('tab-pis-cofins-pending', this)" class="syn-vtab" data-tab="tab-pis-cofins-pending"><i class="fa-solid fa-hourglass-half"></i><span>Regras PIS/COFINS Pendentes</span>{% if result.unmapped_pis_cofins_rules %}<span class="badge badge-sm badge-error text-white font-bold ml-auto">{{ result.unmapped_pis_cofins_rules | length }}</span>{% endif %}</button>
+
                 {# Ferramenta interna do escritório: oculta para o cliente final. #}
                 {% if is_internal %}
-                <button type="button" onclick="switchVerticalTab('tab-email-generator', this)" class="btn btn-ghost w-full justify-start text-left mt-2 border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold shadow-xs" data-tab="tab-email-generator"><i class="fa-solid fa-envelope-open-text mr-2 text-blue-600"></i> E-mail para Cliente</button>
+                <button type="button" onclick="switchVerticalTab('tab-email-generator', this)" class="syn-vtab syn-vtab-acao mt-2" data-tab="tab-email-generator"><i class="fa-solid fa-envelope-open-text"></i><span>E-mail para Cliente</span></button>
                 {% endif %}
-            </div>
-            
+                <p id="filtro-abas-vazio" class="hidden px-3 py-4 text-[12px] text-slate-400 text-center">Nenhuma aba com esse nome.</p>
+            </nav>
+
             {# As abas sem nenhuma ocorrência descem para um grupo fechado.
                São 25 no menu e, numa auditoria típica, mais da metade está
                zerada — e visualmente idêntica às que têm coisa, o que obriga a
@@ -136,7 +208,7 @@
                 if (vazias.length < 2) return;   // dobrar 1 aba não paga o clique
 
                 var caixa = document.createElement('details');
-                caixa.className = 'mt-2 border-t border-slate-200 pt-2';
+                caixa.className = 'syn-vtab-dobra mt-2 border-t border-slate-200 pt-2';
                 var titulo = document.createElement('summary');
                 titulo.className = 'cursor-pointer text-[12px] text-slate-400 '
                                  + 'hover:text-slate-600 px-3 py-1.5 select-none';
@@ -147,12 +219,55 @@
                     b.classList.add('opacity-60');
                     caixa.appendChild(b);
                 });
-                menu.appendChild(caixa);
+                // Antes do aviso de "nenhuma aba", que fica sempre por último.
+                menu.insertBefore(caixa, document.getElementById('filtro-abas-vazio'));
+
+                // Título de grupo que ficou sem nenhuma aba embaixo some junto.
+                menu.querySelectorAll('.syn-vtab-grupo').forEach(function (g) {
+                    var prox = g.nextElementSibling;
+                    if (!prox || !prox.matches('button[data-tab]')) g.classList.add('hidden');
+                });
             })();
+
+            // Filtro por nome: com 27 abas, digitar "ipi" é mais rápido que ler.
+            // Durante o filtro os títulos de grupo saem (só atrapalham) e a
+            // dobra das vazias abre, para a aba procurada não ficar escondida.
+            function filtrarAbasRelatorio(texto) {
+                var menu = document.getElementById('vertical-tab-menu');
+                if (!menu) return;
+                var q = (texto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+                var achou = 0;
+                menu.querySelectorAll('button[data-tab]').forEach(function (b) {
+                    var nome = b.textContent.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+                    var casa = !q || nome.indexOf(q) !== -1;
+                    b.classList.toggle('hidden', !casa);
+                    if (casa) achou++;
+                });
+                menu.classList.toggle('syn-filtrando', !!q);
+                var dobra = menu.querySelector('.syn-vtab-dobra');
+                if (dobra && q) dobra.open = true;
+                var vazio = document.getElementById('filtro-abas-vazio');
+                if (vazio) vazio.classList.toggle('hidden', achou > 0);
+            }
+
+            // Atalho "/" para o filtro (como no GitHub), só fora de campo de texto.
+            if (!window.__synAtalhoAbas) {
+                window.__synAtalhoAbas = true;
+                document.addEventListener('keydown', function (e) {
+                    if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+                    var alvo = e.target;
+                    if (alvo && (alvo.isContentEditable || /^(input|textarea|select)$/i.test(alvo.tagName))) return;
+                    var campo = document.getElementById('filtro-abas');
+                    if (!campo) return;
+                    e.preventDefault();
+                    campo.focus();
+                    campo.select();
+                });
+            }
             </script>
 
             <!-- Coluna Direita (Conteúdo) -->
-            <div class="w-full lg:w-3/4 lg:self-start" id="vertical-tab-content">
+            <div class="flex-1 min-w-0 lg:self-start" id="vertical-tab-content" style="scroll-margin-top: 80px;">
             
             <!-- Aba 1: Visão Geral -->
             
@@ -205,7 +320,7 @@
                 </h4>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-7">
 
-                    <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                    <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm transition-shadow hover:shadow-md" style="border-top: 3px solid #d03b3b;">
                         <div class="flex items-center gap-2 mb-2">
                             <i class="fa-solid fa-arrow-trend-down text-lg" style="color: #d03b3b;"></i>
                             <span class="text-[11px] font-bold uppercase tracking-wide text-slate-500">A estornar</span>
@@ -218,7 +333,7 @@
                         </p>
                     </div>
 
-                    <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                    <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm transition-shadow hover:shadow-md" style="border-top: 3px solid #006300;">
                         <div class="flex items-center gap-2 mb-2">
                             <i class="fa-solid fa-arrow-trend-up text-lg" style="color: #006300;"></i>
                             <span class="text-[11px] font-bold uppercase tracking-wide text-slate-500">A aproveitar</span>
@@ -231,7 +346,7 @@
                         </p>
                     </div>
 
-                    <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                    <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm transition-shadow hover:shadow-md" style="border-top: 3px solid #94a3b8;">
                         <div class="flex items-center gap-2 mb-2">
                             <i class="fa-solid fa-file-invoice-dollar text-lg text-slate-500"></i>
                             <span class="text-[11px] font-bold uppercase tracking-wide text-slate-500">A recolher</span>
@@ -322,7 +437,7 @@
 
                 <!-- Correção do SPED (ferramenta interna) -->
                 {% if is_internal %}
-                <div class="bg-white border border-emerald-200 rounded-xl p-4 flex flex-col sm:flex-row justify-between items-center gap-3 shadow-xs text-left">
+                <div class="bg-white border border-emerald-200 rounded-xl p-4 mb-3 flex flex-col sm:flex-row justify-between items-center gap-3 shadow-xs text-left">
                     <div>
                         <h5 class="font-bold text-slate-800 flex items-center gap-2">
                             <i class="fa-solid fa-file-pen text-emerald-600"></i> Gerar SPED corrigido
@@ -2269,11 +2384,16 @@
             <!-- Aba: Correção do SPED (gera o arquivo retificado) -->
             {% if is_internal %}
             <div id="panel-tab-correcao-sped" class="v-tab-panel hidden p-6 min-w-0">
-                {# `hx-trigger` no clique da própria aba, e não em `load`: montar
-                   a lista relê o SPED do disco e o confere linha a linha, e a
-                   maioria das aberturas desta tela nunca chega nesta aba. #}
+                {# Carrega quando o painel APARECE (`intersect`), e não em `load`:
+                   montar a lista relê o SPED do disco e o confere linha a linha,
+                   e a maioria das aberturas desta tela nunca chega nesta aba.
+                   Até 30/09/2026 era "click once from:[data-tab=...]" — só o
+                   clique NA ABA LATERAL disparava. O botão verde "Corrigir SPED"
+                   da Visão Geral troca de painel sem clicar na aba, e a pessoa
+                   ficava olhando o "Conferindo…" girar para sempre, sem nenhum
+                   pedido chegar ao servidor. `intersect` pega qualquer caminho. #}
                 <div hx-get="/api/audit/{{ task_id }}/correcao"
-                     hx-trigger="click once from:[data-tab='tab-correcao-sped']"
+                     hx-trigger="intersect once"
                      hx-target="this" hx-swap="innerHTML">
                     <div class="text-center py-10 text-slate-400">
                         <span class="loading loading-spinner loading-md"></span>
@@ -2489,20 +2609,28 @@
         // Esconde todos os paineis
         document.querySelectorAll('.v-tab-panel').forEach(p => p.classList.add('hidden'));
         document.querySelectorAll('.v-tab-panel').forEach(p => p.classList.remove('block'));
-        
-        // Remove active state dos botoes
-        document.querySelectorAll('#vertical-tab-menu button').forEach(b => {
-            b.classList.remove('bg-blue-50', 'text-blue-600');
-            b.classList.add('text-slate-600', 'hover:bg-slate-100');
+
+        // Remove active state dos botoes. O estado é uma classe só
+        // (`is-active`): trocar cor por cor sobrescrevia o verde do "Corrigir
+        // SPED" e o azul do "E-mail" com o cinza das abas comuns.
+        document.querySelectorAll('#vertical-tab-menu button[data-tab]').forEach(b => {
+            b.classList.remove('is-active');
+            b.removeAttribute('aria-current');
         });
-        
+
         // Mostra o painel correto
         document.getElementById('panel-' + tabId).classList.remove('hidden');
         document.getElementById('panel-' + tabId).classList.add('block');
-        
+
         // Adiciona active state no botao
-        btn.classList.add('bg-blue-50', 'text-blue-600');
-        btn.classList.remove('text-slate-600', 'hover:bg-slate-100');
+        if (btn) {
+            btn.classList.add('is-active');
+            btn.setAttribute('aria-current', 'page');
+            // Aba aberta por atalho da Visão Geral pode estar dentro da dobra
+            // das vazias: abre a dobra para o menu mostrar onde se está.
+            var dobra = btn.closest('details');
+            if (dobra) dobra.open = true;
+        }
 
         // E traz o topo do conteúdo para a tela — só quando ele está fora dela,
         // para o clique numa aba já visível não sacudir a página.
@@ -2564,17 +2692,17 @@
         var currentPage = 1;
 
         var paginationDiv = document.createElement('div');
-        paginationDiv.className = 'flex justify-center items-center mt-4 mb-4 gap-3';
+        paginationDiv.className = 'syn-pag';
 
         var prevBtn = document.createElement('button');
-        prevBtn.className = 'btn btn-sm btn-outline';
+        prevBtn.type = 'button';
         prevBtn.innerHTML = '<i class="fa-solid fa-chevron-left mr-1"></i> Anterior';
 
         var pageInfo = document.createElement('span');
-        pageInfo.className = 'text-sm font-semibold text-slate-600 px-3';
+        
 
         var nextBtn = document.createElement('button');
-        nextBtn.className = 'btn btn-sm btn-outline';
+        nextBtn.type = 'button';
         nextBtn.innerHTML = 'Próximo <i class="fa-solid fa-chevron-right ml-1"></i>';
 
         paginationDiv.appendChild(prevBtn);

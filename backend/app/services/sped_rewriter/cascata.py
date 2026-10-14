@@ -977,6 +977,7 @@ def aplicar(doc: Documento, patch: Patch) -> Resultado:
     extras = {id(c): _extra_de_opr(c) for c in doc.por_reg("C100")}
     # E a foto dos itens, porque a glosa é detectada por comparação.
     antes_itens = fotografar_itens(doc)
+    antes_pis_cofins = fotografar_pis_cofins(doc)
     # O crédito ANTES de qualquer correção: é a base do delta que vai (ou não)
     # para a apuração no fim.
     creditos_antes = creditos_de_icms(doc)
@@ -1022,6 +1023,22 @@ def aplicar(doc: Documento, patch: Patch) -> Resultado:
         resultado.alteracoes.extend(mudou)
         resultado.avisos.extend(avisos)
 
+        # PIS/COFINS também no arquivo Fiscal (pedido do Sandro em
+        # 18/09/2026): os campos 25 a 36 do C170 existem nos dois leiautes e a
+        # mesma função serve aos dois — zera base, alíquota e valor e leva o
+        # CST a 70. Nada disso entra na chave do C190 nem no Bloco E, então a
+        # cascata de ICMS/IPI logo abaixo continua a mesma.
+        mudou_pc, avisos = aplicar_glosas_pis_cofins(doc, c100, antes_pis_cofins)
+        resultado.alteracoes.extend(mudou_pc)
+        resultado.avisos.extend(avisos)
+        # O total do C100 (campos 26 e 27) só é refeito quando a glosa mexeu
+        # em algum item DESTE documento. Refazer sempre zeraria o total de
+        # nota corrigida só no ICMS: no EFD ICMS/IPI o C170 quase nunca traz
+        # PIS/COFINS, e a soma de campos vazios é zero.
+        if mudou_pc:
+            totalizado, _ = recalcular_c100_contribuicoes(doc, c100)
+            resultado.alteracoes.extend(totalizado)
+
         # E o caminho inverso, pelo mesmo motivo: o CST entra na chave do C190.
         mudou, avisos = ajustar_cst_do_credito(doc, c100, antes_itens)
         resultado.alteracoes.extend(mudou)
@@ -1052,4 +1069,197 @@ def aplicar(doc: Documento, patch: Patch) -> Resultado:
     # Os contadores de linha vêm depois de tudo que cria ou apaga registro.
     resultado.alteracoes.extend(reconstruir_totais_de_blocos(doc))
     resultado.alteracoes.extend(reconstruir_bloco_9(doc))
+    return resultado
+
+
+# ==================================================== EFD Contribuições (PIS/COFINS)
+#
+# Outro arquivo, outra cascata — e é por isso que ela mora numa função própria
+# em vez de um `if` dentro de `aplicar`. No EFD Contribuições NÃO existe C190
+# nem Bloco E: rodar a cascata do Fiscal ali CRIA registros que o leiaute não
+# tem (medido em 17/09/2026: uma troca de CFOP injetava dois C190 e três linhas,
+# reescrevia o ICMS do C100 e não encostava em PIS/COFINS).
+#
+# O que esta cascata faz, e só:
+#
+# 1. **Grava o item** — os mesmos `aplicar_itens` e `_validar_documento` do
+#    Fiscal, porque a trava do CFOP do campo 11 e a recusa por documento valem
+#    igual: o registro é o mesmo C170.
+# 2. **Completa a glosa.** Zerar o crédito é zerar os três campos — o Guia é o
+#    mesmo do ICMS: "os campos de valor de imposto, base de cálculo e alíquota
+#    só devem ser informados se o adquirente tiver direito à apropriação do
+#    crédito" — e o CST vai junto, para 70 (ver CST_PIS_COFINS_GLOSADO logo
+#    abaixo). Isso era aviso até 18/09/2026, quando o Sandro escolheu o código.
+#    Esta etapa é a ÚNICA que o Fiscal também chama: `aplicar` a executa nos
+#    documentos que tocou, porque os campos 25 a 36 do C170 são os mesmos nos
+#    dois leiautes e nenhum deles entra na chave do C190 ou no Bloco E.
+# 3. **Totaliza o documento.** C100 campos 26 e 27 (VL_PIS e VL_COFINS) passam a
+#    ser a soma dos itens. É o análogo do `recalcular_c100`, que no Fiscal soma
+#    os C190 — aqui não há analítico, então a soma vem direto do C170.
+#
+# O que ela NÃO faz: a apuração. O Bloco M (M105/M100 do crédito, M200 da
+# contribuição, e o espelho M505/M500 e M610/M600 da COFINS) muda tributo a
+# recolher, e é a mesma classe de decisão que o E110 exigiu — caixa própria,
+# segundo aceite. Fica para quando for pedido.
+
+C170_CST_PIS = 25
+C170_VL_PIS = 30
+C170_CST_COFINS = 31
+C170_VL_COFINS = 36
+
+# Para onde vai o CST quando o crédito de PIS/COFINS é glosado. 70 é
+# "Operação de Aquisição sem Direito a Crédito" na Tabela 4.3.3 — o código
+# que diz exatamente o que a glosa afirma.
+#
+# Isto era AVISO até 18/09/2026: os códigos de entrada sem direito são
+# vários (70 a 75 e 98), a escolha entre eles é fiscal e não aritmética, e o
+# motor não decidia sozinho. O Sandro decidiu: 70, nos dois leiautes, haja
+# XML ou não — a glosa não depende do XML, ela sai do CST escriturado e da
+# regra cadastrada. Sem a troca o arquivo sai se contradizendo na mesma
+# linha (imposto zero, CST 50 dizendo que há direito a crédito), e é o PVA
+# que recebe a contradição, na importação. O aviso continua, agora dizendo
+# o que foi gravado e quais eram os outros candidatos.
+CST_PIS_COFINS_GLOSADO = "70"
+# Base, alíquota percentual, quantidade e alíquota por unidade de cada tributo.
+# Campo que estava VAZIO continua vazio: `decimal_para_texto` preserva, então
+# zerar aqui não enche de "0,00" os campos da tributação por quantidade, que
+# quase nunca são usados.
+C170_PIS_ACOMPANHA = (26, 27, 28, 29)
+C170_COFINS_ACOMPANHA = (32, 33, 34, 35)
+
+NOMES_C170_CONTRIBUICOES = {
+    25: "CST_PIS", 26: "VL_BC_PIS", 27: "ALIQ_PIS", 28: "QUANT_BC_PIS",
+    29: "ALIQ_PIS_R", 30: "VL_PIS", 31: "CST_COFINS", 32: "VL_BC_COFINS",
+    33: "ALIQ_COFINS", 34: "QUANT_BC_COFINS", 35: "ALIQ_COFINS_R",
+    36: "VL_COFINS",
+}
+
+# C100 do EFD Contribuições: número do campo -> campo do C170 que o totaliza.
+SOMAS_C100_CONTRIBUICOES = {26: C170_VL_PIS, 27: C170_VL_COFINS}
+NOMES_C100_CONTRIBUICOES = {26: "VL_PIS", 27: "VL_COFINS"}
+
+
+def fotografar_pis_cofins(doc: Documento) -> dict:
+    """O valor de PIS e de COFINS de cada item ANTES da correção.
+
+    A glosa é detectada por comparação — "tinha crédito, ficou zero" —, e
+    depois de gravar não há mais como saber o que havia.
+    """
+    return {id(item): (texto_para_decimal(item.campo(C170_VL_PIS)),
+                       texto_para_decimal(item.campo(C170_VL_COFINS)))
+            for item in doc.por_reg("C170")}
+
+
+def aplicar_glosas_pis_cofins(doc: Documento, c100: Registro,
+                              antes: dict) -> tuple[list[Alteracao], list[str]]:
+    """Item que perdeu o crédito perde base e alíquota junto."""
+    alteracoes: list[Alteracao] = []
+    avisos: list[str] = []
+    chave_doc = c100.chave_documento()
+    glosados = 0
+
+    for item in doc.filhos_reg(c100, "C170"):
+        foto = antes.get(id(item))
+        if not foto:
+            continue
+        houve_glosa = False
+        for valor_antes, campo_valor, campo_cst, acompanham in (
+                (foto[0], C170_VL_PIS, C170_CST_PIS, C170_PIS_ACOMPANHA),
+                (foto[1], C170_VL_COFINS, C170_CST_COFINS, C170_COFINS_ACOMPANHA)):
+            if valor_antes <= 0 or texto_para_decimal(item.campo(campo_valor)) != 0:
+                continue
+            houve_glosa = True
+            # O CST acompanha o valor: o arquivo não pode dizer, na mesma
+            # linha, que o imposto é zero e que a operação dá crédito.
+            anterior_cst = item.campo(campo_cst)
+            if item.set(campo_cst, CST_PIS_COFINS_GLOSADO):
+                alteracoes.append(Alteracao(
+                    documento=chave_doc, registro="C170",
+                    linha_origem=item.linha, num_item=item.campo(2),
+                    campo=NOMES_C170_CONTRIBUICOES[campo_cst],
+                    de=anterior_cst, para=CST_PIS_COFINS_GLOSADO,
+                    motivo="glosa do crédito: CST 70, aquisição sem direito "
+                           "a crédito (Tabela 4.3.3)",
+                    origem="cascata"))
+            for numero in acompanham:
+                anterior = item.campo(numero)
+                depois = decimal_para_texto(ZERO, anterior)
+                if item.set(numero, depois):
+                    alteracoes.append(Alteracao(
+                        documento=chave_doc, registro="C170",
+                        linha_origem=item.linha, num_item=item.campo(2),
+                        campo=NOMES_C170_CONTRIBUICOES.get(numero, f"campo {numero}"),
+                        de=anterior, para=depois,
+                        motivo="glosa do crédito: o Guia manda não informar "
+                               "imposto, base e alíquota quando não há direito "
+                               "à apropriação",
+                        origem="cascata"))
+        if houve_glosa:
+            glosados += 1
+
+    if glosados:
+        avisos.append(
+            f"{chave_doc}: {glosados} item(ns) ficaram sem crédito de PIS/COFINS. "
+            "Base, alíquota e valor foram zerados e o CST passou a 70 (aquisição "
+            "sem direito a crédito). Confira no PVA se 70 é o código da natureza "
+            "desta operação — os outros candidatos são 71 a 75 e 98.")
+    return alteracoes, avisos
+
+
+def recalcular_c100_contribuicoes(doc: Documento,
+                                  c100: Registro) -> tuple[list[Alteracao],
+                                                            list[str]]:
+    """VL_PIS e VL_COFINS do documento passam a ser a soma dos itens."""
+    alteracoes: list[Alteracao] = []
+    itens = doc.filhos_reg(c100, "C170")
+    if not itens:
+        return alteracoes, []
+    chave_doc = c100.chave_documento()
+
+    for campo_100, campo_170 in SOMAS_C100_CONTRIBUICOES.items():
+        total = sum((texto_para_decimal(i.campo(campo_170)) for i in itens), ZERO)
+        antes = c100.campo(campo_100)
+        depois = decimal_para_texto(total, antes)
+        if c100.set(campo_100, depois):
+            alteracoes.append(Alteracao(
+                documento=chave_doc, registro="C100", linha_origem=c100.linha,
+                campo=NOMES_C100_CONTRIBUICOES[campo_100], de=antes, para=depois,
+                motivo="soma do PIS/COFINS dos itens do documento",
+                origem="cascata"))
+    return alteracoes, []
+
+
+def aplicar_contribuicoes(doc: Documento, patch: Patch) -> Resultado:
+    """Aplica as correções de PIS/COFINS e fecha o que depende delas.
+
+    `aplicar` (a do EFD ICMS/IPI) não é chamada aqui, nem esta lá: são duas
+    cascatas para dois leiautes, e misturá-las é o que corromperia o arquivo.
+    """
+    resultado = Resultado()
+    antes_itens = fotografar_pis_cofins(doc)
+    linhas_antes = len(doc.registros)
+
+    alteracoes, recusas, tocados = aplicar_itens(doc, patch)
+    resultado.alteracoes.extend(alteracoes)
+    resultado.recusas.extend(recusas)
+    if not tocados:
+        return resultado
+
+    for c100 in tocados:
+        mudou, avisos = aplicar_glosas_pis_cofins(doc, c100, antes_itens)
+        resultado.alteracoes.extend(mudou)
+        resultado.avisos.extend(avisos)
+
+        mudou, avisos = recalcular_c100_contribuicoes(doc, c100)
+        resultado.alteracoes.extend(mudou)
+        resultado.avisos.extend(avisos)
+
+    # Esta cascata não cria nem apaga linha, então os contadores continuam
+    # certos e refazê-los só reescreveria linhas que ninguém pediu para mexer —
+    # a regra do módulo é que campo não tocado sai byte a byte como entrou. A
+    # comparação fica aqui para o dia em que alguma correção passar a inserir
+    # registro: aí eles voltam a rodar sozinhos.
+    if len(doc.registros) != linhas_antes:
+        resultado.alteracoes.extend(reconstruir_totais_de_blocos(doc))
+        resultado.alteracoes.extend(reconstruir_bloco_9(doc))
     return resultado

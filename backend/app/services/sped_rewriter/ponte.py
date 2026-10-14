@@ -570,7 +570,9 @@ def propor(dados: dict, texto_sped: str) -> list[Proposta]:
                  + _credito_de_icms(doc, dados)
                  + _credito_de_ipi(doc, dados)
                  + _cfops_de_frete(doc, dados)
-                 + _valores(doc, dados))
+                 + _valores(doc, dados)
+                 # Só a glosa: ver `_credito_de_pis_cofins`.
+                 + _credito_de_pis_cofins(doc, dados, so_glosa=True))
 
     # Id repetido faria a tela marcar duas linhas com um clique só e o POST
     # aplicar a errada. Acontece de verdade: a mesma nota pode ter divergência
@@ -615,3 +617,158 @@ def montar_patch(propostas: list[Proposta], aceitos, aprovada_por: str = "",
                 documento=p.documento, num_item=p.num_item, campos=dict(p.campos),
                 motivo=p.motivo, origem=origem, aprovada_por=aprovada_por))
     return patch
+
+
+# ==================================================== EFD Contribuições
+#
+# A auditoria emite UMA linha de divergência para o par PIS/COFINS, porque o
+# confronto é da BASE e ela é a mesma para os dois (item menos ICMS, ICMS ST,
+# FCP ST e IPI, feita no `xml_parser`). Por isso existe uma proposta só, com os
+# seis campos juntos: marcar metade de um cálculo não é opção.
+#
+# O valor é DERIVADO da base, não copiado do XML: o `vPIS` do fornecedor foi
+# calculado sobre a base DELE, e o que se escritura aqui é o crédito do
+# comprador sobre a base da tese do STF.
+#
+# A alíquota é FIXA — 1,65% de PIS e 7,60% de COFINS —, pedido do Sandro em
+# 23/09/2026. Até aqui ela vinha do próprio XML (pPIS/pCOFINS), e o XML traz a
+# alíquota do FORNECEDOR, não o crédito de quem compra: fornecedor no
+# cumulativo destaca 0,65/3,00 e a correção gravava crédito a menor; fornecedor
+# do Simples não destaca nada e a proposta saía impedida. No não-cumulativo o
+# crédito do comprador segue a alíquota dele, qualquer que seja o regime de
+# quem vendeu. O que não dá crédito nenhum (monofásico, CST 70 a 75) continua
+# saindo pela GLOSA, que olha a regra cadastrada e não passa por aqui.
+ALIQ_PIS_CONTRIBUICOES = Decimal("1.65")
+ALIQ_COFINS_CONTRIBUICOES = Decimal("7.60")
+
+FRETE_NAO_AUTOMATIZAVEL = (
+    "o PIS/COFINS do frete é escriturado nos registros D101 e D105, que esta "
+    "correção ainda não reescreve — ajuste à mão")
+
+
+def _aliquota_para_texto(aliquota: Decimal, original: str) -> str:
+    """Alíquota no formato que o arquivo já usa: "1,6500" continua com quatro
+    casas. Reescrever para "1,65" mudaria um campo que já está certo — e o
+    arquivo corrigido só pode diferir do original no que foi aceito."""
+    atual = (original or "").strip()
+    casas = max(2, len(atual.split(",", 1)[1])) if "," in atual else 2
+    return f"{aliquota:.{casas}f}".replace(".", ",")
+
+
+def _credito_de_pis_cofins(doc: Documento, dados: dict,
+                           so_glosa: bool = False) -> list[Proposta]:
+    """As correções de PIS/COFINS do C170, conferidas no arquivo.
+
+    `so_glosa` é o modo do EFD ICMS/IPI (18/09/2026). Ali a única correção
+    que faz sentido é APAGAR o crédito indevido: o confronto de BASE contra
+    base gera linha em quase todo item daquele arquivo — é o efeito medido e
+    aceito em 28/08/2026, porque o Fiscal quase não preenche VL_BC_PIS —, e
+    transformar isso em proposta de reescrita mandaria gravar base e alíquota
+    de um tributo que aquele arquivo não escritura. O que a glosa precisa,
+    ao contrário, está todo dentro do próprio SPED: o CST do item e a regra
+    cadastrada. Por isso ela vale nos dois, com XML ou sem.
+    """
+    indice = doc.indice_de_documentos()
+    propostas = []
+    for issue in dados.get("pis_cofins_issues", []) or []:
+        chave = str(issue.get("key") or "").strip()
+        num_item = str(issue.get("num_item") or "").strip()
+        glosa = str(issue.get("acao") or "") == "glosar"
+        if so_glosa and not glosa:
+            continue
+
+        p = _proposta("credito_pis_cofins", chave, num_item=num_item,
+                      num_doc=str(issue.get("num") or ""),
+                      fornecedor=str(issue.get("emit_name") or ""),
+                      descricao=str(issue.get("descr") or ""),
+                      alvo=f"Item {num_item}" if num_item != ALVO_CTE else "Frete",
+                      motivo=str(issue.get("reason") or ""))
+
+        if num_item == ALVO_CTE:
+            p.impedimento = FRETE_NAO_AUTOMATIZAVEL
+            propostas.append(p)
+            continue
+
+        c100 = indice.get(chave)
+        item = _item_do_documento(doc, c100, num_item) if c100 else None
+        if c100 is None:
+            p.impedimento = "documento não encontrado no arquivo SPED"
+            propostas.append(p)
+            continue
+        if item is None:
+            p.impedimento = f"o item {num_item} não existe neste documento"
+            propostas.append(p)
+            continue
+
+        if glosa:
+            # Zerar o valor basta: base, alíquota e o CST 70 são obrigação do
+            # leiaute e a cascata faz sozinha, como no ICMS.
+            campos = {"VL_PIS": ZERO, "VL_COFINS": ZERO}
+            mudancas = [m for m in (
+                _mudanca(item, 30, "VL_PIS", decimal_para_texto(ZERO, item.campo(30))),
+                _mudanca(item, 36, "VL_COFINS", decimal_para_texto(ZERO, item.campo(36))),
+            ) if m]
+            if not mudancas:
+                p.impedimento = "o item já está sem crédito de PIS/COFINS no arquivo"
+            else:
+                p.campos = campos
+                p.mudancas = mudancas
+                p.delta = -(texto_para_decimal(item.campo(30))
+                            + texto_para_decimal(item.campo(36)))
+            propostas.append(p)
+            continue
+
+        base = _num(issue.get("base_calculada"))
+        if base <= 0:
+            base = _num(issue.get("xml_val"))
+        # Fixas, e não as do XML (ver ALIQ_PIS_CONTRIBUICOES). Por isso a
+        # auditoria antiga, que não guardou `xml_aliq_pis`, também é corrigida.
+        aliq_pis = ALIQ_PIS_CONTRIBUICOES
+        aliq_cofins = ALIQ_COFINS_CONTRIBUICOES
+        if base <= 0:
+            p.impedimento = "a auditoria não trouxe a base de cálculo do XML"
+        else:
+            vl_pis = (base * aliq_pis / 100).quantize(Decimal("0.01"))
+            vl_cofins = (base * aliq_cofins / 100).quantize(Decimal("0.01"))
+            texto_aliq_pis = _aliquota_para_texto(aliq_pis, item.campo(27))
+            texto_aliq_cofins = _aliquota_para_texto(aliq_cofins, item.campo(33))
+            campos = {"VL_BC_PIS": base, "ALIQ_PIS": texto_aliq_pis,
+                      "VL_PIS": vl_pis, "VL_BC_COFINS": base,
+                      "ALIQ_COFINS": texto_aliq_cofins, "VL_COFINS": vl_cofins}
+            mudancas = [m for m in (
+                _mudanca(item, 26, "VL_BC_PIS", decimal_para_texto(base, item.campo(26))),
+                _mudanca(item, 27, "ALIQ_PIS", texto_aliq_pis),
+                _mudanca(item, 30, "VL_PIS", decimal_para_texto(vl_pis, item.campo(30))),
+                _mudanca(item, 32, "VL_BC_COFINS", decimal_para_texto(base, item.campo(32))),
+                _mudanca(item, 33, "ALIQ_COFINS", texto_aliq_cofins),
+                _mudanca(item, 36, "VL_COFINS", decimal_para_texto(vl_cofins, item.campo(36))),
+            ) if m]
+            if not mudancas:
+                p.impedimento = "o arquivo já está com esses valores"
+            else:
+                p.campos = campos
+                p.mudancas = mudancas
+                p.delta = ((vl_pis + vl_cofins)
+                           - texto_para_decimal(item.campo(30))
+                           - texto_para_decimal(item.campo(36)))
+        propostas.append(p)
+    return propostas
+
+
+def propor_contribuicoes(dados: dict, texto_sped: str) -> list[Proposta]:
+    """As correções que o arquivo de EFD Contribuições autoriza oferecer.
+
+    Separada de `propor` de propósito: as cinco opções do Fiscal reescrevem
+    C190, Bloco E e campos de ICMS/IPI, que não existem neste arquivo.
+    """
+    doc = ler_texto(texto_sped or "")
+    propostas = _credito_de_pis_cofins(doc, dados)
+
+    vistos: dict[str, int] = {}
+    for p in propostas:
+        if p.id in vistos:
+            vistos[p.id] += 1
+            p.id = f"{p.id}#{vistos[p.id]}"
+        else:
+            vistos[p.id] = 1
+    return propostas

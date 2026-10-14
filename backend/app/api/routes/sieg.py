@@ -182,14 +182,22 @@ async def verificar_nao_lancadas_sieg(
         raise HTTPException(status_code=404, detail="Empresa não encontrada.")
     assert_tenant_access(profile, tenant.id)
 
+    from ...services.integrations.sieg_client import SiegIndisponivel
+
     client = cliente_sieg(db)
-    xmls = client.baixar_lote_xmls(
-        cnpj=cnpj,
-        xml_type=1,
-        data_inicio=payload.data_inicio.isoformat(),
-        data_fim=payload.data_fim.isoformat(),
-        tipo_cnpj="CnpjDest"
-    )
+    try:
+        xmls = client.baixar_lote_xmls(
+            cnpj=cnpj,
+            xml_type=1,
+            data_inicio=payload.data_inicio.isoformat(),
+            data_fim=payload.data_fim.isoformat(),
+            tipo_cnpj="CnpjDest"
+        )
+    except SiegIndisponivel as err:
+        # Antes de 29/09/2026 a falha virava lista vazia e a resposta era
+        # "nenhuma nota não lançada" — o pior resultado possível, dito com
+        # confiança. Agora a tela recebe o motivo.
+        raise HTTPException(status_code=502, detail=f"O cofre do SIEG não respondeu: {err}")
 
     nao_lancadas = []
     import defusedxml.ElementTree as ET  # XML do cofre; motivo em audit_engine/xml_parser.py

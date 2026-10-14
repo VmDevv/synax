@@ -19,6 +19,15 @@ O que esta suíte trava:
 
 3. **Documento sem CFOP legível fica com travessão.** CT-e sem D190 não tem de
    onde tirar o código, e inventar um mandaria procurar o que não existe.
+
+4. **Nota sem XML AINDA assim tem o PIS/COFINS conferido** (18/09/2026). A
+   glosa não precisa do XML: ela pergunta ao CST escriturado e à regra
+   cadastrada, que é o par (CFOP de referência, CST). Até aqui a nota saía da
+   apuração inteira no `continue` de "XMLs Faltantes" e a regra nunca era
+   consultada — na MEGA de agosto isso escondeu 132 itens em 16 notas de
+   transferência entre filiais, R$ 2.026,78 de crédito a glosar. E
+   transferência entre filiais NUNCA tem XML no pacote de entradas, porque a
+   nota é da própria empresa: era o caso mais comum caindo no buraco.
 """
 import io
 import os
@@ -99,6 +108,25 @@ CHAVE_CTE = "3526083499247200027057001000014983" + "1000014983"
 CHAVE_CTE_SEM_D190 = "3526083499247200027057001000014984" + "1000014984"
 
 
+def cauda_pis(cst="", bc="", vl_pis="", vl_cofins="") -> str:
+    """Campos 16 a 38 do C170, com só os de PIS/COFINS preenchidos.
+
+    O C170 real tem 38 campos e a auditoria lê 15; o resto entra vazio, como
+    nos outros fixtures. Aqui os de PIS/COFINS ganham valor porque é deles e
+    da regra cadastrada que a glosa sai — o XML não entra nessa conta.
+    """
+    campos = [""] * 23                       # campos 16 a 38
+    campos[25 - 16] = cst                    # CST_PIS
+    campos[26 - 16] = bc                     # VL_BC_PIS
+    campos[27 - 16] = "1,65"                 # ALIQ_PIS
+    campos[30 - 16] = vl_pis                 # VL_PIS
+    campos[31 - 16] = cst                    # CST_COFINS
+    campos[32 - 16] = bc                     # VL_BC_COFINS
+    campos[33 - 16] = "7,60"                 # ALIQ_COFINS
+    campos[36 - 16] = vl_cofins              # VL_COFINS
+    return "|".join(campos) + "|"
+
+
 def montar_sped() -> str:
     """SPED com uma NF-e de dois CFOPs e dois CT-e, um deles sem analítico."""
     linhas = [
@@ -114,12 +142,15 @@ def montar_sped() -> str:
         f"|C100|0|1|F1|55|00|1|12345|{CHAVE_NF}|12072026|12072026|1800,00|0|"
         "0,00|0,00|1800,00|9|0,00|0,00|0,00|1500,00|180,00|0,00|0,00|0,00|"
         "0,00|0,00|0,00|0,00|",
+        # Os três creditaram PIS/COFINS com CST 50. Só o CFOP 1102 tem regra
+        # cadastrada dizendo que não há direito — o 1556 fica sem regra, e
+        # sem regra o motor não alega nada (`None` não é `False`).
         "|C170|1|CAFE500||10,00000|UN|1000,00||0|000|1102||1000,00|12,00|120,00|"
-        + "|" * 23,
+        + cauda_pis("50", "880,00", "14,52", "66,88"),
         "|C170|2|OLEO900||5,00000|UN|500,00||0|060|1556||||"
-        + "|" * 23,
+        + cauda_pis("50", "500,00", "8,25", "38,00"),
         "|C170|3|CAFE500||2,00000|UN|300,00||0|000|1102||300,00|12,00|36,00|"
-        + "|" * 23,
+        + cauda_pis("50", "264,00", "4,36", "20,06"),
         "|C190|000|1102|12,00|1300,00|1300,00|156,00|0,00|0,00|0,00|0,00||",
         "|C190|060|1556|0,00|500,00|0,00|0,00|0,00|0,00|0,00|0,00||",
         "|C990|8|",
@@ -151,6 +182,11 @@ TENANT = str(uuid.uuid4())
 db = SessionLocal()
 db.add(AuditTask(id=TASK, tenant_id=TENANT, status="pendente",
                  file_name="sped.txt"))
+# A regra que a glosa consulta. Chave exata (CFOP, CST) e do tenant, como
+# toda regra do sistema — não existe regra global em imposto nenhum.
+db.add(rules.PisCofinsCreditRule(
+    cfop="1102", cst_expected="50", tenant_id=TENANT, allow_credit=False,
+    status="aprovado", description="revenda sem direito a crédito"))
 db.commit()
 execute_audit(TASK, TENANT, SPED, XML_DIR, db)
 db.expire_all()
@@ -178,6 +214,54 @@ check("o CT-e traz o CFOP do analítico D190",
 sem_d190 = faltantes.get(CHAVE_CTE_SEM_D190)
 check("CT-e sem D190 fica sem CFOP, em vez de herdar o do vizinho",
       sem_d190 and sem_d190.get("cfops") == [], sem_d190 and sem_d190.get("cfops"))
+
+
+# ============================================================================
+print("\n=== 1b. Sem XML, a regra de PIS/COFINS continua valendo ===")
+
+glosas = [d for d in RESULTADO.get("pis_cofins_issues", [])
+          if d.get("key") == CHAVE_NF]
+por_item = {d["num_item"]: d for d in glosas}
+
+check("os dois itens de CFOP 1102 saem com o crédito a glosar",
+      sorted(por_item) == ["1", "3"], sorted(por_item))
+check("o item de CFOP 1556 NAO e acusado — nao ha regra cadastrada",
+      "2" not in por_item,
+      "sem regra o motor nao pode alegar nada: None nao e False")
+# Tolerancia porque `sped_val` e soma de float, como em toda divergencia do
+# motor: 14,52 + 66,88 da 81,39999999999999 em binario. Quem arredonda e a
+# tela, no `:.2f` da mensagem.
+check("o valor a glosar e a soma de PIS e COFINS do item",
+      abs(por_item.get("1", {}).get("sped_val", 0) - 81.40) < 0.005,
+      por_item.get("1", {}).get("sped_val"))
+check("com PIS e COFINS separados, para a correcao zerar os dois",
+      (por_item.get("1", {}).get("sped_pis"),
+       por_item.get("1", {}).get("sped_cofins")) == (14.52, 66.88),
+      (por_item.get("1", {}).get("sped_pis"),
+       por_item.get("1", {}).get("sped_cofins")))
+check("a acao e glosar — e a ponte le esse campo para nao gravar valor",
+      por_item.get("1", {}).get("acao") == "glosar",
+      por_item.get("1", {}).get("acao"))
+check("e o XML esperado e zero: nao ha XML para comparar",
+      por_item.get("1", {}).get("xml_val") == 0.00,
+      por_item.get("1", {}).get("xml_val"))
+check("a divergencia vem marcada como conferida so pelo SPED",
+      por_item.get("1", {}).get("sem_xml") is True,
+      por_item.get("1", {}).get("sem_xml"))
+check("e o motivo diz isso em portugues, para quem le a tela",
+      "não tem XML" in por_item.get("1", {}).get("reason", ""),
+      por_item.get("1", {}).get("reason"))
+check("a descricao do produto vem do 0200",
+      por_item.get("1", {}).get("descr") == "CAFE TORRADO 500G",
+      por_item.get("1", {}).get("descr"))
+check("e o fornecedor sai do 0150, nao o dicionario cru",
+      por_item.get("1", {}).get("emit_name") == "FORNECEDOR ALFA",
+      por_item.get("1", {}).get("emit_name"))
+
+# A nota continua faltante: apontar a glosa não a torna conferida. São duas
+# informações diferentes e a tela mostra as duas.
+check("a nota segue na lista de XMLs Faltantes",
+      CHAVE_NF in faltantes)
 
 
 # ============================================================================

@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import calendar
 import os
+import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -142,6 +143,17 @@ class Resultado:
     fretes: int = 0
     ignorados: list[tuple] = field(default_factory=list)   # (arquivo, motivo)
     competencia: str = ""
+    # Os meses que o pacote tem, [(AAAA-MM, documentos)].
+    meses: list[tuple] = field(default_factory=list)
+    # Documentos de meses ANTERIORES à competência, para a tela oferecer
+    # trazê-los para a 1ª quinzena. Cada um: id, tipo, num, emitente, data
+    # (dd/mm/aaaa), valor, mes, trazido (bool).
+    anteriores: list[dict] = field(default_factory=list)
+    # Data de entrada usada para os trazidos (AAAA-MM-DD), quando houver.
+    data_entrada: str = ""
+    # Combinações sem regra aprovada quando a geração exige regra — o motivo
+    # de não ter saído arquivo, uma por linha legível.
+    sem_regra: list[str] = field(default_factory=list)
 
     @property
     def vazio(self) -> bool:
@@ -199,6 +211,32 @@ def versao_do_leiaute(ano: int) -> tuple[str, bool]:
     return COD_VER_POR_ANO[max(COD_VER_POR_ANO)], False
 
 
+def cfop_de_entrada_valido(cfop: str) -> bool:
+    """CFOP que pode ir num documento de ENTRADA: 4 dígitos, série 1, 2 ou 3.
+
+    Regra com "5102" (saída) passaria no isdigit e escrituraria CFOP de saída
+    num C170 de entrada — o PVA recusa o arquivo inteiro.
+    """
+    texto = (cfop or "").strip()
+    return len(texto) == 4 and texto.isdigit() and texto[0] in "123"
+
+
+def chave_item(fornecedor, cfop_origem, cod_produto) -> tuple:
+    """Chave da regra do item de NF-e: (fornecedor, CFOP do fornecedor, cProd).
+
+    Uma função só para o `_bloco_c`, o levantamento da tela e a rota que lê o
+    banco: se cada um normalizasse do seu jeito, a regra aprovada deixaria de
+    casar com o item por um espaço ou uma pontuação de CNPJ.
+    """
+    return (_so_digitos(fornecedor), (cfop_origem or "").strip(),
+            (cod_produto or "").strip())
+
+
+def chave_frete(cfop_cte, uf_transportador) -> tuple:
+    """Chave da regra do frete: (CFOP do CT-e, UF do transportador)."""
+    return ((cfop_cte or "").strip(), (uf_transportador or "").strip().upper()[:2])
+
+
 def cfop_de_entrada(cfop_xml: str, mapeado: str = "") -> tuple[str, bool]:
     """(CFOP de entrada, veio de regra aprovada?).
 
@@ -206,10 +244,12 @@ def cfop_de_entrada(cfop_xml: str, mapeado: str = "") -> tuple[str, bool]:
     primeiro dígito — 5→1, 6→2, 7→3 — que é como todo escritório começa uma
     escrituração: mesma natureza de operação, do outro lado. **É presunção, e
     sai marcada**: quem confere no Domínio precisa saber quais CFOPs alguém
-    aprovou e quais o sistema deduziu.
+    aprovou e quais o sistema deduziu. Desde 09/10/2026 as rotas geram em modo
+    estrito (`exigir_regra`), e a conversão só serve de SUGESTÃO na tela de
+    mapeamento — nenhum arquivo sai com ela.
     """
     regra = (mapeado or "").strip()
-    if len(regra) == 4 and regra.isdigit():
+    if cfop_de_entrada_valido(regra):
         return regra, True
 
     origem = (cfop_xml or "").strip()
@@ -249,6 +289,7 @@ def _ler_xmls(caminhos: list, cnpj_empresa: str, resultado: Resultado):
         # passaria por nota de entrada com zero itens. O número da nota é o que
         # só existe em NF-e (`nNF`).
         if "error" not in dados and dados.get("num") and dados.get("items"):
+            dados["_arquivo"] = nome
             c_stat = str(dados.get("c_stat") or "").strip()
             if c_stat and c_stat not in AUTORIZADA:
                 # Denegada ou cancelada continua tendo <dest> igual à empresa;
@@ -270,6 +311,7 @@ def _ler_xmls(caminhos: list, cnpj_empresa: str, resultado: Resultado):
 
         cte = parse_cte_xml(caminho)
         if "error" not in cte and cte.get("num"):
+            cte["_arquivo"] = nome
             c_stat = str(cte.get("c_stat") or "").strip()
             if c_stat and c_stat not in AUTORIZADA:
                 resultado.ignorados.append((nome, (
@@ -292,28 +334,143 @@ def _ler_xmls(caminhos: list, cnpj_empresa: str, resultado: Resultado):
     return nfes, ctes
 
 
-def _competencia(nfes: list, ctes: list, resultado: Resultado) -> tuple:
-    """(DT_INI, DT_FIN) do mês. Pacote com dois meses é recusado.
+_MES = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
-    O SPED é MENSAL. Um ZIP com abril e maio juntos geraria um arquivo que
-    nenhum dos dois meses aceita — e o erro só apareceria na importação.
+
+def rotulo_mes(mes: str) -> str:
+    """"2026-09" -> "09/2026"."""
+    return f"{mes[5:7]}/{mes[:4]}" if _MES.match(mes or "") else (mes or "")
+
+
+def _mes_do(documento: dict, campo: str) -> str:
+    mes = str(documento.get(campo) or "")[:7]
+    return mes if _MES.match(mes) else ""
+
+
+_DIA = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+ULTIMO_DIA_DA_QUINZENA = 15
+
+
+def _entrada_iso(d: dict, tipo: str) -> str:
+    """A data que vai para o DT_E_S (NF-e) ou DT_A_P (CT-e), em AAAA-MM-DD.
+    É ela que precisa cair dentro do período do arquivo — por isso decide o
+    mês do documento, e não só a emissão."""
+    if tipo == "NF-e":
+        bruto = str(d.get("dh_saida") or "")[:10] or str(d.get("dh_emi") or "")[:10]
+    else:
+        bruto = str(d.get("data") or "")[:10]
+    return bruto if _DIA.match(bruto) else ""
+
+
+def id_documento(d: dict) -> str:
+    """Como a tela identifica um documento para trazê-lo: a chave de acesso
+    (única), ou o nome do arquivo quando o XML não a tem."""
+    return str(d.get("chave") or d.get("_arquivo") or "")
+
+
+def _competencia(nfes: list, ctes: list, resultado: Resultado,
+                 escolhida: str = "", trazer=(), data_entrada: str = "") -> tuple:
+    """(DT_INI, DT_FIN, nfes, ctes) da competência do arquivo.
+
+    O SPED é MENSAL: um arquivo com agosto e setembro juntos nenhum dos dois
+    meses aceita, e o erro só apareceria na importação. Até 25/09/2026 o
+    pacote com dois meses era recusado inteiro. Pedido do Sandro no mesmo
+    dia, porque o cliente manda o ZIP como tem — com as notas do fim do mês
+    anterior junto:
+
+    - o arquivo sai do mês MAIS RECENTE do pacote (ou do escolhido na tela);
+    - documento de mês ANTERIOR fica de fora, listado em `anteriores` — e a
+      pessoa pode marcar quais entram neste arquivo com data de entrada na
+      1ª QUINZENA do mês (`data_entrada`, dia 01 a 15). A emissão (DT_DOC)
+      continua a do XML: muda só a entrada, que é o que decide o período;
+    - documento de mês POSTERIOR fica de fora, listado — não dá para
+      escriturar entrada antes de a nota existir.
+
+    Nada some: o que não entra vai para `ignorados`, um por um, com o mês.
+    Documento sem data legível fica no arquivo, como ficava antes.
     """
-    datas = [d.get("dh_emi", "")[:7] for d in nfes if d.get("dh_emi")]
-    datas += [d.get("data", "")[:7] for d in ctes if d.get("data")]
-    meses = sorted({m for m in datas if len(m) == 7})
-    if not meses:
-        return "", ""
-    if len(meses) > 1:
-        resultado.avisos.append(
-            "O pacote tem documentos de mais de um mês (" + ", ".join(meses)
-            + "). O SPED é mensal: separe os XMLs por competência e gere um "
-            "arquivo para cada.")
-        return "", ""
+    datas = {}
+    for lista, tipo in ((nfes, "NF-e"), (ctes, "CT-e")):
+        for d in lista:
+            datas[id(d)] = _entrada_iso(d, tipo)
+    contagem = {}
+    for iso in datas.values():
+        if iso:
+            contagem[iso[:7]] = contagem.get(iso[:7], 0) + 1
+    resultado.meses = sorted(contagem.items())
+    if not contagem:
+        return "", "", nfes, ctes
 
-    ano, mes = meses[0].split("-")
+    resumo = ", ".join(f"{rotulo_mes(m)} ({n} documento{'s' if n != 1 else ''})"
+                       for m, n in resultado.meses)
+    alvo = escolhida or max(contagem)
+    if alvo not in contagem:
+        resultado.avisos.append(
+            f"Nenhum documento do pacote é de {rotulo_mes(alvo)}. O pacote tem: {resumo}.")
+        return "", "", nfes, ctes
+
+    trazer = {t for t in (trazer or ()) if t}
+    if trazer:
+        data_entrada = (data_entrada or "").strip() or f"{alvo}-01"
+        if (not _DIA.match(data_entrada) or data_entrada[:7] != alvo
+                or not 1 <= int(data_entrada[8:10]) <= ULTIMO_DIA_DA_QUINZENA):
+            resultado.avisos.append(
+                f"A data de entrada das notas trazidas tem de ser da 1ª quinzena de "
+                f"{rotulo_mes(alvo)} (dia 01 a {ULTIMO_DIA_DA_QUINZENA}).")
+            return "", "", nfes, ctes
+        resultado.data_entrada = data_entrada
+
+    ficam_n, ficam_c, fora, trazidas = [], [], {}, 0
+    for lista, destino, tipo in ((nfes, ficam_n, "NF-e"), (ctes, ficam_c, "CT-e")):
+        for d in lista:
+            iso = datas[id(d)]
+            mes = iso[:7]
+            if not mes or mes == alvo:
+                destino.append(d)
+                continue
+            nome = d.get("_arquivo") or f"{tipo} {d.get('num')}"
+            if mes > alvo:
+                fora[mes] = fora.get(mes, 0) + 1
+                resultado.ignorados.append((nome, (
+                    f"{tipo} {d.get('num')} de {iso[8:10]}/{rotulo_mes(mes)}: "
+                    f"posterior à competência gerada ({rotulo_mes(alvo)})")))
+                continue
+            trazida = id_documento(d) in trazer
+            resultado.anteriores.append({
+                "id": id_documento(d), "tipo": tipo, "num": d.get("num", ""),
+                "emitente": d.get("emit_name", ""),
+                "data": f"{iso[8:10]}/{iso[5:7]}/{iso[:4]}", "mes": mes,
+                "valor": float(_num(d.get("vl_doc"))), "trazido": trazida})
+            if trazida:
+                d["_entrada"] = _data(resultado.data_entrada)
+                destino.append(d)
+                trazidas += 1
+            else:
+                fora[mes] = fora.get(mes, 0) + 1
+                resultado.ignorados.append((nome, (
+                    f"{tipo} {d.get('num')} de {iso[8:10]}/{rotulo_mes(mes)}: fora da "
+                    f"competência gerada ({rotulo_mes(alvo)}) — pode entrar na 1ª "
+                    "quinzena pela opção da tela")))
+
+    if trazidas:
+        d_e = resultado.data_entrada
+        resultado.presuncoes.append(Presuncao(
+            "C100 · DT_E_S / D100 · DT_A_P (meses anteriores)",
+            f"{d_e[8:10]}/{d_e[5:7]}/{d_e[:4]}",
+            f"a pedido: documento de mês anterior escriturado em {rotulo_mes(alvo)} "
+            "com entrada na 1ª quinzena. A data de emissão (DT_DOC) continua a "
+            "do XML", quantidade=trazidas))
+    if fora:
+        resultado.avisos.append(
+            f"Gerado {rotulo_mes(alvo)}. Ficaram de fora "
+            + ", ".join(f"{n} documento{'s' if n != 1 else ''} de {rotulo_mes(m)}"
+                        for m, n in sorted(fora.items()))
+            + " — estão na lista do que o pacote tinha.")
+
+    ano, mes = alvo.split("-")
     ultimo = calendar.monthrange(int(ano), int(mes))[1]
-    resultado.competencia = meses[0]
-    return f"01{mes}{ano}", f"{ultimo:02d}{mes}{ano}"
+    resultado.competencia = alvo
+    return f"01{mes}{ano}", f"{ultimo:02d}{mes}{ano}", ficam_n, ficam_c
 
 
 # ------------------------------------------------------------------ Bloco 0
@@ -327,6 +484,13 @@ def _bloco_0(cadastro: Cadastro, nfes: list, ctes: list, dt_ini: str,
     ie = cadastro.ie or primeiro.get("dest_ie", "")
     uf = cadastro.uf or primeiro.get("dest_uf", "")
     cod_mun = cadastro.cod_mun or primeiro.get("dest_cod_mun", "")
+    # Endereço da empresa para o 0005: numa nota de ENTRADA a empresa é a
+    # DESTINATÁRIA, então o logradouro que o PVA exige está no enderDest do XML.
+    dest_lgr = primeiro.get("dest_lgr", "")
+    dest_num = primeiro.get("dest_num", "")
+    dest_compl = primeiro.get("dest_compl", "")
+    dest_bairro = primeiro.get("dest_bairro", "")
+    dest_cep = _so_digitos(primeiro.get("dest_cep", ""))
     if not cadastro.ie and ie:
         resultado.presuncoes.append(Presuncao(
             "0000 · IE", ie, "lida do destinatário no XML, porque o cadastro da "
@@ -355,16 +519,28 @@ def _bloco_0(cadastro: Cadastro, nfes: list, ctes: list, dt_ini: str,
                             9: uf, 10: ie, 11: cod_mun, 14: cadastro.perfil,
                             15: cadastro.ind_ativ}, TAMANHOS["0000"]),
         nova_linha("0001", {2: IND_MOV_COM_DADOS}, 2),
-        # 0005 e 0100 são obrigatórios no leiaute e não vêm de nota nenhuma.
-        # Saem vazios de propósito: o Domínio preenche do cadastro dele, e um
-        # endereço inventado seria pior que um campo em branco.
-        nova_linha("0005", {2: nome}, TAMANHOS["0005"]),
+        # 0005: endereço da empresa. O PVA exige logradouro, número, bairro e
+        # CEP (obrigatórios no leiaute). Não são inventados: numa entrada a
+        # empresa é a destinatária, então vêm do enderDest do próprio XML. O 0100
+        # (contabilista) continua em branco — esse SIM não existe em nota
+        # nenhuma, e o Domínio preenche do cadastro dele no import.
+        nova_linha("0005", {2: nome, 3: dest_cep, 4: dest_lgr, 5: dest_num,
+                            6: dest_compl, 7: dest_bairro}, TAMANHOS["0005"]),
         nova_linha("0100", {}, TAMANHOS["0100"]),
     ]
+    if dest_lgr:
+        resultado.presuncoes.append(Presuncao(
+            "0005 · Endereço da empresa", dest_lgr,
+            "logradouro, número, bairro e CEP lidos do destinatário no XML — "
+            "confira no Domínio"))
+    else:
+        resultado.presuncoes.append(Presuncao(
+            "0005 · Endereço da empresa", "(em branco)",
+            "não havia NF-e no pacote para ler o endereço da empresa — "
+            "complete no Domínio"))
     resultado.presuncoes.append(Presuncao(
-        "0005 / 0100", "(em branco)",
-        "endereço da empresa e dados do contabilista não estão no XML — "
-        "complete no Domínio"))
+        "0100 · Contabilista", "(em branco)",
+        "dados do contabilista não estão no XML — complete no Domínio"))
 
     # --- participantes (0150), um por emitente e por transportador. O COD_MUN
     # é obrigatório para participante do Brasil (COD_PAIS 1058), e o CT-e traz
@@ -378,6 +554,8 @@ def _bloco_0(cadastro: Cadastro, nfes: list, ctes: list, dt_ini: str,
                 5: cod if len(cod) == 14 else "",
                 6: cod if len(cod) == 11 else "",
                 7: nota.get("emit_ie", ""), 8: nota.get("emit_cod_mun", ""),
+                10: nota.get("emit_lgr", ""), 11: nota.get("emit_num", ""),
+                12: nota.get("emit_compl", ""), 13: nota.get("emit_bairro", ""),
             }, TAMANHOS["0150"])
     for cte in ctes:
         cod = _so_digitos(cte.get("emit_id"))
@@ -387,6 +565,8 @@ def _bloco_0(cadastro: Cadastro, nfes: list, ctes: list, dt_ini: str,
                 5: cod if len(cod) == 14 else "",
                 6: cod if len(cod) == 11 else "",
                 7: cte.get("emit_ie", ""), 8: cte.get("emit_cod_mun", ""),
+                10: cte.get("emit_lgr", ""), 11: cte.get("emit_num", ""),
+                12: cte.get("emit_compl", ""), 13: cte.get("emit_bairro", ""),
             }, TAMANHOS["0150"])
     linhas.extend(participantes.values())
 
@@ -495,9 +675,9 @@ def _bloco_c(nfes: list, indice_item: dict, regras_cfop: dict,
         for item in nota.get("items", []):
             cod_xml = (item.get("cod_item") or "").strip()
             cod = indice_item.get((forn, cod_xml), cod_xml)
-            chave_regra = (forn, (item.get("cfop") or "").strip(), cod_xml)
-            cfop, da_regra = cfop_de_entrada(item.get("cfop"),
-                                             regras_cfop.get(chave_regra, ""))
+            cfop, da_regra = cfop_de_entrada(
+                item.get("cfop"),
+                regras_cfop.get(chave_item(forn, item.get("cfop"), cod_xml), ""))
             if not da_regra:
                 presumidos += 1
 
@@ -536,14 +716,16 @@ def _bloco_c(nfes: list, indice_item: dict, regras_cfop: dict,
                 25: CST_PIS_COFINS_OUTRAS, 31: CST_PIS_COFINS_OUTRAS,
             }, TAMANHOS["C170"]))
 
-        if not _data(nota.get("dh_saida")):
+        if not _data(nota.get("dh_saida")) and not nota.get("_entrada"):
             contagem["dt_e_s_emissao"] += 1
 
         c100 = nova_linha("C100", {
             2: "0", 3: "1", 4: forn, 5: nota.get("modelo", "55"), 6: "00",
             7: nota.get("serie", ""), 8: nota.get("num", ""),
             9: nota.get("chave", ""), 10: _data(nota.get("dh_emi")),
-            11: _data(nota.get("dh_saida")) or _data(nota.get("dh_emi")),
+            # `_entrada`: nota de mês anterior trazida para a 1ª quinzena.
+            11: (nota.get("_entrada") or _data(nota.get("dh_saida"))
+                 or _data(nota.get("dh_emi"))),
             12: _moeda(nota.get("vl_doc")), 13: ind_pag,
             14: _moeda(nota.get("vl_desc_total")),
             16: _moeda(_num(nota.get("vl_merc")) + migrado),
@@ -620,7 +802,7 @@ def _bloco_c(nfes: list, indice_item: dict, regras_cfop: dict,
 
 # ------------------------------------------------------------------ Bloco D
 
-def _bloco_d(ctes: list, resultado: Resultado) -> list:
+def _bloco_d(ctes: list, regras_cte: dict, resultado: Resultado) -> list:
     if not ctes:
         # Mês sem frete ainda tem Bloco D: o leiaute exige todo bloco, e o
         # arquivo saía sem D001/D990 quando o pacote não trazia CT-e.
@@ -629,9 +811,18 @@ def _bloco_d(ctes: list, resultado: Resultado) -> list:
 
     linhas = [nova_linha("D001", {2: IND_MOV_COM_DADOS}, 2)]
     sem_cst = 0
+    presumidos = 0
     for cte in ctes:
         forn = _so_digitos(cte.get("emit_id"))
-        cfop, _ = cfop_de_entrada(cte.get("cfop"))
+        # Até 09/10/2026 o CFOP do frete era deduzido aqui SEM regra e sem
+        # entrar nas presunções: o D190 saía com a conversão do 1º dígito em
+        # silêncio. Agora vem da regra do gerador (CFOP do CT-e + UF do
+        # transportador), e a dedução, quando acontece, aparece.
+        cfop, da_regra = cfop_de_entrada(
+            cte.get("cfop"),
+            regras_cte.get(chave_frete(cte.get("cfop"), cte.get("emit_uf")), ""))
+        if not da_regra:
+            presumidos += 1
         vl_doc = _num(cte.get("vl_doc"))
         bc = _num(cte.get("vl_bc"))
         icms = _num(cte.get("vl_icms"))
@@ -655,7 +846,7 @@ def _bloco_d(ctes: list, resultado: Resultado) -> list:
             2: "0", 3: "1", 4: forn, 5: "57", 6: "00",
             7: cte.get("serie", ""), 9: cte.get("num", ""),
             10: cte.get("chave", ""), 11: _data(cte.get("data")),
-            12: _data(cte.get("data")),
+            12: cte.get("_entrada") or _data(cte.get("data")),
             13: (cte.get("tp_cte") or "0").strip() or "0",
             15: _moeda(vl_doc), 16: _moeda(0), 17: ind_frt,
             18: _moeda(vl_doc), 19: _moeda(bc), 20: _moeda(icms),
@@ -677,6 +868,12 @@ def _bloco_d(ctes: list, resultado: Resultado) -> list:
     resultado.presuncoes.append(Presuncao(
         "D100 · DT_A_P", "data de emissão do CT-e",
         "a data de aquisição do serviço não está no XML", quantidade=len(ctes)))
+    if presumidos:
+        resultado.presuncoes.append(Presuncao(
+            "D190 · CFOP", "conversão do primeiro dígito (5→1, 6→2, 7→3)",
+            "não havia regra de CFOP de frete aprovada para estes CT-e; "
+            "confira no Domínio antes de fechar a escrituração",
+            quantidade=presumidos))
     if sem_cst:
         resultado.presuncoes.append(Presuncao(
             "D190 · CST", "deduzido do valor do ICMS do CT-e",
@@ -697,6 +894,18 @@ def _blocos_vazios() -> list:
         linhas.append(nova_linha(f"{bloco}001", {2: IND_MOV_SEM_DADOS}, 2))
         linhas.append(nova_linha(f"{bloco}990", {2: "2"}, 2))
     return linhas
+
+
+def _bloco_b() -> list:
+    """Bloco B (ISS), vazio, logo depois do Bloco 0.
+
+    O B só tem conteúdo para contribuinte do DF, mas o leiaute o exige em
+    TODO arquivo, entre o 0 e o C. Sem ele o PVA reprovou o primeiro arquivo
+    gerado (25/09/2026): "Registro encontrado é diferente do registro
+    esperado" — esperava B001 e B990 e encontrou o C001.
+    """
+    return [nova_linha("B001", {2: IND_MOV_SEM_DADOS}, 2),
+            nova_linha("B990", {2: "2"}, 2)]
 
 
 # ------------------------------------------------------------------ fachada
@@ -736,9 +945,45 @@ def _fechar_documentos(doc: Documento, resultado: Resultado) -> None:
             "documento fechar", quantidade=documentos_com_residuo))
 
 
+def _sem_regra(nfes: list, ctes: list, regras_cfop: dict,
+               regras_cte: dict) -> list[str]:
+    """As combinações destes documentos sem CFOP de entrada aprovado, legíveis."""
+    faltam: dict = {}
+    for nota in nfes:
+        forn = _so_digitos(nota.get("emit_id"))
+        for item in nota.get("items", []):
+            chave = chave_item(forn, item.get("cfop"), item.get("cod_item"))
+            if not cfop_de_entrada_valido(regras_cfop.get(chave, "")):
+                faltam.setdefault(("NF-e",) + chave, (
+                    f"NF-e do fornecedor {chave[0]}, CFOP {chave[1] or '(vazio)'}, "
+                    f"produto {chave[2] or '(sem código)'}"))
+    for cte in ctes:
+        chave = chave_frete(cte.get("cfop"), cte.get("emit_uf"))
+        if not cfop_de_entrada_valido(regras_cte.get(chave, "")):
+            faltam.setdefault(("CT-e",) + chave, (
+                f"CT-e com CFOP {chave[0] or '(vazio)'} de transportador "
+                f"{chave[1] or '(sem UF)'}"))
+    return list(faltam.values())
+
+
 def gerar(caminhos_xml: list, cadastro: Cadastro,
-          regras_cfop: dict | None = None) -> Resultado:
-    """Lê os XMLs e devolve o SPED montado, com tudo que foi presumido."""
+          regras_cfop: dict | None = None, competencia: str = "",
+          trazer=(), data_entrada: str = "", regras_cte: dict | None = None,
+          exigir_regra: bool = False) -> Resultado:
+    """Lê os XMLs e devolve o SPED montado, com tudo que foi presumido.
+
+    `competencia` ("AAAA-MM") escolhe o mês; em branco, vale o mais recente
+    do pacote. `trazer` são os documentos de meses anteriores (por
+    `id_documento`) que entram neste arquivo com entrada em `data_entrada`
+    ("AAAA-MM-DD", 1ª quinzena; em branco, dia 01).
+
+    `regras_cfop` ({chave_item: CFOP}) e `regras_cte` ({chave_frete: CFOP})
+    são as regras APROVADAS do gerador. Com `exigir_regra`, item ou frete
+    deste arquivo sem regra impede a geração inteira: nada sai, e `sem_regra`
+    diz o que falta. É o modo das rotas desde 09/10/2026 — a tela trava o
+    botão, e isto garante que nenhuma outra porta escriture CFOP que ninguém
+    aprovou.
+    """
     resultado = Resultado()
     if not _so_digitos(cadastro.cnpj):
         resultado.avisos.append(
@@ -752,16 +997,36 @@ def gerar(caminhos_xml: list, cadastro: Cadastro,
             "Nenhum documento de entrada desta empresa no pacote: nada a gerar.")
         return resultado
 
-    dt_ini, dt_fin = _competencia(nfes, ctes, resultado)
+    competencia = (competencia or "").strip()
+    if competencia and not _MES.match(competencia):
+        resultado.avisos.append(
+            f"Competência \"{competencia}\" inválida — use o formato AAAA-MM.")
+        return resultado
+    dt_ini, dt_fin, nfes, ctes = _competencia(nfes, ctes, resultado, competencia,
+                                              trazer, data_entrada)
     if not dt_ini:
         return resultado
 
+    regras_cfop = regras_cfop or {}
+    regras_cte = regras_cte or {}
+    if exigir_regra:
+        # Depois do recorte da competência: o que trava é o que vai NESTE
+        # arquivo, inclusive as notas trazidas de mês anterior.
+        resultado.sem_regra = _sem_regra(nfes, ctes, regras_cfop, regras_cte)
+        if resultado.sem_regra:
+            n = len(resultado.sem_regra)
+            resultado.avisos.append(
+                f"{n} combinaç{'ões' if n != 1 else 'ão'} sem CFOP de entrada "
+                "aprovado — nada foi gerado. Mapeie e aprove antes de gerar: "
+                + "; ".join(resultado.sem_regra[:5]) + ("…" if n > 5 else "."))
+            return resultado
+
     linhas_0, indice_item = _bloco_0(cadastro, nfes, ctes, dt_ini, dt_fin,
                                      resultado)
-    linhas_c = _bloco_c(nfes, indice_item, regras_cfop or {}, resultado)
-    linhas_d = _bloco_d(ctes, resultado)
+    linhas_c = _bloco_c(nfes, indice_item, regras_cfop, resultado)
+    linhas_d = _bloco_d(ctes, regras_cte, resultado)
 
-    doc = Documento(registros=linhas_0 + linhas_c + linhas_d + _blocos_vazios(),
+    doc = Documento(registros=linhas_0 + _bloco_b() + linhas_c + linhas_d + _blocos_vazios(),
                     caminho="", fim_padrao="\r\n")
 
     # Os analíticos, os totais e os contadores saem do motor de reescrita:
@@ -780,12 +1045,95 @@ def gerar(caminhos_xml: list, cadastro: Cadastro,
     return resultado
 
 
-def gerar_de_pasta(pasta: str, cadastro: Cadastro,
-                   regras_cfop: dict | None = None) -> Resultado:
-    """Mesma coisa, varrendo uma pasta de XMLs (o ZIP já extraído)."""
+def _xmls_da_pasta(pasta: str) -> list:
+    """Todos os .xml de uma pasta (o ZIP já extraído), recursivo."""
     caminhos = []
     for raiz, _dirs, arquivos in os.walk(pasta):
         for nome in arquivos:
             if nome.lower().endswith(".xml"):
                 caminhos.append(os.path.join(raiz, nome))
-    return gerar(caminhos, cadastro, regras_cfop)
+    return caminhos
+
+
+def gerar_de_pasta(pasta: str, cadastro: Cadastro,
+                   regras_cfop: dict | None = None,
+                   competencia: str = "", trazer=(), data_entrada: str = "",
+                   regras_cte: dict | None = None,
+                   exigir_regra: bool = False) -> Resultado:
+    """Mesma coisa, varrendo uma pasta de XMLs (o ZIP já extraído)."""
+    return gerar(_xmls_da_pasta(pasta), cadastro, regras_cfop,
+                 competencia, trazer, data_entrada, regras_cte, exigir_regra)
+
+
+def levantar_combinacoes(caminhos_xml: list, cadastro: Cadastro) -> dict:
+    """As combinações que precisam de CFOP de entrada, para a tela de
+    mapeamento que roda ANTES de gerar o arquivo.
+
+    - "nfe": uma linha por (fornecedor × CFOP do fornecedor × cProd) dos itens
+      de entrada — a chave do `_bloco_c`;
+    - "cte": uma linha por (CFOP do CT-e × UF do transportador) dos fretes em
+      que a empresa é a tomadora — a chave do `_bloco_d`;
+    - "ignorados": o que o pacote tinha e não é entrada desta empresa.
+
+    Cada linha leva a `chave` em texto ("a|b|c", o cProd por último porque é o
+    único campo que pode ter "|") e o `cfop_sugerido`: a conversão do 1º
+    dígito, que serve para pré-preencher a tela e NUNCA vai sozinha para o
+    arquivo. Varre o pacote inteiro (todos os meses): a regra não é mensal, e
+    trazer uma nota de mês anterior não pode esbarrar em combinação que
+    ninguém viu. Numa leitura só, porque é o mesmo pacote de centenas de XMLs.
+    """
+    descartavel = Resultado()
+    nfes, ctes = _ler_xmls(list(caminhos_xml), cadastro.cnpj, descartavel)
+
+    itens: dict = {}
+    for nota in nfes:
+        forn = _so_digitos(nota.get("emit_id"))
+        nome = (nota.get("emit_name") or "").strip()
+        for item in nota.get("items", []):
+            chave = chave_item(forn, item.get("cfop"), item.get("cod_item"))
+            linha = itens.get(chave)
+            if linha is not None:
+                linha["qtd_itens"] += 1
+                continue
+            itens[chave] = {
+                "chave": "|".join(chave),
+                "fornecedor_cnpj": chave[0],
+                "fornecedor_nome": nome,
+                "cfop_origem": chave[1],
+                "produto_cod": chave[2],
+                "produto_desc": (item.get("descr") or "").strip(),
+                "cfop_sugerido": cfop_de_entrada(chave[1])[0],
+                "qtd_itens": 1,
+            }
+
+    fretes: dict = {}
+    for cte in ctes:
+        chave = chave_frete(cte.get("cfop"), cte.get("emit_uf"))
+        linha = fretes.get(chave)
+        if linha is None:
+            linha = fretes[chave] = {
+                "chave": "|".join(chave),
+                "cfop_origem": chave[0],
+                "uf": chave[1],
+                "cfop_sugerido": cfop_de_entrada(chave[0])[0],
+                "qtd_ctes": 0,
+                "valor": 0.0,
+                "transportadoras": [],
+            }
+        linha["qtd_ctes"] += 1
+        linha["valor"] = round(linha["valor"] + float(_num(cte.get("vl_doc"))), 2)
+        nome = (cte.get("emit_name") or "").strip()
+        if nome and nome not in linha["transportadoras"]:
+            linha["transportadoras"].append(nome)
+
+    return {
+        "nfe": sorted(itens.values(), key=lambda l: (
+            l["fornecedor_nome"], l["cfop_origem"], l["produto_cod"])),
+        "cte": sorted(fretes.values(), key=lambda l: (l["cfop_origem"], l["uf"])),
+        "ignorados": descartavel.ignorados,
+    }
+
+
+def levantar_combinacoes_da_pasta(pasta: str, cadastro: Cadastro) -> dict:
+    """`levantar_combinacoes` varrendo uma pasta (o ZIP já extraído)."""
+    return levantar_combinacoes(_xmls_da_pasta(pasta), cadastro)

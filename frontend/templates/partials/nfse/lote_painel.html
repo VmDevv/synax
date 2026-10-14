@@ -1,0 +1,141 @@
+{# Andamento do lote de NFS-e. Enquanto o lote roda, o painel pede a si mesmo
+   de novo a cada 2 s (o lote vive na memória do servidor, então a consulta
+   não toca o banco). Quando termina e alguém estava acompanhando, recarrega a
+   tabela de notas uma vez — as notas novas aparecem sem F5. #}
+{% set rodando = lote and lote.rodando %}
+<div id="nfse-lote"
+     {% if rodando or lote_alheio %}hx-get="/nfse/lote?acompanhando=1" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}
+     x-data="{ fechado: false }" x-show="!fechado">
+
+    {% if aviso %}
+    <div class="mb-3 px-4 py-2.5 rounded-lg border border-amber-200 bg-amber-50 text-[13px] text-amber-900">
+        <i class="fa-solid fa-triangle-exclamation mr-1"></i> {{ aviso }}
+    </div>
+    {% endif %}
+
+    {% if lote_alheio %}
+    <div class="mb-3 px-4 py-2.5 rounded-lg border border-sky-200 bg-sky-50 text-[13px] text-sky-900">
+        <span class="loading loading-spinner loading-xs mr-1 align-middle"></span>
+        Há um lote de NFS-e em andamento, iniciado por {{ lote_alheio.dono_nome or "outra pessoa" }}
+        às {{ lote_alheio.inicio | hora_br('%H:%M') }}. A busca em lote fica desligada até ele terminar.
+    </div>
+    {% endif %}
+
+    {% if lote %}
+    {% set c = contagem %}
+    <div class="syn-card mb-3 overflow-hidden">
+        <div class="px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-200"
+             style="background: var(--syn-tint-05);">
+            <i class="fa-solid fa-cloud-arrow-down" style="color: var(--syn-700);"></i>
+            <span class="font-bold text-[14px]" style="color: var(--syn-900);">Lote NFS-e</span>
+
+            {% if rodando %}
+            <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-sky-100 text-sky-800">
+                <span class="loading loading-spinner loading-xs"></span>
+                {% if lote.parar %}Parando…{% else %}Em andamento{% endif %} · {{ c.feitas }} de {{ c.total }}
+            </span>
+            {% elif lote.status == "concluido" %}
+            <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold
+                         {{ 'bg-red-100 text-red-700' if c.falhas else ('bg-amber-100 text-amber-800' if (c.adiadas or c.continua) else 'bg-emerald-100 text-emerald-700') }}">
+                Finalizado{% if c.falhas %} com falhas{% elif c.adiadas or c.continua %} com pendências{% endif %}
+            </span>
+            {% elif lote.status == "parado" %}
+            <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800">Parado</span>
+            {% else %}
+            <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-100 text-red-700">Interrompido por erro</span>
+            {% endif %}
+
+            <span class="text-[12px] text-slate-500">
+                iniciado por {{ lote.dono_nome or "—" }} às {{ lote.inicio | hora_br('%H:%M') }}{% if lote.fim %}, terminou às {{ lote.fim | hora_br('%H:%M') }}{% endif %}
+                · {{ c.documentos }} arquivo(s) gravado(s)
+            </span>
+
+            <div class="ml-auto flex items-center gap-2">
+                {% if rodando and not lote.parar %}
+                <button type="button" hx-post="/nfse/lote/parar" hx-target="#nfse-lote" hx-swap="outerHTML"
+                        hx-confirm="Parar o lote? A empresa em andamento para na próxima página do ADN; o que já veio fica gravado."
+                        class="px-3 py-1 text-[12px] font-semibold rounded-md border border-red-200 text-red-700 bg-white hover:bg-red-50 transition">
+                    <i class="fa-solid fa-stop text-[10px] mr-1"></i> Parar
+                </button>
+                {% endif %}
+                {% if not rodando and lote.relatorio %}
+                {# Download: hx-boost="false", senão o htmx busca a planilha por
+                   AJAX e a joga na página em vez de salvar (CLAUDE.md). #}
+                <a href="/nfse/lote/relatorio" hx-boost="false" download
+                   title="{{ 'Cópia salva em ' ~ relatorio_caminho if relatorio_caminho else 'A cópia na pasta da rede não foi salva' }}"
+                   class="inline-flex items-center gap-1.5 px-3 py-1 text-[12px] font-semibold rounded-md text-white shadow-sm transition"
+                   style="background: var(--syn-700);">
+                    <i class="fa-solid fa-file-excel text-[11px]"></i> Baixar relatório
+                </a>
+                {% endif %}
+                {% if not rodando %}
+                <button type="button" class="w-7 h-7 grid place-items-center rounded-md text-slate-400 hover:bg-slate-200 transition"
+                        title="Esconder (o resultado volta ao recarregar a página)" @click="fechado = true">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="grid lg:grid-cols-5">
+            {# Log: uma linha com horário para cada passo. #}
+            <div class="lg:col-span-2 border-b lg:border-b-0 lg:border-r border-slate-200">
+                <div class="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 border-b border-slate-100">Log</div>
+                <div id="nfse-lote-log" class="max-h-[260px] overflow-y-auto px-3 py-2 font-mono text-[11px] leading-relaxed space-y-0.5 bg-slate-50/60">
+                    {% for quando, texto, tom in lote.log %}
+                    <div class="{{ {'ok': 'text-emerald-700', 'aviso': 'text-amber-700', 'erro': 'text-red-700'}.get(tom, 'text-slate-600') }}">
+                        <span class="text-slate-400">{{ quando | hora_br('%H:%M:%S') }}</span> {{ texto }}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            {# Tabela: uma linha por empresa. #}
+            <div class="lg:col-span-3 max-h-[290px] overflow-auto">
+                <table class="w-full text-[12px]">
+                    <thead class="sticky top-0 bg-white shadow-[0_1px_0_#e2e8f0]">
+                        <tr class="text-left text-[11px] uppercase tracking-wide text-slate-500">
+                            <th class="px-3 py-1.5 font-semibold">Empresa</th>
+                            <th class="px-3 py-1.5 font-semibold">Status</th>
+                            <th class="px-3 py-1.5 font-semibold text-right">Qtd. notas</th>
+                            <th class="px-3 py-1.5 font-semibold">Destino</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        {% for ln in lote.linhas %}
+                        <tr class="align-top">
+                            <td class="px-3 py-1.5 font-semibold text-slate-700 max-w-[220px]">
+                                <div class="truncate" title="{{ ln.empresa }}">{{ ln.empresa }}</div>
+                                <div class="font-mono font-normal text-[10px] text-slate-400">{{ ln.cnpj }}</div>
+                            </td>
+                            <td class="px-3 py-1.5 whitespace-nowrap">
+                                <span class="px-1.5 py-0.5 rounded text-[10px] font-bold
+                                    {{ {'ok': 'bg-emerald-100 text-emerald-700', 'aviso': 'bg-amber-100 text-amber-800', 'erro': 'bg-red-100 text-red-700', 'info': 'bg-sky-100 text-sky-800'}.get(ln.tom, 'bg-slate-100 text-slate-500') }}">
+                                    {% if ln.status == "BAIXANDO" %}<span class="loading loading-spinner loading-xs align-middle mr-0.5" style="width:9px;height:9px"></span>{% endif %}{{ ln.status }}
+                                </span>
+                            </td>
+                            <td class="px-3 py-1.5 text-right tabular-nums">{{ ln.qtd }}</td>
+                            <td class="px-3 py-1.5 text-[11px] {{ 'text-red-700' if ln.tom == 'erro' else 'text-slate-500' }}">
+                                <div class="{{ 'font-mono break-all' if ln.e_pasta else 'break-words' }}">{{ ln.destino or "—" }}</div>
+                                {% if ln.detalhe %}<div class="text-slate-400">{{ ln.detalhe }}</div>{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {% if not rodando and acompanhando %}
+    {# O lote acabou enquanto alguém olhava: a tabela de notas ganha as novas. #}
+    <div hx-get="/nfse/tabela" hx-target="#nfse-tabela" hx-swap="outerHTML" hx-trigger="load"></div>
+    {% endif %}
+    <script>
+        (function () {
+            var log = document.getElementById('nfse-lote-log');
+            if (log) log.scrollTop = log.scrollHeight;
+        })();
+    </script>
+    {% endif %}
+</div>

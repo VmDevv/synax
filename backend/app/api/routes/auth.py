@@ -209,15 +209,21 @@ def reset_password_action(
 
     try:
         admin = get_supabase_admin_client()
-        admin.auth.admin.update_user_by_id(user_id, {"password": password})
-        # Trocar a senha tem de derrubar as sessões existentes: senão o token que
-        # eventualmente vazou (e que esta rota aceita como prova de identidade)
-        # continua valendo depois da recuperação.
+        # Revogar as sessões ANTES de trocar a senha, não depois. A troca de senha
+        # invalida a própria sessão do token de recuperação; com o sign_out vindo
+        # em seguida, ele batia numa sessão já morta e o Supabase devolvia 403
+        # "Session from session_id claim in JWT does not exist" — a revogação
+        # falhava exatamente quando mais importa. Feito primeiro, com a sessão
+        # ainda viva, o scope "global" derruba TODAS as sessões do usuário
+        # (inclusive um token que tenha vazado e que esta rota aceita como prova
+        # de identidade). O update_user_by_id é service-role por user_id e não
+        # depende da sessão, então roda normalmente depois do sign_out.
         try:
             admin.auth.admin.sign_out(access_token, scope="global")
         except Exception:
-            logger.warning("Senha trocada, mas as sessões de %s não foram revogadas",
+            logger.warning("Não foi possível revogar as sessões de %s na troca de senha",
                            user_id, exc_info=True)
+        admin.auth.admin.update_user_by_id(user_id, {"password": password})
     except Exception:
         # Era um print() com o texto do erro do Supabase: saía cru no stdout,
         # fora do logging, podendo carregar detalhe do provedor junto do id do

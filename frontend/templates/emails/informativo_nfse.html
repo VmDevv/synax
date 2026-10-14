@@ -1,0 +1,138 @@
+{# Informativo da coleta automática de NFS-e. Montado por
+   services/nfse/informativo.py.
+
+   E-mail não é página: Outlook e Gmail ignoram <style>, classe e flexbox. Por
+   isso tudo aqui é tabela e estilo inline, largura fixa de 640px e fonte do
+   sistema. As três seções são fixas e vêm SEMPRE, mesmo vazias — "nenhum
+   certificado vencendo" também é informação. #}
+{% set azul = "#0377AA" %}{% set azul_escuro = "#026092" %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Coleta de NFS-e</title></head>
+<body style="margin:0;padding:0;background:#eef5f9;font-family:Segoe UI,Arial,sans-serif;color:#0f172a;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef5f9;padding:24px 0;">
+<tr><td align="center">
+<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="width:640px;max-width:100%;background:#ffffff;border:1px solid #d6e6ee;border-radius:12px;overflow:hidden;">
+
+  <tr><td style="background:{{ azul_escuro }};padding:20px 28px;">
+    <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#9fdbee;font-weight:bold;">Synax · Coleta de NFS-e</div>
+    <div style="font-size:20px;color:#ffffff;font-weight:bold;margin-top:4px;">{{ nome }}</div>
+    <div style="font-size:13px;color:#cfe9f4;margin-top:2px;">{{ inicio_local.strftime("%d/%m/%Y às %H:%M") }} · {{ "disparada à mão" if e.gatilho == "manual" else "pela agenda" }}</div>
+  </td></tr>
+
+  <tr><td style="padding:20px 28px 8px;">
+    {% set cor_status = "#047857" if e.status == "ok" else ("#b91c1c" if e.status in ("falhou", "vazia") else "#b45309") %}
+    <div style="font-size:14px;font-weight:bold;color:{{ cor_status }};">{{ rotulo_status }}</div>
+    {% if e.mensagem %}<div style="font-size:13px;color:#475569;margin-top:4px;">{{ e.mensagem }}</div>{% endif %}
+  </td></tr>
+
+  <tr><td style="padding:8px 28px 4px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+      {% for rotulo, valor, cor in [
+          ("Notas novas", e.notas_novas, azul),
+          ("Consultadas", e.empresas_ok ~ " de " ~ e.empresas_total, "#0f172a"),
+          ("Sem consulta", e.empresas_falha + e.empresas_adiadas, "#b91c1c" if (e.empresas_falha + e.empresas_adiadas) else "#94a3b8"),
+          ("Certificados", e.certificados_vencendo, "#b45309" if e.certificados_vencendo else "#94a3b8")] %}
+      <td width="25%" valign="top" style="padding:4px;">
+        <div style="border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;">
+          <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:bold;">{{ rotulo }}</div>
+          <div style="font-size:20px;font-weight:bold;color:{{ cor }};margin-top:2px;">{{ valor }}</div>
+        </div>
+      </td>
+      {% endfor %}
+    </tr></table>
+  </td></tr>
+
+  <!-- 1. Notas que chegaram -->
+  <tr><td style="padding:20px 28px 6px;">
+    <div style="font-size:15px;font-weight:bold;color:{{ azul_escuro }};border-bottom:2px solid {{ azul }};padding-bottom:6px;">1. Notas que chegaram</div>
+  </td></tr>
+  <tr><td style="padding:4px 28px 8px;">
+    {% if com_notas %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;border-collapse:collapse;">
+      <tr style="background:#f1f8fc;color:#475569;font-size:11px;text-transform:uppercase;">
+        <td style="padding:6px 8px;font-weight:bold;">Empresa</td>
+        <td style="padding:6px 8px;font-weight:bold;text-align:right;">Novas</td>
+        <td style="padding:6px 8px;font-weight:bold;text-align:right;">Valor</td>
+        <td style="padding:6px 8px;font-weight:bold;text-align:right;">Retenções</td>
+      </tr>
+      {% for x in com_notas %}
+      <tr style="border-bottom:1px solid #eef2f6;">
+        <td style="padding:7px 8px;"><b>{{ x.empresa }}</b><br><span style="color:#94a3b8;font-size:11px;">{{ x.cnpj }}{% if x.atualizados %} · {{ x.atualizados }} atualizada(s){% endif %}</span></td>
+        <td style="padding:7px 8px;text-align:right;font-weight:bold;">{{ x.novos }}</td>
+        <td style="padding:7px 8px;text-align:right;white-space:nowrap;">R$ {{ x.valor | moeda_br }}</td>
+        <td style="padding:7px 8px;text-align:right;white-space:nowrap;">R$ {{ x.retencoes | moeda_br }}</td>
+      </tr>
+      {% endfor %}
+      <tr>
+        <td style="padding:8px;font-weight:bold;">Total</td>
+        <td style="padding:8px;text-align:right;font-weight:bold;">{{ e.notas_novas }}</td>
+        <td style="padding:8px;text-align:right;font-weight:bold;white-space:nowrap;">R$ {{ total_valor | moeda_br }}</td>
+        <td style="padding:8px;text-align:right;font-weight:bold;white-space:nowrap;">R$ {{ total_retencoes | moeda_br }}</td>
+      </tr>
+    </table>
+    <div style="font-size:11px;color:#94a3b8;margin-top:4px;">Retenções = IR, PIS, COFINS, CSLL e INSS retidos nas notas.</div>
+    {% else %}
+    <div style="font-size:13px;color:#475569;background:#f8fafc;border-radius:8px;padding:10px 12px;">
+      Nenhuma nota nova nesta coleta{% if falhas %} — veja abaixo as empresas que não foram consultadas antes de concluir que não houve nota{% endif %}.
+    </div>
+    {% endif %}
+  </td></tr>
+
+  <!-- 2. O que não foi consultado -->
+  <tr><td style="padding:16px 28px 6px;">
+    <div style="font-size:15px;font-weight:bold;color:#b91c1c;border-bottom:2px solid #fca5a5;padding-bottom:6px;">2. O que não foi consultado</div>
+  </td></tr>
+  <tr><td style="padding:4px 28px 8px;">
+    {% if falhas %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;border-collapse:collapse;">
+      {% for x in falhas %}
+      <tr style="border-bottom:1px solid #eef2f6;">
+        <td style="padding:7px 8px;vertical-align:top;width:40%;"><b>{{ x.empresa }}</b><br><span style="color:#94a3b8;font-size:11px;">{{ x.cnpj }}</span></td>
+        <td style="padding:7px 8px;vertical-align:top;">
+          <span style="display:inline-block;font-size:11px;font-weight:bold;padding:1px 8px;border-radius:10px;{% if x.tipo_erro == 'adiada' %}background:#fef3c7;color:#92400e;{% else %}background:#fee2e2;color:#b91c1c;{% endif %}">{{ tipos.get(x.tipo_erro, "Falha") }}</span>
+          <div style="color:#475569;margin-top:3px;">{{ x.erro }}</div>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div style="font-size:13px;color:#047857;background:#ecfdf5;border-radius:8px;padding:10px 12px;">Todas as empresas foram consultadas.</div>
+    {% endif %}
+  </td></tr>
+
+  <!-- 3. Certificados -->
+  <tr><td style="padding:16px 28px 6px;">
+    <div style="font-size:15px;font-weight:bold;color:#b45309;border-bottom:2px solid #fcd34d;padding-bottom:6px;">3. Certificados vencendo em até 30 dias</div>
+  </td></tr>
+  <tr><td style="padding:4px 28px 8px;">
+    {% if certificados %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;border-collapse:collapse;">
+      {% for c in certificados %}{% set v = c.validade or "" %}
+      <tr style="border-bottom:1px solid #eef2f6;">
+        <td style="padding:7px 8px;"><b>{{ c.empresa }}</b><br><span style="color:#94a3b8;font-size:11px;">{{ c.cnpj }}</span></td>
+        <td style="padding:7px 8px;text-align:right;white-space:nowrap;">{{ v[8:10] }}/{{ v[5:7] }}/{{ v[:4] }}</td>
+        <td style="padding:7px 8px;text-align:right;white-space:nowrap;font-weight:bold;{% if c.vencido %}color:#b91c1c;{% else %}color:#b45309;{% endif %}">
+          {% if c.vencido %}vencido há {{ -c.dias }} dia{{ 's' if -c.dias != 1 }}{% elif c.dias == 0 %}vence hoje{% else %}vence em {{ c.dias }} dia{{ 's' if c.dias != 1 }}{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div style="font-size:13px;color:#475569;background:#f8fafc;border-radius:8px;padding:10px 12px;">Nenhum certificado das empresas desta coleta vence nos próximos 30 dias.</div>
+    {% endif %}
+  </td></tr>
+
+  <tr><td style="padding:16px 28px 24px;font-size:12px;color:#64748b;">
+    {% if sem_novidade %}{{ sem_novidade }} empresa{{ 's' if sem_novidade != 1 }} consultada{{ 's' if sem_novidade != 1 }} sem nota nova.<br>{% endif %}
+    {% if com_anexo %}A planilha completa segue em anexo.{% else %}A planilha não pôde ser gerada nesta coleta (veja o log do servidor).{% endif %}{% if relatorio %} Cópia na pasta das NFS-e: <span style="font-family:Consolas,monospace;">{{ relatorio }}</span>{% endif %}
+  </td></tr>
+
+  <tr><td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:12px 28px;font-size:11px;color:#94a3b8;">
+    Enviado automaticamente pelo Synax · Administração → Automações
+  </td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>

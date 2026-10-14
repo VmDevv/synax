@@ -31,7 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from .cascata import aplicar
+from .cascata import NOMES_C170_CONTRIBUICOES, aplicar, aplicar_contribuicoes
 from .documento import ler_texto
 from .patch import (Alteracao, CorrecaoDocumento, CorrecaoFrete,
                     CorrecaoItem, Patch, decimal_para_texto,
@@ -72,12 +72,17 @@ class EfeitosPrevistos:
     linhas: int = 0               # diferença no total de linhas do arquivo
     contadores: int = 0           # quantos registros de contagem mudam
     apuracao: int = 0             # campos do E110 reescritos
+    # Itens que perderam base e alíquota de PIS/COFINS junto com o crédito.
+    # Sem este contador a glosa do EFD Contribuições não apareceria em lugar
+    # nenhum da prévia: são alterações de cascata, e `_casa` as exclui de
+    # propósito — o que a pessoa marcou foi zerar o valor, não os outros.
+    pis_cofins_completados: int = 0
 
     @property
     def houve(self) -> bool:
         return bool(self.c190_criados or self.c190_removidos or self.cst_ajustados
                     or self.valor_migrado or self.linhas or self.contadores
-                    or self.apuracao)
+                    or self.apuracao or self.pis_cofins_completados)
 
 
 @dataclass
@@ -151,18 +156,31 @@ def _efeitos(alteracoes: list, linhas: int) -> EfeitosPrevistos:
                     efeitos.c190_removidos += 1
                 else:
                     efeitos.c190_criados += 1
-            elif a.campo in ("CST_ICMS", "CST_IPI"):
+            elif a.campo in ("CST_ICMS", "CST_IPI", "CST_PIS", "CST_COFINS"):
+                # Os de PIS/COFINS vêm ANTES do teste seguinte de propósito:
+                # "CST_PIS" também está em NOMES_C170_CONTRIBUICOES, e cair
+                # ali somaria uma troca de CST ao contador de base e
+                # alíquota — dois efeitos diferentes numa linha só.
                 efeitos.cst_ajustados += 1
+            elif a.campo in NOMES_C170_CONTRIBUICOES.values():
+                efeitos.pis_cofins_completados += 1
             elif a.campo == "VL_ITEM":
                 efeitos.valor_migrado += (texto_para_decimal(a.para)
                                           - texto_para_decimal(a.de))
     return efeitos
 
 
-def prever(texto_original: str, patch: Patch, origem: str = "") -> Previa:
-    """Roda o patch numa cópia descartável e conta o que aconteceria."""
+def prever(texto_original: str, patch: Patch, origem: str = "",
+           contribuicoes: bool = False) -> Previa:
+    """Roda o patch numa cópia descartável e conta o que aconteceria.
+
+    `contribuicoes` escolhe a cascata: a do EFD ICMS/IPI (C190, C100, Bloco E)
+    ou a do EFD Contribuições (PIS/COFINS no item e no documento). Não é um
+    detalhe de formatação — rodar a errada CRIA registros que o outro leiaute
+    não tem.
+    """
     copia = ler_texto(texto_original, caminho=origem)
-    resultado = aplicar(copia, patch)
+    resultado = (aplicar_contribuicoes if contribuicoes else aplicar)(copia, patch)
     # O que a LEITURA viu de errado (linha que não é registro, item sem
     # documento, BOM) vai junto com os avisos da cascata: quem decide na
     # prévia precisa saber que o arquivo já chegou torto.
@@ -261,6 +279,10 @@ def texto(previa: Previa) -> str:
         if e.apuracao:
             add(f"  · {e.apuracao} campo(s) do E110 reescrito(s) — a APURAÇÃO do "
                 "ICMS muda junto, porque a caixa da apuração está marcada")
+        if e.pis_cofins_completados:
+            add(f"  · {e.pis_cofins_completados} campo(s) de base e alíquota de "
+                "PIS/COFINS zerados junto com o crédito glosado — o Guia manda "
+                "não informar os três quando não há direito à apropriação")
 
     if previa.avisos:
         add("")

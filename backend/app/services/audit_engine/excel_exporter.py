@@ -167,7 +167,7 @@ def generate_excel_from_results(data: dict) -> io.BytesIO:
                 "icms_sn": "ICMS SN",
                 "ipi": "IPI",
                 "ipi_devolvido": "IPI Devolvido",
-                "st": "ST",
+                "st": "ICMS ST",
                 "fcp_st": "FCP ST",
                 "icms_mono": "ICMS Mono",
                 "cfop_xml": "CFOP XML",

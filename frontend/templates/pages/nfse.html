@@ -23,6 +23,31 @@
         </button>
     </div>
 
+    {# Andamento do lote de NFS-e (log + tabela por empresa). Vem vazio quando
+       não há lote; o próprio painel se atualiza enquanto o lote roda. #}
+    <div id="nfse-lote" hx-get="/nfse/lote" hx-trigger="load" hx-swap="outerHTML"></div>
+    <div id="nfse-lote-erro"></div>
+    <script>
+        // O HTMX não troca o alvo em resposta 4xx/5xx: sem isto, o limite de
+        // pedidos (429) ou a falta de permissão (403) do lote somem calados e
+        // "clicar não faz nada" — foi o que pareceu o Synax parar sozinho.
+        if (!window.__nfseLoteErro) {
+            window.__nfseLoteErro = true;
+            document.addEventListener('htmx:responseError', function (e) {
+                var cfg = e.detail && e.detail.requestConfig;
+                if (!cfg || !/\/nfse\/(consultar-lote|lote)/.test(cfg.path || '')) return;
+                var alvo = document.getElementById('nfse-lote-erro');
+                if (!alvo) return;
+                var msg = 'Não foi possível iniciar o lote (HTTP ' + e.detail.xhr.status + ').';
+                try { var d = JSON.parse(e.detail.xhr.responseText).detail; if (d) msg = d; } catch (_) {}
+                var caixa = document.createElement('div');
+                caixa.className = 'mb-3 px-4 py-2.5 rounded-lg border border-red-200 bg-red-50 text-[13px] text-red-800';
+                caixa.textContent = msg;
+                alvo.replaceChildren(caixa);
+            });
+        }
+    </script>
+
     {% include "partials/nfse/tabela.html" %}
 
     <!-- Drawer lateral injetado aqui -->

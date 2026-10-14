@@ -186,10 +186,18 @@ check("retencoes somadas", any(abs(x.total_retencoes - 7.09) < 0.01 for x in doc
 check("cancelada identificada", any(x.cancelada for x in docs))
 s.close()
 
-print("\n=== 3. Arquivo gravado por CNPJ ===")
-esperado = os.path.join(_TMP_STORAGE, "48135251000100", "2026-07")
-check("pasta CNPJ/ano-mes criada", os.path.isdir(esperado), f"esperado={esperado}")
+print("\n=== 3. Arquivo gravado na pasta da EMPRESA, por dia ===")
+# Desde 01/10/2026 a pasta e a da empresa (razao social + CNPJ), com uma
+# subpasta por dia de execucao — e nao mais a do CNPJ do TOMADOR por mes.
+from backend.app.services.nfse import storage as _storage
+esperado = os.path.join(_TMP_STORAGE, "Empresa A 48135251000100", _storage.dia_de_hoje())
+check("pasta EMPRESA CNPJ/data criada", os.path.isdir(esperado), f"esperado={esperado}")
 check("XML salvo em disco", len(os.listdir(esperado)) >= 1 if os.path.isdir(esperado) else False)
+check("nota ABRASF nomeada por prestador e numero, nao pelo nome enviado",
+      os.path.isdir(esperado) and "NFSe_03813799000123_298231.xml" in os.listdir(esperado),
+      os.listdir(esperado) if os.path.isdir(esperado) else None)
+check("nada gravado na pasta do tomador por mes",
+      not os.path.isdir(os.path.join(_TMP_STORAGE, "48135251000100")))
 
 print("\n=== 4. Reimportar nao duplica ===")
 r = as_("adm").post("/nfse/importar", data={"tenant_id": str(tA)},
@@ -302,7 +310,8 @@ XML_ADN2 = XML_NFSE.replace("<Numero>298231</Numero>", "<Numero>900002</Numero>"
 CHAMADAS = {"n": 0}
 FALHAR_NO_MEIO = {"on": False}
 
-def _fake_baixar(pfx, senha, cnpj, ultimo_nsu=0, max_paginas=40, limite_seg=None):
+def _fake_baixar(pfx, senha, cnpj, ultimo_nsu=0, max_paginas=40, limite_seg=None,
+                 estado=None):
     """Dublê do ADN: entrega 2 documentos e opcionalmente falha após o 1º."""
     CHAMADAS["n"] += 1
     if ultimo_nsu < 10:
@@ -438,8 +447,11 @@ cur = s.query(NfseCursor).filter_by(tenant_id=str(tA)).first()
 if cur: cur.ultimo_nsu = "0"
 s.commit(); s.close()
 
+from backend.app.services.nfse import lote as lote_nfse
 r = as_("adm").post("/nfse/consultar-lote", data={"tenant_ids": [str(tA)]})
 check("admin dispara o lote", r.status_code == 200, f"status={r.status_code}")
+check("o clique devolve o painel do lote na hora", 'id="nfse-lote"' in r.text)
+lote_nfse.esperar()
 s = SessionLocal()
 check("notas baixadas com o certificado guardado",
       s.query(NfseDocument).filter_by(origem="adn").count() >= 1)
@@ -449,8 +461,11 @@ r = as_("cliB").post("/nfse/consultar-lote", data={"tenant_ids": [str(tA)]})
 check("empresa alheia barrada no lote", r.status_code == 403, f"status={r.status_code}")
 r = as_(None).post("/nfse/consultar-lote", data={"tenant_ids": [str(tA)]})
 check("anonimo barrado no lote", r.status_code in (401, 403), f"status={r.status_code}")
+# Sem empresa: 200 com o motivo NA TELA. Um 400 o htmx descartaria calado.
 r = as_("adm").post("/nfse/consultar-lote", data={})
-check("sem empresa selecionada e rejeitado", r.status_code == 400, f"status={r.status_code}")
+check("sem empresa selecionada e recusado com aviso visivel",
+      r.status_code == 200 and "Selecione ao menos uma empresa" in r.text,
+      f"status={r.status_code}")
 
 r = as_("adm").get("/nfse/drawer")
 check("drawer mostra aba de empresas para admin", 'id="form-empresas"' in r.text)

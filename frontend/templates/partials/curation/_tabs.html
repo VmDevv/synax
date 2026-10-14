@@ -1,14 +1,26 @@
-{# Abas com contadores. Trocadas via OOB depois de cada ação inline. #}
+{# Abas com contadores. Trocadas via OOB depois de cada ação inline.
+   As duas do GERADOR de SPED vêm depois de um divisor: são regras de outra
+   ferramenta, em tabelas próprias — aprovar ali não muda nada na auditoria. #}
 <div id="curation-tabs" {% if oob %}hx-swap-oob="true"{% endif %} class="flex items-center gap-1 overflow-x-auto pb-px -mb-px">
-    {% set tabs = [
-        ('cfop', 'CFOP', 'fa-arrows-turn-to-dots'),
-        ('pis_cofins', 'PIS/COFINS', 'fa-percent'),
-        ('ipi', 'IPI', 'fa-industry'),
-        ('icms', 'ICMS', 'fa-receipt'),
-        ('cte', 'CT-e', 'fa-truck-fast'),
-        ('anticipation', 'Antecipação', 'fa-forward'),
-        ('item_match', 'Itens SPED×XML', 'fa-wand-magic-sparkles')
+    {% set grupos = [
+        [
+            ('cfop', 'CFOP', 'fa-arrows-turn-to-dots'),
+            ('pis_cofins', 'PIS/COFINS', 'fa-percent'),
+            ('ipi', 'IPI', 'fa-industry'),
+            ('icms', 'ICMS', 'fa-receipt'),
+            ('cte', 'CT-e', 'fa-truck-fast'),
+            ('anticipation', 'Antecipação', 'fa-forward'),
+            ('item_match', 'Itens SPED×XML', 'fa-wand-magic-sparkles')
+        ],
+        [
+            ('gerador_cfop', 'Gerador · NF-e', 'fa-file-import'),
+            ('gerador_cte', 'Gerador · CT-e', 'fa-truck')
+        ]
     ] %}
+    {% for tabs in grupos %}
+    {% if not loop.first %}
+    <span class="self-stretch w-px bg-slate-300 mx-1.5 my-1.5" title="Regras do gerador de SPED dos XMLs"></span>
+    {% endif %}
     {% for key, label, icon in tabs %}
     <a class="group flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-t-lg border-b-2 cursor-pointer whitespace-nowrap transition-colors
               {% if current_rule_type == key %}border-[#037fb5] text-[#026a9e] bg-[#9fdbee]/15{% else %}border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50{% endif %}"
@@ -22,5 +34,6 @@
             {{ counts[key] }}
         </span>
     </a>
+    {% endfor %}
     {% endfor %}
 </div>

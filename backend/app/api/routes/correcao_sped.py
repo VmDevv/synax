@@ -47,12 +47,14 @@ from ...domain.models.audit import SpedCorrectionRun
 from ...infrastructure.database.session import get_db
 from ...services.planilha_estilo import (AMBAR, AZUL,
                                          estilizar_planilha, montar_capa)
-from ...services.sped_rewriter import (aplicar, ler_texto,
-                                       linhas_para_planilha, montar_patch,
-                                       montar, nome_sugerido, para_json,
-                                       prever, propor)
+from ...services.sped_rewriter import (aplicar, aplicar_contribuicoes,
+                                       ler_texto, linhas_para_planilha,
+                                       montar_patch, montar, nome_sugerido,
+                                       para_json, prever, propor,
+                                       propor_contribuicoes)
 from ...services.sped_rewriter.documento import ENCODING
-from ...services.sped_rewriter.patch import OPCOES_DE_CORRECAO
+from ...services.sped_rewriter.patch import (LEIAUTE_CONTRIBUICOES,
+                                             opcoes_do_leiaute)
 from ...services.sped_rewriter.resumo_ia import resumir
 
 logger = logging.getLogger(__name__)
@@ -149,8 +151,18 @@ def _texto_do_sped(task_id: str) -> str:
         return f.read()
 
 
+def _leiaute_da_auditoria(dados: dict) -> str:
+    """Qual arquivo foi auditado. Auditoria antiga não tem a marca: é Fiscal.
+
+    Sai do `resumo` do próprio relatório, gravado pelo motor. É o que decide
+    QUAL cascata roda, e errar aqui reescreve imposto no registro errado.
+    """
+    resumo = dados.get("resumo") or {}
+    return str(resumo.get("leiaute") or "") or "fiscal"
+
+
 def _propostas(db_session: Session, profile, task_id: str):
-    """(task, texto do SPED, propostas). 403/404 vêm de `get_task_or_403`."""
+    """(task, texto, propostas, é de Contribuições?). 403/404 de `get_task_or_403`."""
     assert_internal(profile)
     task = get_task_or_403(db_session, profile, task_id)
     try:
@@ -158,10 +170,12 @@ def _propostas(db_session: Session, profile, task_id: str):
     except (ValueError, TypeError):
         dados = {}
 
+    contribuicoes = _leiaute_da_auditoria(dados) == LEIAUTE_CONTRIBUICOES
     texto = _texto_do_sped(task_id)
     if not texto:
-        return task, "", []
-    return task, texto, propor(dados, texto)
+        return task, "", [], contribuicoes
+    montador = propor_contribuicoes if contribuicoes else propor
+    return task, texto, montador(dados, texto), contribuicoes
 
 
 def _geracoes_anteriores(db_session: Session, task_id: str) -> list:
@@ -187,7 +201,8 @@ def _geracoes_anteriores(db_session: Session, task_id: str) -> list:
         return []
 
 
-def _contexto(task, texto: str, propostas: list, geracoes=()) -> dict:
+def _contexto(task, texto: str, propostas: list, geracoes=(),
+              contribuicoes: bool = False) -> dict:
     """O que a tela precisa, já separado entre o que dá e o que não dá."""
     aplicaveis = [p for p in propostas if p.aplicavel]
     impedidas = [p for p in propostas if not p.aplicavel]
@@ -195,8 +210,9 @@ def _contexto(task, texto: str, propostas: list, geracoes=()) -> dict:
     # Agrupadas pelas cinco opções de correção, na ordem em que foram
     # definidas: é a ordem em que a pessoa pensa (primeiro o CFOP, que é a
     # classificação, depois os créditos que dependem dele).
+    leiaute = LEIAUTE_CONTRIBUICOES if contribuicoes else "fiscal"
     grupos = []
-    for opcao in OPCOES_DE_CORRECAO:
+    for opcao in opcoes_do_leiaute(leiaute):
         do_grupo = [p for p in aplicaveis if p.opcao == opcao.codigo]
         if do_grupo:
             grupos.append({"opcao": opcao, "propostas": do_grupo})
@@ -209,6 +225,9 @@ def _contexto(task, texto: str, propostas: list, geracoes=()) -> dict:
         "total_aplicaveis": len(aplicaveis),
         "sem_arquivo": "" if texto else SEM_ARQUIVO,
         "geracoes": list(geracoes),
+        # A tela esconde a caixa da apuração no EFD Contribuições: lá não há
+        # E110, e a apuração é o Bloco M, que esta correção não toca.
+        "contribuicoes": contribuicoes,
     }
 
 
@@ -217,11 +236,12 @@ def listar_correcoes(request: Request, task_id: str,
                      db_session: Session = Depends(get_db),
                      profile=Depends(get_profile)):
     """A lista de correções que esta auditoria autoriza oferecer."""
-    task, texto, propostas = _propostas(db_session, profile, task_id)
+    task, texto, propostas, contribuicoes = _propostas(db_session, profile, task_id)
     geracoes = _geracoes_anteriores(db_session, task_id)
     return templates.TemplateResponse(
         request, "partials/curation/_correcao_sped.html",
-        {"request": request, **_contexto(task, texto, propostas, geracoes)})
+        {"request": request, **_contexto(task, texto, propostas, geracoes,
+                                         contribuicoes=contribuicoes)})
 
 
 @router.post("/api/audit/{task_id}/correcao/previa", response_class=HTMLResponse)
@@ -232,7 +252,10 @@ def previa_da_correcao(request: Request, task_id: str,
                        profile=Depends(get_profile),
                        email: str = Depends(usuario_email)):
     """O que vai acontecer, antes de gerar. Nada é gravado aqui."""
-    task, texto, propostas = _propostas(db_session, profile, task_id)
+    task, texto, propostas, contribuicoes = _propostas(db_session, profile, task_id)
+    # No EFD Contribuições não existe E110: marcar a caixa não pode fazer o
+    # motor procurar uma apuração que aquele arquivo não tem.
+    atualizar_e110 = atualizar_e110 and not contribuicoes
     if not texto:
         return templates.TemplateResponse(
             request, "partials/curation/_correcao_previa.html",
@@ -251,7 +274,8 @@ def previa_da_correcao(request: Request, task_id: str,
 
     patch = montar_patch(propostas, aceitas, aprovada_por=email,
                          atualizar_apuracao=atualizar_e110)
-    previa = prever(texto, patch, origem=task.file_name or "SPED")
+    previa = prever(texto, patch, origem=task.file_name or "SPED",
+                    contribuicoes=contribuicoes)
     return templates.TemplateResponse(
         request, "partials/curation/_correcao_previa.html",
         {"request": request, "task_id": task_id, "previa": previa,
@@ -272,7 +296,8 @@ def resumo_executivo(request: Request, task_id: str,
     clicada a cada ajuste de seleção, e cada geração é uma chamada paga a um
     modelo; e o resumo só faz sentido quando a escolha já está fechada.
     """
-    task, texto, propostas = _propostas(db_session, profile, task_id)
+    task, texto, propostas, contribuicoes = _propostas(db_session, profile, task_id)
+    atualizar_e110 = atualizar_e110 and not contribuicoes
     if not texto:
         return templates.TemplateResponse(
             request, "partials/curation/_correcao_resumo.html",
@@ -287,7 +312,7 @@ def resumo_executivo(request: Request, task_id: str,
              "erro": "Marque ao menos uma correção aplicável para gerar o resumo."})
 
     doc = ler_texto(texto, caminho=task.file_name or "SPED")
-    resultado = aplicar(doc, patch)
+    resultado = (aplicar_contribuicoes if contribuicoes else aplicar)(doc, patch)
     relatorio = montar(resultado, doc, texto, origem=task.file_name or "SPED",
                        destino=nome_sugerido(doc))
 
@@ -352,7 +377,8 @@ def _registrar_geracao(db_session: Session, task, relatorio, resultado,
 def _aplicar(db_session: Session, profile, task_id: str, aceitas: list,
              email: str, atualizar_e110: bool = False):
     """Roda a correção de verdade. Devolve (task, doc, relatorio, resultado)."""
-    task, texto, propostas = _propostas(db_session, profile, task_id)
+    task, texto, propostas, contribuicoes = _propostas(db_session, profile, task_id)
+    atualizar_e110 = atualizar_e110 and not contribuicoes
     if not texto:
         raise HTTPException(status_code=409, detail=SEM_ARQUIVO)
 
@@ -368,7 +394,7 @@ def _aplicar(db_session: Session, profile, task_id: str, aceitas: list,
                     "Volte à prévia para ver o motivo de cada uma."))
 
     doc = ler_texto(texto, caminho=task.file_name or "SPED")
-    resultado = aplicar(doc, patch)
+    resultado = (aplicar_contribuicoes if contribuicoes else aplicar)(doc, patch)
     relatorio = montar(resultado, doc, texto, origem=task.file_name or "SPED",
                        destino=nome_sugerido(doc))
     logger.info("SPED corrigido gerado task_id=%s por=%s alteracoes=%d recusas=%d "

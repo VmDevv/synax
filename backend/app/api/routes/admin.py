@@ -1440,21 +1440,40 @@ from ...services import painel_atividade
 # e é o que basta — o que se edita aqui é a credencial do cofre fiscal, que dá
 # acesso às notas de TODAS as empresas da carteira. Operador não entra.
 
-@router.get("/configuracoes", response_class=HTMLResponse)
-def tela_configuracoes(request: Request, db: Session = Depends(get_db)):
+def _tela_configuracoes(request: Request, db: Session, **extra):
+    """A aba inteira. Senha e chave NUNCA voltam inteiras: só a máscara, que
+    serve para conferir qual está gravada sem expô-la no HTML."""
     from ...services import configuracoes as cfg
 
     email, chave = cfg.credenciais_sieg(db)
+    smtp = cfg.config_smtp(db)
+    senha = smtp.pop("senha", "")
+    imap = cfg.config_imap(db)
+    imap.pop("senha", "")
     return templates.TemplateResponse(
         request, "partials/admin/configuracoes.html", {
             "request": request,
             "sieg_email": email,
-            # A chave NUNCA volta inteira para a tela: só a máscara, que serve
-            # para conferir qual está gravada sem expô-la no HTML.
             "sieg_chave_mascara": cfg.mascarar(chave),
             "sieg_do_ambiente": bool(
                 not cfg.ler(db, cfg.SIEG_API_KEY) and chave),
+            "smtp": smtp,
+            "smtp_senha_mascara": cfg.mascarar(senha),
+            "smtp_configurado": cfg.smtp_configurado(db),
+            "imap": imap,
+            "imap_usuario_proprio": cfg.ler(db, cfg.IMAP_USUARIO),
+            "imap_senha_mascara": cfg.mascarar(cfg.ler(db, cfg.IMAP_SENHA)),
+            "imap_configurado": cfg.imap_configurado(db),
+            # Sem a senha: a tela só precisa saber que ela existe.
+            "imap_extras": [{"usuario": c["usuario"], "pasta": c.get("pasta") or "INBOX",
+                             "tem_senha": bool(c.get("senha"))} for c in cfg.caixas_extras(db)],
+            **extra,
         })
+
+
+@router.get("/configuracoes", response_class=HTMLResponse)
+def tela_configuracoes(request: Request, db: Session = Depends(get_db)):
+    return _tela_configuracoes(request, db)
 
 
 @router.post("/configuracoes/sieg", response_class=HTMLResponse)
@@ -1483,20 +1502,257 @@ def salvar_sieg(request: Request, sieg_email: str = Form(""),
         cfg.gravar(db, cfg.SIEG_API_KEY, chave, autor)
         mudou.append("chave de API")
 
-    email_final, chave_final = cfg.credenciais_sieg(db)
-    return templates.TemplateResponse(
-        request, "partials/admin/configuracoes.html", {
-            "request": request,
-            "sieg_email": email_final,
-            "sieg_chave_mascara": cfg.mascarar(chave_final),
-            "sieg_do_ambiente": bool(
-                not cfg.ler(db, cfg.SIEG_API_KEY) and chave_final),
-            # Nada gravado não vira caixa verde: a resposta diz o que houve.
-            "mensagem": ("Salvo: " + " e ".join(mudou) + "." if mudou
-                         else "Nada foi alterado — os campos estão iguais ao "
-                              "que já está gravado."),
-            "sucesso": bool(mudou),
-        })
+    return _tela_configuracoes(
+        request, db,
+        # Nada gravado não vira caixa verde: a resposta diz o que houve.
+        mensagem=("Salvo: " + " e ".join(mudou) + "." if mudou
+                  else "Nada foi alterado — os campos estão iguais ao "
+                       "que já está gravado."),
+        sucesso=bool(mudou))
+
+
+@router.post("/configuracoes/smtp", response_class=HTMLResponse)
+def salvar_smtp(request: Request,
+                smtp_host: str = Form(""), smtp_porta: str = Form(""),
+                smtp_seguranca: str = Form("starttls"), smtp_verificar_tls: str = Form(""),
+                smtp_usuario: str = Form(""), smtp_senha: str = Form(""),
+                smtp_remetente: str = Form(""), smtp_remetente_nome: str = Form(""),
+                db: Session = Depends(get_db),
+                profile=Depends(require_admin)):
+    """Servidor de e-mail do escritório (o MCO2), usado pelo informativo da
+    coleta automática de NFS-e. Senha em BRANCO mantém a gravada, como a
+    chave do SIEG."""
+    from ...services import configuracoes as cfg
+    from ...services.nfse.informativo import ler_destinatarios
+
+    autor = getattr(profile, "name", "") or str(getattr(profile, "id", ""))
+    porta = (smtp_porta or "").strip()
+    seguranca = (smtp_seguranca or "").strip().lower()
+    remetente = (smtp_remetente or "").strip()
+    erro = ""
+    if porta and (not porta.isdigit() or not 0 < int(porta) < 65536):
+        erro = "A porta tem de ser um número entre 1 e 65535."
+    elif seguranca not in cfg.SEGURANCAS_SMTP:
+        erro = "Escolha a segurança da conexão."
+    elif remetente and not ler_destinatarios(remetente)[0]:
+        erro = f"O remetente \"{remetente}\" não é um e-mail válido."
+    if erro:
+        return _tela_configuracoes(request, db, mensagem_smtp=erro, sucesso_smtp=False)
+
+    campos = {
+        cfg.SMTP_HOST: (smtp_host or "").strip(),
+        cfg.SMTP_PORTA: porta,
+        cfg.SMTP_SEGURANCA: seguranca,
+        cfg.SMTP_VERIFICAR_TLS: "1" if smtp_verificar_tls else "0",
+        cfg.SMTP_USUARIO: (smtp_usuario or "").strip(),
+        cfg.SMTP_REMETENTE: remetente,
+        cfg.SMTP_REMETENTE_NOME: (smtp_remetente_nome or "").strip(),
+    }
+    mudou = 0
+    for chave, valor in campos.items():
+        if valor != cfg.ler(db, chave):
+            cfg.gravar(db, chave, valor, autor)
+            mudou += 1
+    if (smtp_senha or "").strip():
+        cfg.gravar(db, cfg.SMTP_SENHA, smtp_senha.strip(), autor)
+        mudou += 1
+
+    return _tela_configuracoes(
+        request, db,
+        mensagem_smtp=("Servidor de e-mail salvo. Use \"Enviar teste\" para conferir."
+                       if mudou else "Nada foi alterado — os campos estão iguais ao que já está gravado."),
+        sucesso_smtp=bool(mudou))
+
+
+@router.post("/configuracoes/smtp/teste", response_class=HTMLResponse)
+def testar_smtp(request: Request, destinatario_teste: str = Form(""),
+                db: Session = Depends(get_db),
+                profile=Depends(require_admin),
+                _rl=Depends(limitar("smtp_teste", maximo=10, janela_seg=600))):
+    """Manda um e-mail curto com a configuração GRAVADA — é ela que a coleta
+    vai usar, então é ela que precisa ser provada."""
+    from ...services import configuracoes as cfg
+    from ...services import email_envio
+    from ...services.nfse.informativo import ler_destinatarios
+
+    validos, _ruins = ler_destinatarios(destinatario_teste)
+    if len(validos) != 1:
+        return _tela_configuracoes(request, db, sucesso_smtp=False,
+                                   mensagem_smtp="Informe UM e-mail válido para receber o teste.")
+    try:
+        email_envio.enviar(
+            cfg.config_smtp(db), validos, "[Synax] Teste do servidor de e-mail",
+            texto=("Este é um teste do Synax. Se chegou, o informativo da coleta "
+                   "automática de NFS-e vai chegar também."),
+            html=("<p style=\"font-family:Segoe UI,Arial,sans-serif\">Este é um teste do "
+                  "<b>Synax</b>. Se chegou, o informativo da coleta automática de NFS-e "
+                  "vai chegar também.</p>"))
+    except email_envio.FalhaEnvio as err:
+        return _tela_configuracoes(request, db, sucesso_smtp=False,
+                                   mensagem_smtp=f"O teste não saiu: {err}")
+    return _tela_configuracoes(request, db, sucesso_smtp=True,
+                               mensagem_smtp=f"Teste enviado para {validos[0]}. Confira a caixa de entrada (e o spam).")
+
+
+@router.post("/configuracoes/imap", response_class=HTMLResponse)
+def salvar_imap(request: Request,
+                imap_ligado: str = Form(""), imap_host: str = Form(""),
+                imap_porta: str = Form(""), imap_seguranca: str = Form("ssl"),
+                imap_verificar_tls: str = Form(""), imap_usuario: str = Form(""),
+                imap_senha: str = Form(""), imap_pasta: str = Form(""),
+                db: Session = Depends(get_db),
+                profile=Depends(require_admin)):
+    """Leitura da caixa do escritório (IMAP). Usuário em branco = o do SMTP;
+    senha em BRANCO mantém a gravada (ou herda a do SMTP, se nunca houve uma)."""
+    from ...services import configuracoes as cfg
+
+    autor = getattr(profile, "name", "") or str(getattr(profile, "id", ""))
+    porta = (imap_porta or "").strip()
+    seguranca = (imap_seguranca or "").strip().lower()
+    host = (imap_host or "").strip()
+    erro = ""
+    if porta and (not porta.isdigit() or not 0 < int(porta) < 65536):
+        erro = "A porta tem de ser um número entre 1 e 65535."
+    elif seguranca not in cfg.SEGURANCAS_IMAP:
+        erro = "Escolha a segurança da conexão."
+    elif porta in cfg.PORTAS_SMTP:
+        # Copiar o cartão do SMTP para cá é o erro natural (28/09/2026: servidor
+        # e porta 465 do envio) — e a conexão falha com "unexpected response",
+        # que não diz nada a ninguém.
+        erro = (f"A porta {porta} é de ENVIO (SMTP). A de leitura (IMAP) é 993 com "
+                "SSL/TLS, ou 143 com STARTTLS.")
+    elif imap_ligado and not host:
+        erro = "Para ligar a leitura, informe o servidor IMAP."
+    if erro:
+        return _tela_configuracoes(request, db, mensagem_imap=erro, sucesso_imap=False)
+
+    campos = {
+        cfg.IMAP_LIGADO: "1" if imap_ligado else "0",
+        cfg.IMAP_HOST: host,
+        cfg.IMAP_PORTA: porta,
+        cfg.IMAP_SEGURANCA: seguranca,
+        cfg.IMAP_VERIFICAR_TLS: "1" if imap_verificar_tls else "0",
+        cfg.IMAP_USUARIO: (imap_usuario or "").strip(),
+        cfg.IMAP_PASTA: (imap_pasta or "").strip() or "INBOX",
+    }
+    mudou = 0
+    for chave, valor in campos.items():
+        if valor != cfg.ler(db, chave):
+            cfg.gravar(db, chave, valor, autor)
+            mudou += 1
+    if (imap_senha or "").strip():
+        cfg.gravar(db, cfg.IMAP_SENHA, imap_senha.strip(), autor)
+        mudou += 1
+
+    if not mudou:
+        texto = "Nada foi alterado — os campos estão iguais ao que já está gravado."
+    elif imap_ligado:
+        texto = ("Leitura da caixa salva e ligada: roda de hora em hora. Use \"Testar "
+                 "conexão\" para conferir.")
+    else:
+        texto = "Leitura da caixa salva, mas DESLIGADA — o sistema não vai ler sozinho."
+    return _tela_configuracoes(request, db, mensagem_imap=texto, sucesso_imap=bool(mudou))
+
+
+def _testar_caixa(config: dict) -> tuple[bool, str]:
+    """Conecta, abre a pasta só para leitura e conta os e-mails dos últimos 7
+    dias. Não baixa nenhum — o teste não pode ser o primeiro a processar a caixa."""
+    from datetime import datetime, timedelta
+
+    from ...services.email_recebimento import imap
+
+    try:
+        conexao, _uidvalidity = imap.conectar(config)
+        try:
+            uids = imap.uids_novos(conexao, None, datetime.utcnow() - timedelta(days=7))
+        finally:
+            imap.fechar(conexao)
+    except imap.FalhaLeitura as err:
+        return False, str(err)
+    return True, f"{len(uids)} e-mail(s) nos últimos 7 dias em \"{config['pasta']}\""
+
+
+@router.post("/configuracoes/imap/teste", response_class=HTMLResponse)
+def testar_imap(request: Request, db: Session = Depends(get_db),
+                profile=Depends(require_admin),
+                _rl=Depends(limitar("imap_teste", maximo=10, janela_seg=600))):
+    """Testa TODAS as caixas com a configuração GRAVADA — é ela que a leitura
+    de hora em hora vai usar."""
+    from ...services import configuracoes as cfg
+
+    caixas = cfg.caixas_imap(db) or [cfg.config_imap(db) | {"rotulo": "caixa principal"}]
+    partes, tudo_ok = [], True
+    for caixa in caixas:
+        ok, texto = _testar_caixa(caixa)
+        tudo_ok = tudo_ok and ok
+        partes.append(f"{caixa['rotulo']}: {'conectado, ' + texto if ok else 'FALHOU — ' + texto}")
+    return _tela_configuracoes(
+        request, db, sucesso_imap=tudo_ok,
+        mensagem_imap=" · ".join(partes) + ". Nada foi marcado, movido ou apagado.")
+
+
+@router.post("/configuracoes/imap/caixa", response_class=HTMLResponse)
+def salvar_caixa_extra(request: Request, extra_usuario: str = Form(""),
+                       extra_senha: str = Form(""), extra_pasta: str = Form(""),
+                       db: Session = Depends(get_db), profile=Depends(require_admin),
+                       _rl=Depends(limitar("imap_teste", maximo=10, janela_seg=600))):
+    """Cadastra (ou troca a senha/pasta de) outra caixa do mesmo servidor, e
+    testa na hora: caixa com senha errada só apareceria na leitura seguinte,
+    uma hora depois, como falha."""
+    from ...services import configuracoes as cfg
+    from ...services.nfse.informativo import ler_destinatarios
+
+    autor = getattr(profile, "name", "") or str(getattr(profile, "id", ""))
+    usuario = (extra_usuario or "").strip().lower()
+    pasta = (extra_pasta or "").strip() or "INBOX"
+    caixas = cfg.caixas_extras(db)
+    existente = next((c for c in caixas if c["usuario"] == usuario), None)
+    principal = (cfg.config_imap(db).get("usuario") or "").strip().lower()
+    erro = ""
+    if usuario and usuario == principal:
+        erro = "Essa já é a caixa principal."
+    elif not ler_destinatarios(usuario)[0]:
+        erro = "Informe o e-mail (usuário) da caixa, como fiscal@escritorio.com.br."
+    elif not cfg.config_imap(db).get("host"):
+        erro = "Configure primeiro o servidor da caixa principal: as outras usam o mesmo."
+    elif existente is None and not (extra_senha or "").strip():
+        erro = "Informe a senha da caixa."
+    elif existente is None and len(caixas) >= 10:
+        erro = "No máximo 10 caixas além da principal."
+    if erro:
+        return _tela_configuracoes(request, db, mensagem_imap=erro, sucesso_imap=False)
+
+    nova = {"usuario": usuario, "pasta": pasta,
+            "senha": (extra_senha or "").strip() or (existente or {}).get("senha", "")}
+    caixas = [c for c in caixas if c["usuario"] != usuario] + [nova]
+    cfg.gravar_caixas_extras(db, caixas, autor)
+
+    ok, texto = _testar_caixa({**cfg.config_imap(db), "usuario": usuario,
+                               "senha": nova["senha"], "pasta": pasta})
+    acao = "atualizada" if existente else "cadastrada"
+    return _tela_configuracoes(
+        request, db, sucesso_imap=ok,
+        mensagem_imap=(f"{usuario} {acao} e testada: conectou, {texto}. Entra na próxima leitura."
+                       if ok else f"{usuario} {acao}, mas o teste FALHOU: {texto}. Confira a "
+                       "senha — enquanto não conectar, a leitura vai acusar essa caixa."))
+
+
+@router.post("/configuracoes/imap/caixa/remover", response_class=HTMLResponse)
+def remover_caixa_extra(request: Request, extra_usuario: str = Form(""),
+                        db: Session = Depends(get_db), profile=Depends(require_admin)):
+    """Tira a caixa da leitura. Os e-mails e XMLs que ela já trouxe ficam."""
+    from ...services import configuracoes as cfg
+
+    autor = getattr(profile, "name", "") or str(getattr(profile, "id", ""))
+    usuario = (extra_usuario or "").strip().lower()
+    caixas = cfg.caixas_extras(db)
+    restantes = [c for c in caixas if c["usuario"] != usuario]
+    if len(restantes) == len(caixas):
+        return _tela_configuracoes(request, db, sucesso_imap=False,
+                                   mensagem_imap="Essa caixa não está mais cadastrada.")
+    cfg.gravar_caixas_extras(db, restantes, autor)
+    return _tela_configuracoes(request, db, sucesso_imap=True, mensagem_imap=(
+        f"{usuario} não será mais lida. O que ela já trouxe (e-mails e XMLs) continua guardado."))
 
 
 @router.get("/erros", response_class=HTMLResponse)

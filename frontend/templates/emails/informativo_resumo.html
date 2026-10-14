@@ -1,0 +1,136 @@
+{# Informativo: resumo das auditorias do período. Montado por
+   services/automacoes/resumo_auditorias.py.
+
+   Mesmas regras do informativo da coleta (emails/informativo_nfse.html):
+   e-mail não é página — tabela, estilo inline, 640px. A lista por empresa
+   para em `limite` linhas; o resto está na planilha anexada, e o e-mail diz
+   quantas ficaram de fora em vez de cortar calado. #}
+{% set azul = "#0377AA" %}{% set azul_escuro = "#026092" %}
+{% set t = totais %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Resumo das auditorias</title></head>
+<body style="margin:0;padding:0;background:#eef5f9;font-family:Segoe UI,Arial,sans-serif;color:#0f172a;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef5f9;padding:24px 0;">
+<tr><td align="center">
+<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="width:640px;max-width:100%;background:#ffffff;border:1px solid #d6e6ee;border-radius:12px;overflow:hidden;">
+
+  <tr><td style="background:{{ azul_escuro }};padding:20px 28px;">
+    <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#9fdbee;font-weight:bold;">Synax · Resumo das auditorias</div>
+    <div style="font-size:20px;color:#ffffff;font-weight:bold;margin-top:4px;">{{ nome }}</div>
+    <div style="font-size:13px;color:#cfe9f4;margin-top:2px;">Período: {{ periodo }}</div>
+  </td></tr>
+
+  <tr><td style="padding:20px 28px 4px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+      {% for rotulo, valor, cor in [
+          ("Auditorias", t.auditorias ~ "", "#0f172a"),
+          ("Empresas", t.empresas ~ "", "#0f172a"),
+          ("Inconsistências", t.inconsistencias | num_br, "#b45309" if t.inconsistencias else "#94a3b8"),
+          ("Não concluídas", t.nao_concluidas ~ "", "#b91c1c" if t.nao_concluidas else "#94a3b8")] %}
+      <td width="25%" valign="top" style="padding:4px;">
+        <div style="border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;">
+          <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:bold;">{{ rotulo }}</div>
+          <div style="font-size:20px;font-weight:bold;color:{{ cor }};margin-top:2px;">{{ valor }}</div>
+        </div>
+      </td>
+      {% endfor %}
+    </tr></table>
+  </td></tr>
+
+  <!-- Valor em jogo -->
+  <tr><td style="padding:8px 28px 4px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #cfe3ee;border-radius:10px;background:#f4f9fc;">
+      <tr>
+        <td style="padding:12px 14px;">
+          <div style="font-size:11px;color:{{ azul_escuro }};text-transform:uppercase;font-weight:bold;">Valor em jogo</div>
+          <div style="font-size:24px;font-weight:bold;color:{{ azul_escuro }};margin-top:2px;white-space:nowrap;">R$ {{ t.em_jogo | moeda_br }}</div>
+        </td>
+        <td style="padding:12px 14px;font-size:13px;color:#334155;" align="right">
+          <div>A estornar: <b style="color:#b91c1c;white-space:nowrap;">R$ {{ t.estornar | moeda_br }}</b></div>
+          <div style="margin-top:2px;">A aproveitar: <b style="color:#047857;white-space:nowrap;">R$ {{ t.aproveitar | moeda_br }}</b></div>
+          <div style="margin-top:2px;">A recolher: <b style="color:#b45309;white-space:nowrap;">R$ {{ t.recolher | moeda_br }}</b></div>
+        </td>
+      </tr>
+    </table>
+    <div style="font-size:11px;color:#94a3b8;margin-top:4px;">
+      Em jogo = a estornar + a aproveitar + a recolher.{% if t.conferir %} Há ainda R$ {{ t.conferir | moeda_br }} a conferir (exposição, não é imposto).{% endif %}
+    </div>
+  </td></tr>
+
+  <!-- Por empresa -->
+  <tr><td style="padding:20px 28px 6px;">
+    <div style="font-size:15px;font-weight:bold;color:{{ azul_escuro }};border-bottom:2px solid {{ azul }};padding-bottom:6px;">Por empresa <span style="font-weight:normal;font-size:12px;color:#64748b;">— maior valor em jogo primeiro</span></div>
+  </td></tr>
+  <tr><td style="padding:4px 28px 8px;">
+    {% if mostradas %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;border-collapse:collapse;">
+      <tr style="background:#f1f8fc;color:#475569;font-size:11px;text-transform:uppercase;">
+        <td style="padding:6px 8px;font-weight:bold;">Empresa</td>
+        <td style="padding:6px 8px;font-weight:bold;text-align:center;">Comp.</td>
+        <td style="padding:6px 8px;font-weight:bold;text-align:right;">Inconsist.</td>
+        <td style="padding:6px 8px;font-weight:bold;text-align:right;">Em jogo</td>
+      </tr>
+      {% for a in mostradas %}
+      <tr style="border-bottom:1px solid #eef2f6;">
+        <td style="padding:7px 8px;"><b>{{ a.empresa }}</b><br><span style="color:#94a3b8;font-size:11px;">{{ a.cnpj }} · auditoria de {{ a.quando }}</span>
+          {% if a.estornar or a.aproveitar or a.recolher %}<br><span style="color:#64748b;font-size:11px;">{% if a.estornar %}estornar R$ {{ a.estornar | moeda_br }}{% endif %}{% if a.aproveitar %}{% if a.estornar %} · {% endif %}aproveitar R$ {{ a.aproveitar | moeda_br }}{% endif %}{% if a.recolher %}{% if a.estornar or a.aproveitar %} · {% endif %}recolher R$ {{ a.recolher | moeda_br }}{% endif %}</span>{% endif %}
+        </td>
+        <td style="padding:7px 8px;text-align:center;white-space:nowrap;">{{ a.competencia_rotulo }}</td>
+        <td style="padding:7px 8px;text-align:right;">{{ a.inconsistencias | num_br }}</td>
+        {% if a.sem_valor %}
+        <td style="padding:7px 8px;text-align:right;font-size:11px;color:#b45309;">sem valor apurado</td>
+        {% else %}
+        <td style="padding:7px 8px;text-align:right;white-space:nowrap;font-weight:bold;color:{{ azul_escuro if a.em_jogo else '#94a3b8' }};">R$ {{ a.em_jogo | moeda_br }}</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </table>
+    {% if auditorias | length > mostradas | length %}
+    <div style="font-size:12px;color:#475569;margin-top:6px;">… e mais {{ auditorias | length - mostradas | length }} auditoria{{ 's' if (auditorias | length - mostradas | length) != 1 }} na planilha anexada.</div>
+    {% endif %}
+    {% else %}
+    <div style="font-size:13px;color:#475569;background:#f8fafc;border-radius:8px;padding:10px 12px;">
+      Nenhuma auditoria concluída no período.
+    </div>
+    {% endif %}
+    {% if t.sem_valor %}
+    <div style="font-size:11px;color:#b45309;margin-top:6px;">{{ t.sem_valor }} auditoria{{ 's' if t.sem_valor != 1 }} sem valor apurado: o relatório não pôde ser lido, e o valor dela não está nos totais acima.</div>
+    {% endif %}
+    {% if t.repetidas_descartadas %}
+    <div style="font-size:11px;color:#94a3b8;margin-top:6px;">{{ t.repetidas_descartadas }} auditoria{{ 's' if t.repetidas_descartadas != 1 }} repetida{{ 's' if t.repetidas_descartadas != 1 }} da mesma empresa e competência {{ 'ficaram' if t.repetidas_descartadas != 1 else 'ficou' }} de fora — vale a mais recente.</div>
+    {% endif %}
+  </td></tr>
+
+  <!-- Não concluídas -->
+  {% if nao_concluidas %}
+  <tr><td style="padding:16px 28px 6px;">
+    <div style="font-size:15px;font-weight:bold;color:#b45309;border-bottom:2px solid #fcd34d;padding-bottom:6px;">Não concluídas</div>
+  </td></tr>
+  <tr><td style="padding:4px 28px 8px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;border-collapse:collapse;">
+      {% for a in nao_concluidas %}
+      <tr style="border-bottom:1px solid #eef2f6;">
+        <td style="padding:7px 8px;vertical-align:top;width:45%;"><b>{{ a.empresa }}</b><br><span style="color:#94a3b8;font-size:11px;">{{ a.quando }}{% if a.por %} · {{ a.por }}{% endif %}</span></td>
+        <td style="padding:7px 8px;vertical-align:top;">
+          <span style="display:inline-block;font-size:11px;font-weight:bold;padding:1px 8px;border-radius:10px;background:#fef3c7;color:#92400e;">{{ a.situacao }}</span>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </td></tr>
+  {% endif %}
+
+  <tr><td style="padding:16px 28px 24px;font-size:12px;color:#64748b;">
+    {% if config.ultima_por_competencia %}Conta só a auditoria mais recente de cada empresa e competência.{% else %}Conta todas as auditorias do período, inclusive as repetidas.{% endif %}
+    {% if com_anexo %}A planilha completa segue em anexo.{% else %}A planilha não pôde ser gerada nesta rodada (veja o log do servidor).{% endif %}
+  </td></tr>
+
+  <tr><td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:12px 28px;font-size:11px;color:#94a3b8;">
+    Enviado automaticamente pelo Synax · Administração → Automações
+  </td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>

@@ -2,6 +2,68 @@
    presumido — antes do botão de baixar. Entregar o arquivo sem a pessoa ler as
    presunções é o mesmo erro de gerar SPED corrigido sem prévia. #}
 
+{# Notas de meses ANTERIORES do pacote. O arquivo sai do mês mais recente; o
+   que é de antes fica de fora, e aqui a pessoa escolhe o que entra NESTE
+   arquivo com data de entrada na 1ª quinzena (a emissão continua a do XML).
+   Gera de novo a partir dos XMLs que ficaram no servidor — sem reenviar o
+   ZIP. `pacote` só existe quando o ZIP tem mais de um mês. #}
+{% macro painel_anteriores() -%}
+{% set comp = resultado.competencia %}
+<form hx-post="/api/gerar-sped/{{ pacote }}/regerar" hx-target="#resultado-gerar"
+      hx-swap="innerHTML" hx-indicator="#spinner-gerar" hx-boost="false"
+      class="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3" id="form-anteriores">
+    <input type="hidden" name="competencia" value="{{ comp }}">
+    <div>
+        <h5 class="font-bold text-sm text-slate-800">
+            <i class="fa-regular fa-calendar text-blue-600 mr-1"></i>
+            {{ resultado.anteriores | length }} nota{{ 's' if resultado.anteriores | length != 1 }} de mês anterior no pacote
+        </h5>
+        <p class="text-[12px] text-slate-600 mt-0.5">
+            Marque as que devem entrar neste SPED de {{ rotulo_mes(comp) }}, com data de
+            entrada na 1ª quinzena. A data de emissão continua a do XML; as que ficarem
+            desmarcadas ficam de fora.
+        </p>
+    </div>
+    <div class="max-h-64 overflow-y-auto bg-white border border-slate-200 rounded-lg">
+        <table class="table table-xs w-full">
+            <thead class="text-[11px] uppercase text-slate-500 bg-slate-50 sticky top-0">
+                <tr>
+                    <th class="w-8"><input type="checkbox" class="checkbox checkbox-xs checkbox-primary" title="Marcar todas"
+                               onchange="document.querySelectorAll('#form-anteriores input[name=trazer]').forEach(function(c){c.checked=this.checked}, this)"
+                               {% if resultado.anteriores | selectattr("trazido") | list | length == resultado.anteriores | length %}checked{% endif %}></th>
+                    <th>Tipo</th><th>Nº</th><th>Emitente</th><th>Data</th><th class="text-right">Valor</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in resultado.anteriores %}
+                <tr>
+                    <td><input type="checkbox" name="trazer" value="{{ a.id }}" class="checkbox checkbox-xs checkbox-primary"
+                               {% if a.trazido %}checked{% endif %}></td>
+                    <td class="text-xs">{{ a.tipo }}</td>
+                    <td class="text-xs font-mono">{{ a.num }}</td>
+                    <td class="text-xs max-w-[240px] truncate" title="{{ a.emitente }}">{{ a.emitente }}</td>
+                    <td class="text-xs tabular-nums">{{ a.data }}</td>
+                    <td class="text-xs text-right tabular-nums">R$ {{ a.valor | moeda_br }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="flex flex-wrap items-center gap-3">
+        <label for="data-entrada" class="text-[13px] font-bold text-slate-700">Data de entrada</label>
+        <input id="data-entrada" type="date" name="data_entrada"
+               min="{{ comp }}-01" max="{{ comp }}-15"
+               value="{{ resultado.data_entrada or (comp ~ '-01') }}"
+               class="input input-bordered input-sm w-44 text-sm rounded-lg">
+        <span class="text-[11px] text-slate-500">1ª quinzena: dia 01 a 15 de {{ rotulo_mes(comp) }}</span>
+        <span class="flex-1"></span>
+        <button type="submit" class="btn btn-sm bg-blue-600 hover:bg-blue-700 border-none text-white rounded-lg">
+            <i class="fa-solid fa-rotate"></i> Gerar {{ rotulo_mes(comp) }} com as marcadas
+        </button>
+    </div>
+</form>
+{%- endmacro %}
+
 {% if erro %}
 <div class="alert bg-amber-50 border border-amber-200 text-amber-900 rounded-xl">
     <i class="fa-solid fa-triangle-exclamation text-amber-600"></i>
@@ -28,10 +90,13 @@
             <i class="fa-solid fa-file-circle-check"></i>
             SPED gerado — {{ empresa.name }}
         </h4>
-        <span class="text-xs font-bold">competência {{ resultado.competencia }}</span>
+        <span class="text-xs font-bold">competência {{ rotulo_mes(resultado.competencia) if rotulo_mes is defined else resultado.competencia }}</span>
     </div>
 
     <div class="p-5 space-y-5">
+        {% if pacote and resultado.anteriores %}
+        {{ painel_anteriores() }}
+        {% endif %}
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
                 <div class="text-2xl font-bold text-[#015282]">{{ resultado.notas }}</div>

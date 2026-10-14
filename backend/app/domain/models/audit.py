@@ -47,6 +47,19 @@ class AuditTask(Base, TenantMixin, TimestampMixin):
     # afirmaria que um mês foi auditado sem ter sido.
     competencia = Column(String(7), nullable=True)
 
+    # O valor em jogo, pelos mesmos motivos das contagens acima: o resumo das
+    # auditorias por e-mail soma isto de dezenas de auditorias, e abrir o
+    # result_data de cada uma para somar quatro números seria baixar o
+    # relatório inteiro de todo mundo a cada envio. Mesma conta da Visão Geral
+    # (`resumo_financeiro`), gravada quando o motor conclui (25/09/2026).
+    #
+    # NULO = auditoria anterior às colunas. O resumo lê o result_data dela UMA
+    # vez e preenche — NULO nunca é tratado como zero.
+    vl_estornar = Column(Numeric(14, 2, asdecimal=False), nullable=True)
+    vl_aproveitar = Column(Numeric(14, 2, asdecimal=False), nullable=True)
+    vl_recolher = Column(Numeric(14, 2, asdecimal=False), nullable=True)
+    vl_conferir = Column(Numeric(14, 2, asdecimal=False), nullable=True)
+
 
 class SpedCorrectionRun(Base, TenantMixin, TimestampMixin):
     """Cada vez que alguém baixou um SPED corrigido — quem, quando, e o quê.

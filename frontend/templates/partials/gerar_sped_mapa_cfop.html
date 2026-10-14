@@ -1,0 +1,442 @@
+{# ============================================================================
+   Mapeamento de CFOP de entrada — o passo que roda ANTES de gerar o SPED.
+
+   Devolvido por /api/gerar-sped/analisar, e de novo por /regras (gravar),
+   /mapa (Atualizar) e /confirmar (quando ainda falta aprovação). Duas seções:
+   itens de NF-e (fornecedor × CFOP do fornecedor × cProd) e fretes de CT-e
+   (CFOP do CT-e × UF do transportador). Cada linha tem um status — aprovada
+   (regra do gerador que um admin aprovou), pendente (gravada, esperando o
+   admin) ou a definir (sem regra; o campo vem com a conversão do 1º dígito
+   como sugestão).
+
+   O botão de GERAR só destrava com tudo aprovado, e a rota confere de novo:
+   gera só com o que está aprovado no banco, nunca com o que veio no POST
+   (decisão do Sandro em 09/10/2026, ver CLAUDE.md). As regras são as do
+   GERADOR — tabelas próprias, separadas das da auditoria.
+
+   Linha aprovada não tem campo para o operador (o servidor também recusa a
+   mudança). Para o admin, o campo vem travado (disabled, então não é enviado)
+   e destrava num clique; o "aplicar a todos" nunca toca campo travado.
+
+   Por que datalist e não <select> por linha: o CFOP de entrada tem ~60
+   opções; um <select> por linha, com centenas de linhas, recria o travamento
+   que o Relatório Geral já teve (milhares de <option> no DOM). O <datalist> é
+   um só, referenciado por todas as linhas.
+
+   Sem `pattern` nos campos de propósito: com o filtro escondendo a linha, a
+   validação do navegador barraria o envio num campo invisível e o clique não
+   faria nada. Quem valida é a rota, que diz o que não gravou e por quê.
+   ============================================================================ #}
+
+{% macro selo(l) -%}
+{% if l.status == 'aprovada' %}
+<span class="badge badge-sm bg-emerald-100 text-emerald-700 border-none font-bold whitespace-nowrap"
+      title="Aprovada{% if l.autor %} por {{ l.autor }}{% endif %}">
+    <i class="fa-solid fa-circle-check mr-1"></i> aprovada
+</span>
+{% elif l.status == 'pendente' %}
+<span class="badge badge-sm bg-sky-100 text-sky-800 border-none font-bold whitespace-nowrap"
+      title="Gravada{% if l.autor %} por {{ l.autor }}{% endif %}; falta um admin aprovar na Curadoria">
+    <i class="fa-solid fa-hourglass-half mr-1"></i> aguardando admin
+</span>
+{% else %}
+<span class="badge badge-sm bg-amber-100 text-amber-800 border-none font-bold whitespace-nowrap"
+      title="Sem regra: o campo traz a conversão do 1º dígito como sugestão">
+    <i class="fa-solid fa-pen mr-1"></i> a definir
+</span>
+{% endif %}
+{%- endmacro %}
+
+{% macro campo(l, nome_chave, nome_cfop, lista) -%}
+{% if l.status == 'aprovada' and not pode_aprovar %}
+<span class="font-mono font-bold text-sm text-emerald-800">{{ l.cfop_entrada }}</span>
+{% else %}
+{% set travada = l.status == 'aprovada' %}
+<div class="flex items-center gap-1.5">
+    <input type="hidden" name="{{ nome_chave }}" value="{{ l.chave }}" {% if travada %}disabled{% endif %}>
+    <input type="text" name="{{ nome_cfop }}" list="{{ lista }}" value="{{ l.cfop_entrada }}"
+           inputmode="numeric" maxlength="4" autocomplete="off" {% if travada %}disabled{% endif %}
+           class="mapa-cfop input input-sm input-bordered w-24 font-mono text-sm rounded-lg
+                  {% if travada %}bg-emerald-50 border-emerald-200 text-emerald-800
+                  {% elif l.status == 'pendente' %}border-sky-300 bg-sky-50/40
+                  {% else %}border-amber-300 bg-amber-50/40{% endif %}">
+    {% if travada %}
+    <button type="button" class="mapa-destravar btn btn-ghost btn-xs text-slate-500"
+            title="Alterar esta regra aprovada (continua aprovada, porque quem altera é admin)">
+        <i class="fa-solid fa-lock-open"></i>
+    </button>
+    {% endif %}
+</div>
+{% endif %}
+{%- endmacro %}
+
+<section id="mapa-sped" class="syn-card syn-card-accent overflow-hidden">
+
+    {# ---- Cabeçalho + resumo ---- #}
+    <div class="px-5 pt-5 pb-3 border-b border-slate-200">
+        <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <i class="fa-solid fa-diagram-project" style="color: var(--syn-700);"></i>
+                Mapeamento de CFOP de entrada
+            </h3>
+            <span class="text-[13px] text-slate-500">
+                {{ empresa.name }} · {{ empresa.cnpj }}{% if competencia %} · competência {{ rotulo_mes(competencia) }}{% endif %}
+            </span>
+        </div>
+        <p class="text-[13px] text-slate-500 mt-1">
+            Os XMLs trazem o CFOP de <strong>saída</strong> do fornecedor e do transportador.
+            O de <strong>entrada</strong> de cada item e de cada frete precisa de regra
+            <strong>aprovada por um admin</strong> — sem isso o SPED não é gerado. Estas
+            regras são só do gerador: não mudam nada na auditoria.
+        </p>
+
+        {% set n_aprovadas = resumo_nfe.aprovada + resumo_cte.aprovada %}
+        {% set n_pendentes = resumo_nfe.pendente + resumo_cte.pendente %}
+        {% set n_a_definir = resumo_nfe.a_definir + resumo_cte.a_definir %}
+        <div class="flex flex-wrap gap-2 mt-3 text-[12px] font-semibold">
+            {% if linhas_nfe %}
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700">
+                <i class="fa-solid fa-box"></i>
+                {{ resumo_nfe.total }} combinaç{{ 'ão' if resumo_nfe.total == 1 else 'ões' }} de itens
+                · {{ itens }} ite{{ 'm' if itens == 1 else 'ns' }}
+            </span>
+            {% endif %}
+            {% if linhas_cte %}
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700">
+                <i class="fa-solid fa-truck"></i>
+                {{ resumo_cte.total }} combinaç{{ 'ão' if resumo_cte.total == 1 else 'ões' }} de frete
+                · {{ ctes }} CT-e
+            </span>
+            {% endif %}
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <i class="fa-solid fa-circle-check"></i>
+                <strong id="mapa-n-aprovadas">{{ n_aprovadas }}</strong> aprovada{{ '' if n_aprovadas == 1 else 's' }}
+            </span>
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-sky-50 text-sky-800 border border-sky-200">
+                <i class="fa-solid fa-hourglass-half"></i>
+                <strong id="mapa-n-pendentes">{{ n_pendentes }}</strong> aguardando admin
+            </span>
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                <strong id="mapa-n-a-definir">{{ n_a_definir }}</strong> a definir
+            </span>
+        </div>
+    </div>
+
+    {# ---- O que a última ação fez ---- #}
+    {% if mensagem %}
+    <div class="mx-5 mt-4 rounded-lg border px-4 py-2.5 text-[13px]
+                {% if mensagem_tipo == 'erro' %}bg-red-50 border-red-200 text-red-800
+                {% elif mensagem_tipo == 'aviso' %}bg-amber-50 border-amber-200 text-amber-900
+                {% else %}bg-emerald-50 border-emerald-200 text-emerald-800{% endif %}">
+        <i class="fa-solid {% if mensagem_tipo == 'erro' %}fa-circle-xmark{% elif mensagem_tipo == 'aviso' %}fa-triangle-exclamation{% else %}fa-circle-check{% endif %} mr-1"></i>
+        {{ mensagem }}
+    </div>
+    {% endif %}
+
+    {# ---- Pode gerar? ---- #}
+    {% if pode_gerar %}
+    <div class="mx-5 mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-[13px] text-emerald-800">
+        <i class="fa-solid fa-unlock mr-1"></i>
+        Tudo mapeado e aprovado. O SPED pode ser gerado.
+    </div>
+    {% else %}
+    <div class="mx-5 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-[13px] text-amber-900">
+        <i class="fa-solid fa-lock mr-1"></i>
+        Geração bloqueada: {{ faltam }} combinaç{{ 'ão' if faltam == 1 else 'ões' }} sem regra aprovada.
+        {% if pode_aprovar %}
+        O que você salvar aqui entra aprovado.
+        {% else %}
+        Preencha o que está <strong>a definir</strong> e envie para aprovação. Depois que um admin
+        aprovar em <strong>Curadoria → Gerador · NF-e / Gerador · CT-e</strong>, clique em
+        <strong>Atualizar</strong>.
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {# ---- datalists ÚNICOS, compartilhados pelas linhas ---- #}
+    <datalist id="cfops-entrada-dl">
+        {% for codigo, rotulo in cfop_opcoes %}
+        <option value="{{ codigo }}">{{ rotulo }}</option>
+        {% endfor %}
+    </datalist>
+    <datalist id="cfops-frete-dl">
+        {% for codigo, rotulo in cfop_opcoes_frete %}
+        <option value="{{ codigo }}">{{ rotulo }}</option>
+        {% endfor %}
+    </datalist>
+
+    <form id="formRegrasSped" hx-post="/api/gerar-sped/{{ pacote_id }}/regras"
+          hx-target="#resultado-gerar" hx-swap="innerHTML"
+          hx-indicator="#spinner-regras" hx-boost="false" novalidate
+          class="p-5 pt-4 space-y-6">
+
+        {% if linhas_nfe %}
+        {# ======================= Itens de NF-e ======================= #}
+        <div>
+            <div class="flex flex-col lg:flex-row lg:items-end gap-3 mb-3">
+                <div class="flex-1">
+                    <h4 class="font-bold text-sm text-slate-800 flex items-center gap-2">
+                        <i class="fa-solid fa-box text-slate-500"></i> Itens de NF-e
+                        <span class="text-[12px] font-normal text-slate-500">
+                            {{ resumo_nfe.aprovada }} de {{ resumo_nfe.total }} aprovadas
+                        </span>
+                    </h4>
+                    <div class="relative mt-2">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                        <input type="search" id="mapa-filtro" autocomplete="off"
+                               placeholder="Fornecedor, CNPJ, produto ou CFOP…"
+                               oninput="window.synMapaFiltrar(this.value)"
+                               class="input input-sm input-bordered w-full pl-8 text-sm rounded-lg">
+                    </div>
+                </div>
+                <div class="flex items-end gap-2">
+                    <div>
+                        <label for="mapa-lote-cfop" class="block text-[12px] font-bold text-slate-700 mb-1">Aplicar aos filtrados</label>
+                        <input type="text" id="mapa-lote-cfop" list="cfops-entrada-dl"
+                               inputmode="numeric" maxlength="4" autocomplete="off" placeholder="CFOP"
+                               class="input input-sm input-bordered w-28 font-mono text-sm rounded-lg">
+                    </div>
+                    <button type="button" onclick="window.synMapaAplicarLote()"
+                            class="btn btn-sm btn-outline border-slate-300 text-slate-700"
+                            title="Preenche o CFOP nas linhas visíveis que ainda não estão aprovadas">
+                        <i class="fa-solid fa-wand-magic-sparkles mr-1"></i> Aplicar
+                    </button>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto w-full border border-slate-200 rounded-xl">
+                <table class="table table-zebra w-full text-xs text-slate-700
+                              [&_th]:py-3 [&_th]:px-3 [&_td]:py-2 [&_td]:px-3">
+                    <thead class="bg-slate-50 text-slate-600 font-bold uppercase text-[11px]
+                                  border-b border-slate-200 sticky top-0 z-10">
+                        <tr>
+                            <th class="pl-4">Produto / Fornecedor</th>
+                            <th class="text-center">CFOP do fornecedor</th>
+                            <th class="text-right">Itens</th>
+                            <th class="min-w-[150px]">CFOP de entrada</th>
+                            <th class="text-center">Situação</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mapa-corpo-nfe" class="whitespace-normal break-words">
+                        {% for l in linhas_nfe %}
+                        <tr class="mapa-linha align-middle" data-status="{{ l.status }}"
+                            data-busca="{{ (l.fornecedor_nome ~ ' ' ~ l.fornecedor_cnpj ~ ' ' ~ l.produto_cod ~ ' ' ~ l.produto_desc ~ ' ' ~ l.cfop_origem)|lower }}">
+                            <td class="pl-4">
+                                <div class="font-semibold text-slate-800 max-w-[340px] truncate"
+                                     title="{{ l.produto_desc }}">{{ l.produto_desc or l.produto_cod or '(sem descrição)' }}</div>
+                                <div class="text-[11px] text-slate-500 font-mono">
+                                    {{ l.fornecedor_nome }} · {{ l.fornecedor_cnpj }}
+                                    {% if l.produto_cod %}· cProd {{ l.produto_cod }}{% endif %}
+                                </div>
+                            </td>
+                            <td class="text-center">
+                                <span class="badge badge-outline font-mono text-[11px] font-bold text-slate-600">{{ l.cfop_origem or '—' }}</span>
+                            </td>
+                            <td class="text-right font-mono text-slate-600">{{ l.qtd_itens }}</td>
+                            <td>{{ campo(l, 'chave_nfe', 'cfop_nfe', 'cfops-entrada-dl') }}</td>
+                            <td class="text-center">{{ selo(l) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p id="mapa-vazio" class="hidden text-center text-slate-400 text-[12px] py-4">
+                Nenhuma linha com esse filtro.
+            </p>
+        </div>
+        {% endif %}
+
+        {% if linhas_cte %}
+        {# ======================= Fretes (CT-e) ======================= #}
+        <div>
+            <h4 class="font-bold text-sm text-slate-800 flex items-center gap-2 mb-1">
+                <i class="fa-solid fa-truck text-slate-500"></i> Fretes (CT-e)
+                <span class="text-[12px] font-normal text-slate-500">
+                    {{ resumo_cte.aprovada }} de {{ resumo_cte.total }} aprovadas
+                </span>
+            </h4>
+            <p class="text-[12px] text-slate-500 mb-2">
+                Uma regra por CFOP do CT-e e UF do transportador: o CFOP de aquisição de
+                transporte depende da atividade da empresa (1352 indústria, 1353 comércio…) e
+                de a prestação ser interna (1xxx) ou interestadual (2xxx), não de qual
+                transportadora levou.
+            </p>
+            <div class="overflow-x-auto w-full border border-slate-200 rounded-xl">
+                <table class="table table-zebra w-full text-xs text-slate-700
+                              [&_th]:py-3 [&_th]:px-3 [&_td]:py-2 [&_td]:px-3">
+                    <thead class="bg-slate-50 text-slate-600 font-bold uppercase text-[11px] border-b border-slate-200">
+                        <tr>
+                            <th class="pl-4">CFOP do CT-e / Transportadoras</th>
+                            <th class="text-center">UF do transportador</th>
+                            <th class="text-right">CT-e</th>
+                            <th class="text-right">Valor</th>
+                            <th class="min-w-[150px]">CFOP de entrada</th>
+                            <th class="text-center">Situação</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mapa-corpo-cte" class="whitespace-normal break-words">
+                        {% for l in linhas_cte %}
+                        <tr class="mapa-linha align-middle" data-status="{{ l.status }}">
+                            <td class="pl-4">
+                                <div class="font-semibold text-slate-800">
+                                    <span class="badge badge-outline font-mono text-[11px] font-bold text-slate-600">{{ l.cfop_origem or '—' }}</span>
+                                </div>
+                                <div class="text-[11px] text-slate-500 max-w-[340px] truncate mt-0.5"
+                                     title="{{ l.transportadoras|join(', ') }}">
+                                    {{ l.transportadoras[:3]|join(', ') }}{% if l.transportadoras|length > 3 %} e mais {{ l.transportadoras|length - 3 }}{% endif %}
+                                </div>
+                            </td>
+                            <td class="text-center font-mono font-bold text-slate-600">{{ l.uf or '—' }}</td>
+                            <td class="text-right font-mono text-slate-600">{{ l.qtd_ctes }}</td>
+                            <td class="text-right font-mono text-slate-600 whitespace-nowrap">R$ {{ l.valor|moeda_br }}</td>
+                            <td>{{ campo(l, 'chave_cte', 'cfop_cte', 'cfops-frete-dl') }}</td>
+                            <td class="text-center">{{ selo(l) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        {# ---- Gravar as regras ---- #}
+        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <p class="text-[13px] text-slate-600 max-w-2xl">
+                {% if pode_aprovar %}
+                <span class="text-emerald-700 font-semibold">Você é admin: o que salvar entra aprovado.</span>
+                Linha já aprovada fica travada; o cadeado destrava se precisar alterar.
+                {% else %}
+                <span class="text-sky-800 font-semibold">O que você enviar fica pendente</span>
+                até um admin aprovar na Curadoria. Linha aprovada só o admin altera.
+                {% endif %}
+            </p>
+            <div class="flex items-center gap-3 shrink-0">
+                <span id="spinner-regras" class="htmx-indicator text-sm text-slate-500">
+                    <span class="loading loading-spinner loading-sm"></span> Gravando…
+                </span>
+                <button type="submit" class="btn btn-outline border-syn-700 text-syn-700 hover:bg-syn-700 hover:text-white font-bold px-5">
+                    <i class="fa-solid fa-floppy-disk mr-1"></i>
+                    {{ 'Salvar e aprovar' if pode_aprovar else 'Enviar para aprovação' }}
+                </button>
+            </div>
+        </div>
+    </form>
+
+    {# ---- Gerar: fora do form das regras (form não se aninha em form) ---- #}
+    <div class="px-5 pb-5 pt-4 border-t border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <button type="button" class="btn btn-sm btn-ghost text-slate-600 self-start"
+                hx-get="/api/gerar-sped/{{ pacote_id }}/mapa" hx-target="#resultado-gerar"
+                hx-swap="innerHTML" hx-indicator="#spinner-gerar-sped"
+                title="Relê as regras — depois que o admin aprovar na Curadoria">
+            <i class="fa-solid fa-rotate mr-1"></i> Atualizar
+        </button>
+        <form hx-post="/api/gerar-sped/confirmar" hx-target="#resultado-gerar"
+              hx-swap="innerHTML" hx-indicator="#spinner-gerar-sped" hx-boost="false"
+              class="flex flex-wrap items-center gap-3 lg:justify-end">
+            <input type="hidden" name="pacote_id" value="{{ pacote_id }}">
+            <span id="mapa-aviso-salvar" class="hidden text-[12px] text-amber-800 font-semibold">
+                Há CFOP alterado sem salvar.
+            </span>
+            {% if not pode_gerar %}
+            <span class="text-[12px] text-slate-500">
+                Libera quando não faltar nenhuma regra aprovada.
+            </span>
+            {% endif %}
+            <span id="spinner-gerar-sped" class="htmx-indicator text-sm text-slate-500">
+                <span class="loading loading-spinner loading-sm"></span> Trabalhando…
+            </span>
+            <button type="submit" id="mapa-btn-gerar" {% if not pode_gerar %}disabled{% endif %}
+                    class="btn bg-syn-700 hover:bg-syn-800 text-white font-bold px-6 shadow-sm
+                           disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none">
+                <i class="fa-solid fa-gears mr-1"></i> Gerar SPED
+            </button>
+        </form>
+    </div>
+
+    {% if ignorados %}
+    <details class="mx-5 mb-5 bg-slate-50 border border-slate-200 rounded-lg p-3">
+        <summary class="cursor-pointer text-sm font-bold text-slate-700">
+            {{ ignorados | length }} arquivo(s) do pacote não são entrada desta empresa
+        </summary>
+        <table class="table table-xs w-full mt-2">
+            <tbody>
+                {% for nome, motivo in ignorados[:50] %}
+                <tr><td class="font-mono text-xs">{{ nome }}</td>
+                    <td class="text-xs text-slate-600">{{ motivo }}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </details>
+    {% endif %}
+</section>
+
+<script>
+    // Script DENTRO do partial de propósito: o HTMX injeta este bloco no swap, e
+    // é aqui que ele roda. No bloco head da página ele sumiria ao navegar pelo
+    // menu (o boost troca só o body). Ver CLAUDE.md.
+    (function () {
+        const raiz = document.getElementById('mapa-sped');
+        if (!raiz) return;
+        const corpo = document.getElementById('mapa-corpo-nfe');
+        const linhas = corpo ? Array.from(corpo.querySelectorAll('tr.mapa-linha')) : [];
+
+        // Filtro por texto já pré-calculado em data-busca (não lê innerText a
+        // cada tecla — essa foi a lentidão do Relatório Geral).
+        let t = null;
+        window.synMapaFiltrar = function (q) {
+            clearTimeout(t);
+            t = setTimeout(function () {
+                const termo = (q || '').toLowerCase().trim();
+                let visiveis = 0;
+                linhas.forEach(function (tr) {
+                    const casa = !termo || tr.dataset.busca.includes(termo);
+                    tr.style.display = casa ? '' : 'none';
+                    if (casa) visiveis++;
+                });
+                const vazio = document.getElementById('mapa-vazio');
+                if (vazio) vazio.classList.toggle('hidden', visiveis > 0);
+            }, 120);
+        };
+
+        // Preenche as linhas VISÍVEIS cujo campo está liberado — campo de regra
+        // aprovada vem disabled e fica como está.
+        window.synMapaAplicarLote = function () {
+            const campo = document.getElementById('mapa-lote-cfop');
+            const valor = (campo.value || '').trim();
+            if (!/^[1-3][0-9]{3}$/.test(valor)) { campo.focus(); return; }
+            linhas.forEach(function (tr) {
+                if (tr.style.display === 'none') return;
+                const inp = tr.querySelector('input.mapa-cfop');
+                if (inp && !inp.disabled && inp.value !== valor) {
+                    inp.value = valor;
+                    marcarAlterado();
+                }
+            });
+        };
+
+        // Gerar com CFOP digitado e não salvo geraria com o do BANCO — o que a
+        // pessoa vê seria diferente do que sai no arquivo. Até salvar, trava.
+        function marcarAlterado() {
+            const botao = document.getElementById('mapa-btn-gerar');
+            const aviso = document.getElementById('mapa-aviso-salvar');
+            if (botao) botao.disabled = true;
+            if (aviso) aviso.classList.remove('hidden');
+        }
+        raiz.addEventListener('input', function (e) {
+            if (e.target.classList.contains('mapa-cfop')) marcarAlterado();
+        });
+
+        // Admin: destrava uma regra aprovada (os dois campos da linha juntos,
+        // senão a lista de chaves e a de CFOPs chegariam desencontradas).
+        raiz.addEventListener('click', function (e) {
+            const botao = e.target.closest('.mapa-destravar');
+            if (!botao) return;
+            const tr = botao.closest('tr');
+            tr.querySelectorAll('input[disabled]').forEach(function (i) { i.disabled = false; });
+            const campo = tr.querySelector('input.mapa-cfop');
+            if (campo) { campo.focus(); campo.select(); }
+            botao.remove();
+        });
+    })();
+</script>

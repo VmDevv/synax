@@ -1,0 +1,115 @@
+{# A memória de remetentes (services/email_recebimento/remetentes.py). Só admin.
+   Valores vão para atributos htmx por `tojson` / `urlencode` — nunca soltos
+   dentro de JSON ou de URL: remetente e nota vêm de e-mail de terceiro. #}
+{% set e_ = edicao or {} %}
+<section class="syn-card overflow-hidden">
+    <div class="px-5 py-3 border-b border-slate-200 bg-slate-50">
+        <h3 class="font-bold text-sm text-slate-800 flex items-center gap-2">
+            <i class="fa-solid fa-address-book text-syn-600"></i> Remetentes conhecidos
+            <span class="text-[11px] font-normal text-slate-500">· a memória do resumo da manhã</span>
+        </h3>
+        <p class="text-[11px] text-slate-500 mt-0.5">
+            <b>Silenciado</b> não vai para a IA — vira uma linha de contagem no resumo (o XML que vier dele
+            continua aproveitado). A <b>nota</b> vai junto com cada e-mail do remetente, para a IA saber quem
+            é e o que costuma pedir. A <b>empresa</b> o sistema aprende sozinho quando o remetente manda XML
+            de um cliente só. A IA nunca escreve aqui.
+        </p>
+    </div>
+
+    {% if mensagem_rem %}
+    <div class="mx-5 mt-4 flex items-start gap-2 rounded-xl px-4 py-2.5 text-[13px] {% if sucesso_rem %}bg-emerald-50 border border-emerald-200 text-emerald-900{% else %}bg-red-50 border border-red-200 text-red-800{% endif %}">
+        <i class="fa-solid {% if sucesso_rem %}fa-circle-check text-emerald-600{% else %}fa-circle-exclamation text-red-600{% endif %} mt-0.5"></i>
+        <span>{{ mensagem_rem }}</span>
+    </div>
+    {% endif %}
+
+    <form hx-post="/emails/remetentes/salvar" hx-target="#remetentes" hx-swap="innerHTML"
+          class="px-5 py-4 grid grid-cols-1 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.2fr)] gap-3 border-b border-slate-100">
+        <div>
+            <label class="block text-[12px] font-bold text-slate-700 mb-1">E-mail ou domínio</label>
+            <input type="text" name="padrao" value="{{ e_.padrao or '' }}" autocomplete="off" required
+                   class="input input-bordered input-sm w-full text-sm rounded-lg"
+                   placeholder="fulano@cliente.com.br ou @nibo.com.br">
+        </div>
+        <div>
+            <label class="block text-[12px] font-bold text-slate-700 mb-1">Nome curto</label>
+            <input type="text" name="rotulo" value="{{ e_.rotulo or '' }}" maxlength="120" autocomplete="off"
+                   class="input input-bordered input-sm w-full text-sm rounded-lg"
+                   placeholder="Nibo — relatório diário">
+        </div>
+        <div>
+            <label class="block text-[12px] font-bold text-slate-700 mb-1">Empresa (só para endereço)</label>
+            <select name="tenant_id" class="select select-bordered select-sm w-full text-sm rounded-lg">
+                <option value="">— nenhuma —</option>
+                {% for emp in empresas_ativas %}
+                <option value="{{ emp.id }}" {% if e_.tenant_id == emp.id %}selected{% endif %}>{{ emp.nome }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="md:col-span-3">
+            <label class="block text-[12px] font-bold text-slate-700 mb-1">Nota para a IA <span class="font-normal text-slate-400">(quem é, o que costuma pedir)</span></label>
+            <textarea name="nota" rows="2" maxlength="2000"
+                      class="textarea textarea-bordered textarea-sm w-full text-[13px] leading-snug rounded-lg"
+                      placeholder="Financeiro da Embalar. Pede segunda via de DAS e guia do Simples; responde rápido.">{{ e_.nota or '' }}</textarea>
+        </div>
+        <div class="md:col-span-3 flex flex-wrap items-center gap-4">
+            <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" name="silenciar" value="1" class="checkbox checkbox-sm checkbox-primary"
+                       {% if e_.silenciar %}checked{% endif %}>
+                <span class="text-[13px] text-slate-700"><b>Silenciar</b> — tirar do resumo da IA</span>
+            </label>
+            <button type="submit" class="btn btn-sm bg-syn-700 hover:bg-syn-900 text-white border-none px-4 rounded-lg">
+                <i class="fa-solid fa-floppy-disk text-[11px]"></i> Salvar
+            </button>
+            {% if e_.padrao %}
+            <button type="button" hx-get="/emails/remetentes/editar" hx-target="#remetentes" hx-swap="innerHTML"
+                    class="btn btn-sm btn-ghost text-slate-500 rounded-lg">Limpar</button>
+            {% endif %}
+        </div>
+    </form>
+
+    {% if remetentes %}
+    <div class="overflow-x-auto">
+        <table class="w-full text-[12px]">
+            <tbody class="divide-y divide-slate-100">
+                {% for x in remetentes %}{% set r = x.r %}
+                <tr class="hover:bg-slate-50 align-top">
+                    <td class="px-5 py-2 font-mono text-[11px] text-slate-700 whitespace-nowrap">{{ r.padrao }}</td>
+                    <td class="px-3 py-2">
+                        {% if r.rotulo %}<div class="font-semibold text-slate-800">{{ r.rotulo }}</div>{% endif %}
+                        {% if x.empresa %}<div class="text-blue-700 font-semibold">{{ x.empresa }}</div>
+                        {% elif r.varias_empresas %}<div class="text-slate-500">várias empresas</div>{% endif %}
+                        {% if r.nota %}<div class="text-slate-500 max-w-[36rem] line-clamp-2" title="{{ r.nota }}">{{ r.nota }}</div>{% endif %}
+                    </td>
+                    <td class="px-3 py-2 whitespace-nowrap">
+                        {% if r.silenciar %}
+                        <span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200"><i class="fa-solid fa-volume-xmark text-[10px]"></i> silenciado</span>
+                        {% endif %}
+                        {% if r.origem == "aprendido" %}
+                        <span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200" title="Empresa aprendida pelos XMLs que este remetente mandou">aprendido</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-3 py-2 whitespace-nowrap text-right">
+                        <button type="button" class="btn btn-xs btn-ghost text-slate-600"
+                                hx-get="/emails/remetentes/editar?padrao={{ r.padrao | urlencode }}"
+                                hx-target="#remetentes" hx-swap="innerHTML">
+                            <i class="fa-solid fa-pen text-[10px]"></i> Editar
+                        </button>
+                        <button type="button" class="btn btn-xs btn-ghost text-red-600"
+                                hx-post="/emails/remetentes/remover" hx-target="#remetentes" hx-swap="innerHTML"
+                                hx-vals='{"padrao": {{ r.padrao | tojson }}}'
+                                hx-confirm="Tirar este remetente da memória?">
+                            <i class="fa-solid fa-trash text-[10px]"></i>
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="px-5 py-4 text-[13px] text-slate-500">
+        Nenhum remetente na memória ainda. Silencie os automáticos direto na lista de e-mails abaixo.
+    </p>
+    {% endif %}
+</section>

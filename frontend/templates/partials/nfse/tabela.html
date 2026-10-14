@@ -1,58 +1,57 @@
+{# A tabela diz, em cada linha, DE QUAL EMPRESA é a nota e se ela foi RECEBIDA
+   (a empresa é a tomadora) ou EMITIDA (a empresa é a prestadora) — o ADN
+   entrega as duas misturadas, e a tela antiga só mostrava prestador e tomador
+   lado a lado. "Contraparte" é quem está do outro lado. As 30 colunas do
+   relatório ABRASF continuam aqui, atrás de "Mais colunas". #}
+{% set principais = ['numero', 'dt_emissao', 'dt_competencia', 'valor_servico', 'valor_liquido', 'status'] %}
+{% macro celula(d, campo) -%}
+    {%- set v = d[campo] -%}
+    {%- if v is none or v == '' -%}
+        <span class="text-slate-300">—</span>
+    {%- elif campo in monetarios -%}
+        {{ "%.2f"|format(v) }}
+    {%- elif campo == 'aliquota' -%}
+        {{ "%.2f"|format(v) }}%
+    {%- elif campo.startswith('dt_') -%}
+        {{ v.strftime('%d/%m/%Y') }}
+    {%- elif campo == 'status' -%}
+        <span class="px-1.5 py-0.5 rounded text-[10px] font-bold
+                     {% if d.cancelada %}bg-red-100 text-red-700{% else %}bg-emerald-100 text-emerald-700{% endif %}">{{ v }}</span>
+    {%- else -%}
+        {{ v }}
+    {%- endif -%}
+{%- endmacro %}
 <div id="nfse-tabela" class="syn-card syn-card-accent relative overflow-hidden">
+    <style>
+        #nfse-tabela .nfse-extra { display: none; }
+        #nfse-tabela.nfse-todas .nfse-extra { display: table-cell; }
+    </style>
 
     <div class="htmx-indicator absolute inset-0 bg-white/60 backdrop-blur-[1px] z-20 flex items-center justify-center">
         <span class="loading loading-spinner loading-md text-[#037fb5]"></span>
     </div>
 
-    {# Resultado da última busca no ADN, empresa por empresa. Sem isto, uma
-       recusa do ADN aparecia apenas como "0 notas" — sem dizer o motivo. #}
-    {% if resumos %}
-    <div x-data="{ aberto: true }" x-show="aberto" class="px-4 pt-3">
-        <div class="rounded-lg border border-slate-200 overflow-hidden">
-            <div class="px-3 py-2 flex items-center gap-2 text-[12px] font-semibold"
-                 style="background: var(--syn-tint-05); color: var(--syn-900);">
-                <i class="fa-solid fa-clipboard-check"></i>
-                Resultado da busca no ADN
-                {% set falhas = resumos | selectattr('erro') | list %}
-                {% if falhas %}
-                <span class="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px]">{{ falhas|length }} com falha</span>
-                {% endif %}
-                <button type="button" class="ml-auto text-slate-400 hover:text-slate-600" @click="aberto = false">
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
-            </div>
-            <div class="max-h-[180px] overflow-y-auto divide-y divide-slate-100">
-                {% for r in resumos %}
-                <div class="px-3 py-1.5 flex items-start gap-2 text-[12px] bg-white">
-                    {% if r.erro %}
-                    <i class="fa-solid fa-circle-exclamation text-red-500 mt-0.5 shrink-0"></i>
-                    {% elif r.novos or r.atualizados %}
-                    <i class="fa-solid fa-circle-check text-emerald-500 mt-0.5 shrink-0"></i>
-                    {% else %}
-                    <i class="fa-solid fa-circle-minus text-slate-300 mt-0.5 shrink-0"></i>
-                    {% endif %}
-                    <div class="min-w-0 flex-1">
-                        <span class="font-semibold text-slate-700">{{ r.empresa or r.cnpj }}</span>
-                        {% if r.erro %}
-                        <p class="text-red-600 break-words">{{ r.erro }}</p>
-                        {% else %}
-                        <span class="text-slate-500">
-                            {{ r.novos }} nova(s){% if r.atualizados %}, {{ r.atualizados }} atualizada(s){% endif %}
-                            · NSU {{ r.nsu }}
-                        </span>
-                        {% endif %}
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-    </div>
-    {% endif %}
+    {# O resultado do lote de NFS-e, empresa por empresa, fica no painel do lote
+       (partials/nfse/lote_painel.html), acima desta tabela. #}
 
     <!-- ===== Filtros ===== -->
     <div class="syn-toolbar px-4 py-3">
         <div class="flex flex-wrap items-end gap-2">
-            {% set inc = "[name='tenant_id'], [name='q_prestador'], [name='q_tomador'], [name='q_status'], [name='competencia'], [name='q_texto'], [name='per_page']" %}
+            {% set inc = "[name='q_lote'], [name='tenant_id'], [name='q_tipo'], [name='q_prestador'], [name='q_tomador'], [name='q_status'], [name='competencia'], [name='q_texto'], [name='per_page']" %}
+
+            {# A tela abre nas notas do último lote; o histórico inteiro fica a
+               um clique. Sem lote nenhum, só existe "todas". #}
+            {% if lote_vista %}
+            <div class="flex flex-col gap-1 w-[170px]">
+                <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Mostrar</label>
+                <select name="q_lote" hx-get="/nfse/tabela" hx-target="#nfse-tabela" hx-swap="outerHTML" hx-include="{{ inc }}" hx-trigger="change"
+                        class="px-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition">
+                    <option value="ultimo" {% if q_lote == 'ultimo' %}selected{% endif %}>Último lote</option>
+                    <option value="todas" {% if q_lote == 'todas' %}selected{% endif %}>Todas as notas guardadas</option>
+                </select>
+            </div>
+            {% endif %}
+            <input type="hidden" id="nfse-lote-id" value="{{ lote_id or '' }}">
 
             <div class="flex flex-col gap-1 min-w-[200px]">
                 <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Empresa</label>
@@ -65,14 +64,25 @@
                 </select>
             </div>
 
-            <div class="flex flex-col gap-1 min-w-[160px]">
+            <div class="flex flex-col gap-1 w-[130px]">
+                <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Tipo</label>
+                <select name="q_tipo" hx-get="/nfse/tabela" hx-target="#nfse-tabela" hx-swap="outerHTML" hx-include="{{ inc }}" hx-trigger="change"
+                        title="Recebida: a empresa é a tomadora. Emitida: a empresa é a prestadora."
+                        class="px-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition">
+                    <option value="" {% if not q_tipo %}selected{% endif %}>Todas</option>
+                    <option value="recebidas" {% if q_tipo == 'recebidas' %}selected{% endif %}>Recebidas</option>
+                    <option value="emitidas" {% if q_tipo == 'emitidas' %}selected{% endif %}>Emitidas</option>
+                </select>
+            </div>
+
+            <div class="flex flex-col gap-1 min-w-[150px]">
                 <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Prestador</label>
                 <input type="text" name="q_prestador" value="{{ q_prestador }}" placeholder="CNPJ ou razão social"
                        hx-get="/nfse/tabela" hx-target="#nfse-tabela" hx-swap="outerHTML" hx-include="{{ inc }}" hx-trigger="keyup changed delay:400ms, search"
                        class="px-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition">
             </div>
 
-            <div class="flex flex-col gap-1 min-w-[160px]">
+            <div class="flex flex-col gap-1 min-w-[150px]">
                 <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Tomador</label>
                 <input type="text" name="q_tomador" value="{{ q_tomador }}" placeholder="CNPJ ou razão social"
                        hx-get="/nfse/tabela" hx-target="#nfse-tabela" hx-swap="outerHTML" hx-include="{{ inc }}" hx-trigger="keyup changed delay:400ms, search"
@@ -86,7 +96,7 @@
                        class="px-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition">
             </div>
 
-            <div class="flex flex-col gap-1 w-[130px]">
+            <div class="flex flex-col gap-1 w-[120px]">
                 <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Situação</label>
                 <select name="q_status" hx-get="/nfse/tabela" hx-target="#nfse-tabela" hx-swap="outerHTML" hx-include="{{ inc }}" hx-trigger="change"
                         class="px-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition">
@@ -96,14 +106,14 @@
                 </select>
             </div>
 
-            <div class="flex flex-col gap-1 min-w-[170px] flex-1">
+            <div class="flex flex-col gap-1 min-w-[160px] flex-1">
                 <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Busca livre</label>
                 <input type="text" name="q_texto" value="{{ q_texto }}" placeholder="Nº, discriminação, cód. serviço"
                        hx-get="/nfse/tabela" hx-target="#nfse-tabela" hx-swap="outerHTML" hx-include="{{ inc }}" hx-trigger="keyup changed delay:400ms, search"
                        class="px-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:border-[#037fb5] focus:ring-2 focus:ring-[#9fdbee]/50 focus:outline-none transition">
             </div>
 
-            <div class="flex flex-col gap-1 w-[86px]">
+            <div class="flex flex-col gap-1 w-[80px]">
                 <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Por pág.</label>
                 <select name="per_page" hx-get="/nfse/tabela" hx-target="#nfse-tabela" hx-swap="outerHTML" hx-include="{{ inc }}" hx-trigger="change"
                         class="px-2 py-1.5 text-[13px] rounded-md border border-slate-200 bg-white focus:outline-none">
@@ -114,6 +124,12 @@
             </div>
 
             <div class="ml-auto flex items-center gap-2">
+                <button type="button" onclick="nfseMaisColunas()"
+                        title="Mostra ou esconde as demais colunas do relatório ABRASF"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 transition">
+                    <i class="fa-solid fa-table-columns text-[11px]"></i>
+                    <span class="nfse-rotulo-colunas">Mais colunas</span>
+                </button>
                 <button type="button" id="nfse-btn-zip" onclick="nfseBaixarZip()"
                         class="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold rounded-md bg-[#037fb5] text-white shadow-sm hover:bg-[#026a9e] transition">
                     <i class="fa-solid fa-file-zipper text-[11px]"></i>
@@ -122,6 +138,66 @@
             </div>
         </div>
     </div>
+
+    {% if lote_id %}
+    <div class="px-4 py-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] border-b border-sky-100 bg-sky-50/70 text-sky-900">
+        <i class="fa-solid fa-filter"></i>
+        Mostrando só as notas do último lote
+        ({{ 'em andamento, iniciado' if lote_vista.rodando else 'de' }} {{ lote_vista.quando | hora_br('%d/%m às %H:%M') }})
+        — {{ total }} nota(s).
+        <button type="button" class="font-semibold underline underline-offset-2 hover:text-sky-700"
+                onclick="const s = document.querySelector('#nfse-tabela [name=q_lote]'); if (s) { s.value = 'todas'; htmx.trigger(s, 'change'); }">
+            Ver todas as notas guardadas
+        </button>
+    </div>
+    {% endif %}
+
+    {# Resumo da empresa escolhida, sobre o MESMO filtro da tabela. As retenções
+       ficam em cada lado: na recebida quem reteve foi a empresa (e recolhe); na
+       emitida, o cliente reteve dela. #}
+    {% if resumo %}
+    {% set rec = resumo.recebida %}{% set emi = resumo.emitida %}{% set out = resumo.outra %}
+    <div class="px-4 py-3 grid grid-cols-1 md:grid-cols-3 gap-2 border-b border-slate-100">
+        <div class="rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-2">
+            <div class="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-sky-800">
+                <i class="fa-solid fa-arrow-down-long"></i> Recebidas <span class="normal-case font-normal text-sky-700">— a empresa é a tomadora</span>
+            </div>
+            <div class="mt-0.5 text-[15px] font-bold text-slate-800 tabular-nums">{{ rec.qtd }} nota(s) · R$ {{ rec.valor | moeda_br }}</div>
+            <div class="text-[11px] text-slate-600 tabular-nums">
+                ISS retido R$ {{ rec.iss_retido | moeda_br }} · Retenções federais R$ {{ rec.retencoes | moeda_br }}
+                <span class="text-slate-400">(a recolher pela empresa)</span>
+            </div>
+        </div>
+        <div class="rounded-lg border border-violet-200 bg-violet-50/60 px-3 py-2">
+            <div class="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-violet-800">
+                <i class="fa-solid fa-arrow-up-long"></i> Emitidas <span class="normal-case font-normal text-violet-700">— a empresa é a prestadora</span>
+            </div>
+            <div class="mt-0.5 text-[15px] font-bold text-slate-800 tabular-nums">{{ emi.qtd }} nota(s) · R$ {{ emi.valor | moeda_br }}</div>
+            <div class="text-[11px] text-slate-600 tabular-nums">
+                ISS retido R$ {{ emi.iss_retido | moeda_br }} · Retenções federais R$ {{ emi.retencoes | moeda_br }}
+                <span class="text-slate-400">(retidos pelos clientes)</span>
+            </div>
+        </div>
+        <div class="rounded-lg border border-slate-200 bg-white px-3 py-2">
+            <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Situação</div>
+            <div class="mt-0.5 text-[13px] text-slate-700 tabular-nums">
+                {{ rec.canceladas + emi.canceladas + out.canceladas }} cancelada(s)
+                {% if empresa_atual %}<span class="text-slate-400">· CNPJ {{ empresa_atual[1] }}</span>{% endif %}
+            </div>
+            {% if out.qtd %}
+            <div class="mt-1 text-[11px] text-amber-800">
+                <i class="fa-solid fa-triangle-exclamation mr-0.5"></i>
+                {{ out.qtd }} nota(s) em que a empresa não aparece como prestadora nem tomadora — veja a coluna Tipo.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% elif not tenant_id and linhas %}
+    <div class="px-4 py-2 text-[12px] text-slate-500 border-b border-slate-100">
+        <i class="fa-solid fa-circle-info mr-1 text-slate-400"></i>
+        Escolha uma empresa para ver o resumo de notas recebidas e emitidas, com as retenções de cada lado.
+    </div>
+    {% endif %}
 
     {% if toast %}
     <div class="px-4 py-2 bg-emerald-50 border-b border-emerald-200 text-[13px] text-emerald-800">
@@ -139,14 +215,26 @@
                                onchange="nfseMarcarTodos(this)">
                     </th>
                     <th class="px-2 py-2 text-center w-16">Ações</th>
-                    {% for campo, rotulo in colunas %}
-                    <th class="px-2 py-2 text-left font-semibold {% if campo in monetarios %}text-right{% endif %}">{{ rotulo }}</th>
+                    {% if not tenant_id %}<th class="px-2 py-2 text-left font-semibold">Empresa</th>{% endif %}
+                    <th class="px-2 py-2 text-left font-semibold">Tipo</th>
+                    <th class="px-2 py-2 text-left font-semibold">Número</th>
+                    <th class="px-2 py-2 text-left font-semibold">Emissão</th>
+                    <th class="px-2 py-2 text-left font-semibold">Competência</th>
+                    <th class="px-2 py-2 text-left font-semibold" title="Quem está do outro lado: o prestador numa nota recebida, o tomador numa emitida">Contraparte</th>
+                    <th class="px-2 py-2 text-right font-semibold">Valor Serviço</th>
+                    <th class="px-2 py-2 text-right font-semibold" title="ISS da nota quando retido na fonte">ISS retido (R$)</th>
+                    <th class="px-2 py-2 text-right font-semibold" title="IR + PIS + COFINS + CSLL + INSS retidos">Retenções</th>
+                    <th class="px-2 py-2 text-right font-semibold">Valor Líquido</th>
+                    <th class="px-2 py-2 text-left font-semibold">Status</th>
+                    {% for campo, rotulo in colunas if campo not in principais %}
+                    <th class="nfse-extra px-2 py-2 text-left font-semibold {% if campo in monetarios %}text-right{% endif %}">{{ rotulo }}</th>
                     {% endfor %}
                 </tr>
             </thead>
             <tbody class="syn-zebra divide-y divide-slate-100">
                 {% for d in linhas %}
                 {% set ident = d.prestador ~ '|' ~ d.numero ~ '|' ~ d.mun_prest %}
+                {% set x = info(d) %}
                 <tr class="{% if d.cancelada %}bg-red-50/60{% endif %}">
                     <td class="px-2 py-1.5 text-center">
                         <input type="checkbox" name="chaves" value="{{ ident }}"
@@ -167,32 +255,48 @@
                             <i class="fa-solid fa-file-code text-[12px]"></i>
                         </a>
                     </td>
-                    {% for campo, rotulo in colunas %}
-                    {% set v = d[campo] %}
-                    <td class="px-2 py-1.5 {% if campo in monetarios %}text-right font-mono tabular-nums{% endif %}">
-                        {%- if v is none or v == '' -%}
-                            <span class="text-slate-300">—</span>
-                        {%- elif campo in monetarios -%}
-                            {{ "%.2f"|format(v) }}
-                        {%- elif campo == 'aliquota' -%}
-                            {{ "%.2f"|format(v) }}%
-                        {%- elif campo.startswith('dt_') -%}
-                            {{ v.strftime('%d/%m/%Y') }}
-                        {%- elif campo == 'status' -%}
-                            <span class="px-1.5 py-0.5 rounded text-[10px] font-bold
-                                         {% if d.cancelada %}bg-red-100 text-red-700{% else %}bg-emerald-100 text-emerald-700{% endif %}">{{ v }}</span>
-                        {%- else -%}
-                            {{ v }}
-                        {%- endif -%}
+                    {% if not tenant_id %}
+                    <td class="px-2 py-1.5 font-semibold text-slate-700 max-w-[220px] truncate" title="{{ x.empresa }}">{{ x.empresa or "—" }}</td>
+                    {% endif %}
+                    <td class="px-2 py-1.5">
+                        {% if x.tipo == 'recebida' %}
+                        <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-800" title="A empresa é a TOMADORA desta nota">Recebida</span>
+                        {% elif x.tipo == 'emitida' %}
+                        <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-violet-100 text-violet-800" title="A empresa é a PRESTADORA desta nota">Emitida</span>
+                        {% else %}
+                        <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800"
+                              title="A empresa não aparece como prestadora nem tomadora (prestador {{ d.prestador }}, tomador {{ d.tomador or 'não informado' }})">{{ x.rotulo }}</span>
+                        {% endif %}
                     </td>
+                    <td class="px-2 py-1.5">{{ celula(d, 'numero') }}</td>
+                    <td class="px-2 py-1.5">{{ celula(d, 'dt_emissao') }}</td>
+                    <td class="px-2 py-1.5">{{ celula(d, 'dt_competencia') }}</td>
+                    <td class="px-2 py-1.5 max-w-[300px]">
+                        <div class="truncate text-slate-700" title="{{ x.contraparte_nome }}">{{ x.contraparte_nome or "—" }}</div>
+                        <div class="font-mono text-[10px] text-slate-400">
+                            {%- if x.contraparte_doc|length == 11 -%}CPF {% endif -%}{{ x.contraparte_doc or "" }}
+                        </div>
+                    </td>
+                    <td class="px-2 py-1.5 text-right font-mono tabular-nums">{{ celula(d, 'valor_servico') }}</td>
+                    <td class="px-2 py-1.5 text-right font-mono tabular-nums">{% if x.iss_retido %}{{ "%.2f"|format(x.iss_retido) }}{% else %}<span class="text-slate-300">—</span>{% endif %}</td>
+                    <td class="px-2 py-1.5 text-right font-mono tabular-nums">{% if x.retencoes %}{{ "%.2f"|format(x.retencoes) }}{% else %}<span class="text-slate-300">—</span>{% endif %}</td>
+                    <td class="px-2 py-1.5 text-right font-mono tabular-nums">{{ celula(d, 'valor_liquido') }}</td>
+                    <td class="px-2 py-1.5">{{ celula(d, 'status') }}</td>
+                    {% for campo, rotulo in colunas if campo not in principais %}
+                    <td class="nfse-extra px-2 py-1.5 {% if campo in monetarios %}text-right font-mono tabular-nums{% endif %}">{{ celula(d, campo) }}</td>
                     {% endfor %}
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="{{ colunas|length + 2 }}" class="py-16 text-center">
+                    <td colspan="{{ colunas|length + 8 }}" class="py-16 text-center">
                         <i class="fa-solid fa-file-invoice text-4xl text-slate-300 mb-3"></i>
+                        {% if lote_id %}
+                        <p class="font-semibold text-slate-500">O último lote não trouxe nota com estes filtros</p>
+                        <p class="text-[13px] text-slate-400 mt-1">Empresas em dia não trazem nada novo. Use “Mostrar → Todas as notas guardadas” para ver o histórico.</p>
+                        {% else %}
                         <p class="font-semibold text-slate-500">Nenhuma NFS-e encontrada</p>
                         <p class="text-[13px] text-slate-400 mt-1">Use o botão “Importar NFS-e” para carregar os XMLs.</p>
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -228,6 +332,23 @@
     if (!raiz) return;
     const marcados = () => Array.from(raiz.querySelectorAll('.nfse-check:checked'));
 
+    // "Mais colunas" é preferência de quem usa a tela; o localStorage pode
+    // falhar (janela anônima, bloqueio), e a tela segue sem lembrar.
+    const CHAVE = 'nfse-mais-colunas';
+    const aplicar = (ligado) => {
+        raiz.classList.toggle('nfse-todas', ligado);
+        raiz.querySelectorAll('.nfse-rotulo-colunas').forEach(el =>
+            el.innerText = ligado ? 'Menos colunas' : 'Mais colunas');
+    };
+    let salvo = false;
+    try { salvo = localStorage.getItem(CHAVE) === '1'; } catch (e) {}
+    aplicar(salvo);
+    window.nfseMaisColunas = () => {
+        const ligado = !raiz.classList.contains('nfse-todas');
+        aplicar(ligado);
+        try { localStorage.setItem(CHAVE, ligado ? '1' : '0'); } catch (e) {}
+    };
+
     window.nfseAtualizarSel = () => {
         const n = marcados().length;
         raiz.querySelectorAll('.nfse-sel').forEach(el => el.innerText = n);
@@ -245,6 +366,14 @@
         if (tenant && tenant.value) {
             const i = document.createElement('input');
             i.type = 'hidden'; i.name = 'tenant_id'; i.value = tenant.value;
+            form.appendChild(i);
+        }
+        // Na visão do último lote, o ZIP sem nada marcado é o do lote — o
+        // que está na tela —, não o histórico inteiro da empresa.
+        const lote = raiz.querySelector('#nfse-lote-id');
+        if (lote && lote.value) {
+            const i = document.createElement('input');
+            i.type = 'hidden'; i.name = 'lote_id'; i.value = lote.value;
             form.appendChild(i);
         }
         marcados().forEach(c => {

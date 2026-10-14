@@ -40,6 +40,17 @@ CAMPOS_C170 = {
     "VL_BC_IPI": 22,
     "ALIQ_IPI": 23,
     "VL_IPI": 24,
+    # PIS/COFINS — corrigíveis só no leiaute do EFD Contribuições, que é
+    # onde esses campos existem preenchidos. Estar no mapa não os oferece na
+    # tela: quem decide isso é `leiaute` na opção, logo abaixo.
+    "CST_PIS": 25,
+    "VL_BC_PIS": 26,
+    "ALIQ_PIS": 27,
+    "VL_PIS": 30,
+    "CST_COFINS": 31,
+    "VL_BC_COFINS": 32,
+    "ALIQ_COFINS": 33,
+    "VL_COFINS": 36,
 }
 
 # Campos do D190 (frete) que uma correção pode tocar. O D100 NÃO tem registro
@@ -66,7 +77,8 @@ CAMPOS_D100 = {"VL_DOC": 15}
 
 # Campos de dinheiro: entram como Decimal e saem com vírgula e duas casas.
 CAMPOS_MONETARIOS = {"VL_BC_ICMS", "VL_ICMS", "VL_BC_ICMS_ST", "VL_ICMS_ST",
-                     "VL_BC_IPI", "VL_IPI", "VL_OPR", "VL_RED_BC", "VL_DOC"}
+                     "VL_BC_IPI", "VL_IPI", "VL_OPR", "VL_RED_BC", "VL_DOC",
+                     "VL_BC_PIS", "VL_PIS", "VL_BC_COFINS", "VL_COFINS"}
 
 # VL_RED_BC do D190 "só pode ser preenchido se o campo CST_ICMS for igual a 20
 # ou 70" (Guia 3.2.2, D190 campo 08).
@@ -89,12 +101,26 @@ CST_COM_REDUCAO = ("20", "70")
 # dizer "tributada integralmente" num item sem imposto nenhum.
 
 
+# Os dois leiautes de SPED, repetidos aqui para o motor de reescrita não
+# importar o da auditoria: são módulos de propósitos diferentes, e a
+# dependência só existiria por causa de duas strings.
+LEIAUTE_FISCAL = "fiscal"
+LEIAUTE_CONTRIBUICOES = "contribuicoes"
+# A correção que vale nos DOIS arquivos. Os campos 25 a 36 do C170 são os
+# mesmos nos dois leiautes, e glosar neles não encosta em C190 nem no
+# Bloco E — é zerar o imposto do item e trocar o CST.
+LEIAUTE_AMBOS = "ambos"
+
+
 @dataclass(frozen=True)
 class Opcao:
     codigo: str
     rotulo: str
     registro: str
     campos: tuple
+    # Em qual arquivo esta correção faz sentido. As cinco de sempre são do
+    # EFD ICMS/IPI e continuam iguais; o EFD Contribuições tem as suas.
+    leiaute: str = LEIAUTE_FISCAL
 
 
 OPCOES_DE_CORRECAO = (
@@ -115,7 +141,35 @@ OPCOES_DE_CORRECAO = (
     # um total que os analíticos contradizem.
     Opcao("valor_documento", "Valor total da nota", "C100", ("VL_DOC",)),
     Opcao("valor_frete", "Valor total do frete", "D100", ("VL_DOC",)),
+    # --- EFD Contribuições (17/09/2026) --------------------------------
+    # Uma opção só para os dois tributos porque a auditoria emite UMA linha
+    # de divergência para o par: o confronto é da BASE, que é a mesma para
+    # PIS e COFINS (item menos ICMS, ICMS ST, FCP ST e IPI). Separar em duas
+    # caixas faria a pessoa marcar metade de um cálculo.
+    Opcao("credito_pis_cofins", "Crédito de PIS/COFINS — mercadoria", "C170",
+          ("VL_BC_PIS", "ALIQ_PIS", "VL_PIS",
+           "VL_BC_COFINS", "ALIQ_COFINS", "VL_COFINS"),
+          # Nos dois leiautes desde 18/09/2026, a pedido do Sandro. No EFD
+          # ICMS/IPI a tela só recebe as propostas de GLOSA — ver `propor`
+          # em ponte.py —, porque ali o C170 quase nunca traz base de
+          # PIS/COFINS e escrever base nova num arquivo que não escritura
+          # esse tributo seria inventar dado.
+          leiaute=LEIAUTE_AMBOS),
 )
+
+
+def opcoes_do_leiaute(leiaute: str) -> tuple:
+    """As correções que a tela oferece para o arquivo que foi auditado.
+
+    O EFD Contribuições não tem C190 nem Bloco E, então as sete opções de
+    ICMS/IPI não têm o que reescrever ali. `LEIAUTE_AMBOS` sai nas duas
+    listas: é o caso do PIS/COFINS, cujos campos do C170 existem nos dois
+    arquivos. O que muda entre eles não é a caixa da tela, é o que a ponte
+    oferece dentro dela — no Fiscal, só a glosa.
+    """
+    alvo = leiaute or LEIAUTE_FISCAL
+    return tuple(o for o in OPCOES_DE_CORRECAO
+                 if o.leiaute in (alvo, LEIAUTE_AMBOS))
 
 # Primeiro dígito do CFOP conforme o sentido da operação (C170 campo 11 e
 # C190 campo 03, ambos amarrados ao IND_OPER do C100).

@@ -58,13 +58,42 @@
                     Fornec. {{ r.supplier_cnpj }}
                 </div>
             </div>
+        {% elif current_rule_type == 'gerador_cfop' %}
+            {# Regra do GERADOR de SPED: vai direto para o C170 do arquivo do
+               cliente que não escritura. Produto e fornecedor por extenso, porque
+               não há auditoria nem nota aberta para conferir depois. #}
+            <div class="min-w-0">
+                <div class="flex items-baseline gap-2">
+                    <span class="font-mono font-bold text-slate-800">{{ r.supplier_cfop }}</span>
+                    <span class="text-slate-400 truncate" title="Fornec: {{ r.supplier_cnpj }} | cProd: {{ r.product_code }}">
+                        {{ r.supplier_name or r.supplier_cnpj }} · {{ r.product_code }}
+                    </span>
+                </div>
+                {% if r.product_description %}
+                <div class="text-[12px] text-slate-500 truncate" title="{{ r.product_description }}">
+                    {{ r.product_description }}
+                </div>
+                {% endif %}
+            </div>
+        {% elif current_rule_type == 'gerador_cte' %}
+            <div class="min-w-0">
+                <div class="flex items-baseline gap-2">
+                    <span class="font-mono font-bold text-slate-800">{{ r.supplier_cfop }}</span>
+                    <span class="text-slate-400">transportador de {{ r.emitter_uf or 'UF não informada' }} · {{ r.company_cnpj }}</span>
+                </div>
+                {% if r.carrier_names %}
+                <div class="text-[12px] text-slate-500 truncate" title="{{ r.carrier_names }}">
+                    {{ r.carrier_names }}
+                </div>
+                {% endif %}
+            </div>
         {% endif %}
         </div>
     </td>
 
     {# Decisão editável inline #}
     <td class="px-2 py-1.5 align-middle">
-        {% if current_rule_type in ['cfop', 'cte'] %}
+        {% if current_rule_type in ['cfop', 'cte', 'gerador_cfop', 'gerador_cte'] %}
             <div class="flex items-center gap-1.5">
                 <i class="fa-solid fa-arrow-right-long text-[10px] text-slate-300"></i>
                 <input type="text" name="value" value="{{ r.entry_cfop or '' }}" maxlength="4" inputmode="numeric"

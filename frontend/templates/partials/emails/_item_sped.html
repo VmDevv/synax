@@ -1,0 +1,104 @@
+{# Um SPED que chegou por e-mail, na caixa de novidades da tela inicial.
+   Enquanto o SIEG baixa, o próprio item se busca de 10 em 10 s (e para
+   sozinho quando termina: a resposta final não traz o gatilho). Não há campo
+   de arquivo aqui — substituir o item inteiro não apaga nada que a pessoa
+   estivesse preenchendo. #}
+{% set s = x.s %}
+{% set andando = s.sieg_status in ("pendente", "baixando") %}
+{% set prontos = (s.ja_tinha or 0) + (s.baixados or 0) %}
+{% set total = s.chaves_total or 0 %}
+<div id="sped-{{ s.id }}" class="px-5 py-3"
+     {% if andando %}hx-get="/emails/sped/{{ s.id }}" hx-trigger="every 10s" hx-swap="outerHTML"{% endif %}>
+    <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
+        <span class="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">SPED</span>
+        <b class="text-slate-800">{{ x.empresa }}</b>
+        <span class="text-slate-500">· {{ "Contribuições" if s.leiaute == "contribuicoes" else "Fiscal" }}{% if s.competencia %} {{ rotulo_mes(s.competencia) }}{% endif %}</span>
+        <span class="text-[11px] text-slate-400">· chegou {{ (s.recebido_em or s.created_at) | hora_br }}</span>
+        {% if s.auditoria_id %}
+        <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200"><i class="fa-solid fa-check text-[9px]"></i> auditado</span>
+        {% endif %}
+    </div>
+
+    <div class="mt-1 text-[12px]">
+        {% if s.sieg_status == "pendente" %}
+        <span class="text-slate-500"><span class="loading loading-spinner loading-xs align-middle"></span> Na fila para baixar os XMLs do SIEG…</span>
+        {% elif s.sieg_status == "baixando" %}
+        <div class="flex items-center gap-2 max-w-md">
+            <span class="loading loading-spinner loading-xs text-blue-600"></span>
+            <span class="text-slate-600 whitespace-nowrap">Baixando do SIEG: <b class="tabular-nums">{{ prontos }}</b> de <b class="tabular-nums">{{ total }}</b></span>
+            {% if total %}
+            <span class="flex-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
+                <span class="block h-full bg-blue-600 rounded-full" style="width: {{ ((prontos * 100) // total) if total else 0 }}%"></span>
+            </span>
+            {% endif %}
+        </div>
+        {% if s.sieg_mensagem %}<div class="text-[11px] text-slate-400 mt-0.5">{{ s.sieg_mensagem }}</div>{% endif %}
+        <div class="text-[11px] text-slate-400 mt-0.5">Buscando várias notas ao mesmo tempo — um mês de 500 notas leva uns 2 minutos.</div>
+        {% elif s.sieg_status == "concluido" %}
+        <span class="text-emerald-700 font-semibold"><i class="fa-solid fa-circle-check"></i> {{ total }} XML{{ 's' if total != 1 }} de entrada prontos</span>
+        {% elif s.sieg_status == "cancelado" %}
+        <span class="text-slate-600 font-semibold"><i class="fa-solid fa-circle-stop text-slate-400"></i> Download cancelado: {{ prontos }} de {{ total }} XMLs guardados</span>
+        {% if s.sieg_mensagem %}<div class="text-[11px] text-slate-400 mt-0.5">{{ s.sieg_mensagem }}</div>{% endif %}
+        {% elif s.sieg_status == "parcial" %}
+        <span class="text-amber-700 font-semibold"><i class="fa-solid fa-triangle-exclamation"></i> {{ prontos }} de {{ total }} XMLs prontos</span>
+        <span class="text-slate-500"> — {{ s.sieg_mensagem }}</span>
+        {% else %}
+        <span class="text-red-700 font-semibold"><i class="fa-solid fa-circle-exclamation"></i> {{ s.sieg_mensagem or "O download falhou." }}</span>
+        {% endif %}
+    </div>
+
+    <div class="mt-2 flex flex-wrap items-start gap-2">
+        {% if not andando %}
+        <details class="group">
+            <summary class="btn btn-xs bg-syn-700 hover:bg-syn-900 text-white border-none list-none">
+                <i class="fa-solid fa-play text-[9px]"></i> Auditar
+            </summary>
+            {# Vai para a MESMA rota do formulário de cima (/api/upload): mesmas
+               travas, mesmas opções. O SPED sai do e-mail e os XMLs do que foi
+               guardado, pela chave das notas do SPED. #}
+            <form hx-post="/api/upload" hx-encoding="multipart/form-data"
+                  hx-target="#process-status" hx-swap="innerHTML"
+                  hx-on::after-request="document.getElementById('process-status').scrollIntoView({behavior: 'smooth', block: 'start'})"
+                  class="mt-2 p-3 rounded-lg border border-slate-200 bg-slate-50 space-y-2 min-w-[18rem]">
+                <input type="hidden" name="tenant_id" value="{{ s.tenant_id }}">
+                <input type="hidden" name="sped_email_id" value="{{ s.id }}">
+                <input type="hidden" name="usar_xmls_email" value="true">
+                {% if s.leiaute == "contribuicoes" %}<input type="hidden" name="sped_contribuicoes" value="true">{% endif %}
+                <label class="flex items-center gap-2 text-[12px] cursor-pointer">
+                    <input type="checkbox" name="ignore_saidas" value="true" checked class="checkbox checkbox-xs checkbox-primary"> Ignorar saídas
+                </label>
+                <label class="flex items-center gap-2 text-[12px] cursor-pointer">
+                    <input type="checkbox" name="considerar_icms_mono" value="true" class="checkbox checkbox-xs checkbox-primary"> Considerar ICMS Mono (combustíveis)
+                </label>
+                <button type="submit" class="btn btn-xs bg-syn-700 hover:bg-syn-900 text-white border-none">
+                    <span class="syn-quando-ocioso inline-flex items-center gap-1"><i class="fa-solid fa-play text-[9px]"></i> Processar auditoria</span>
+                </button>
+            </form>
+        </details>
+        {% endif %}
+        <a href="/emails/zip?sped={{ s.id }}" hx-boost="false" class="btn btn-xs btn-ghost text-slate-600 border border-slate-200">
+            <i class="fa-solid fa-file-zipper text-[10px]"></i> Baixar ZIP
+        </a>
+        {% if andando %}
+        {# Para na próxima chamada ao SIEG (a thread confere antes de cada uma);
+           o que já foi baixado fica e serve para auditar. #}
+        <button type="button" hx-post="/emails/sped/{{ s.id }}/cancelar" hx-target="#sped-{{ s.id }}" hx-swap="outerHTML"
+                hx-confirm="Cancelar o download dos XMLs no SIEG? Os que já foram baixados ficam guardados, e dá para retomar depois."
+                class="btn btn-xs btn-ghost text-red-600 border border-red-200 hover:bg-red-50">
+            <i class="fa-solid fa-circle-stop text-[10px]"></i> Cancelar download
+        </button>
+        {% endif %}
+        {% if s.sieg_status == "cancelado" %}
+        <button type="button" hx-post="/emails/sped/{{ s.id }}/tentar-de-novo" hx-target="#sped-{{ s.id }}" hx-swap="outerHTML"
+                class="btn btn-xs btn-ghost text-slate-600 border border-slate-200">
+            <i class="fa-solid fa-play text-[10px]"></i> Retomar download
+        </button>
+        {% endif %}
+        {% if s.sieg_status in ("parcial", "falhou") %}
+        <button type="button" hx-post="/emails/sped/{{ s.id }}/tentar-de-novo" hx-target="#sped-{{ s.id }}" hx-swap="outerHTML"
+                class="btn btn-xs btn-ghost text-slate-600 border border-slate-200">
+            <i class="fa-solid fa-rotate text-[10px]"></i> Tentar de novo no SIEG
+        </button>
+        {% endif %}
+    </div>
+</div>

@@ -47,6 +47,8 @@ from ..domain.models.rules import (
     CfopClassification,
     CfopCreditRule,
     CteCfopClassification,
+    GeradorCfopRegra,
+    GeradorCteCfopRegra,
     IcmsAnticipationRule,
     IpiCreditRule,
     ItemMatchRule,
@@ -75,6 +77,10 @@ TABELAS_DE_REGRA = (
     (PisCofinsCreditRule, "PIS/COFINS"),
     (IcmsAnticipationRule, "Antecipação"),
     (ItemMatchRule, "Itens SPED×XML"),
+    # As do gerador de SPED (09/10/2026) moram em tabelas próprias, mas passam
+    # pela mesma fila — e pendente ali segura o arquivo de um cliente.
+    (GeradorCfopRegra, "Gerador · CFOP NF-e"),
+    (GeradorCteCfopRegra, "Gerador · CFOP CT-e"),
 )
 
 STATUS_CONCLUIDO = "concluido"

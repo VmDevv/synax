@@ -1,0 +1,263 @@
+{% extends "layout/base.html" %}
+{% block title %}E-mails | Synax{% endblock %}
+
+{# O que chegou na caixa do escritório. Operador vê só os XMLs das empresas
+   dele; resumo, lista de e-mails e anexos não aproveitados são do admin — a
+   caixa é a geral do escritório (ver api/routes/emails.py). #}
+{% block content %}
+<main class="w-full space-y-5">
+
+    <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 class="syn-h2 text-xl font-bold flex items-center gap-2.5">
+            <i class="fa-solid fa-envelope-open-text text-base" style="color: var(--syn-700);"></i>
+            E-mails
+        </h2>
+        <p class="text-[13px] text-slate-500">
+            XMLs que os clientes mandam por e-mail, prontos para auditar ou gerar o SPED.
+            O sistema só lê a caixa — nada é marcado como lido, movido ou apagado.
+        </p>
+    </div>
+
+    {% if admin %}
+    <div id="estado-leitura">
+        {% include "partials/emails/estado_leitura.html" %}
+    </div>
+
+    <section class="syn-card overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
+            <h3 class="font-bold text-sm text-slate-800 flex items-center gap-2">
+                <i class="fa-solid fa-mug-hot text-syn-600"></i> Resumo da manhã
+                {% if resumo %}
+                <span class="text-[11px] font-normal text-slate-500">· {{ resumo.quando }} · período {{ resumo.periodo }}</span>
+                {% endif %}
+            </h3>
+            {% if resumo %}
+            <span class="text-[11px] font-bold px-2 py-0.5 rounded-full border {{ 'bg-violet-50 text-violet-700 border-violet-200' if resumo.texto_ia else 'bg-slate-50 text-slate-600 border-slate-200' }}">
+                <i class="fa-solid {{ 'fa-wand-magic-sparkles' if resumo.texto_ia else 'fa-gears' }} text-[10px]"></i>
+                {{ "escrito por IA" if resumo.texto_ia else "gerado pelo sistema" }}
+            </span>
+            {% endif %}
+        </div>
+        <div class="px-5 py-4 text-[13px] leading-relaxed">
+            {% if resumo %}
+                {% for l in resumo.linhas %}
+                    {% if l.titulo %}
+                    <div class="font-bold text-slate-800 mt-3 first:mt-0">{{ l.texto }}</div>
+                    {% else %}
+                    <div class="flex gap-2 mt-1 text-slate-700"><span class="text-syn-600">•</span><span>{{ l.texto }}</span></div>
+                    {% endif %}
+                {% endfor %}
+                {% if not resumo.texto_ia and resumo.motivo %}
+                <p class="text-[11px] text-slate-400 mt-3">Sem o resumo por IA: {{ resumo.motivo }}.</p>
+                {% endif %}
+            {% else %}
+            <p class="text-slate-500">
+                Nenhum resumo gerado ainda. Crie a automação <b>"Resumo dos e-mails"</b> em
+                <a href="/admin" class="text-syn-700 font-semibold underline">Administração → Automações</a>
+                para recebê-lo por e-mail todo dia — ele também aparece aqui.
+            </p>
+            {% endif %}
+        </div>
+    </section>
+    {% endif %}
+
+    <section class="syn-card overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-200 bg-slate-50">
+            <h3 class="font-bold text-sm text-slate-800 flex items-center gap-2">
+                <i class="fa-solid fa-file-zipper text-emerald-600"></i> XMLs recebidos por e-mail
+            </h3>
+            <p class="text-[11px] text-slate-500 mt-0.5">
+                A empresa sai do CNPJ de dentro do XML (destinatário da NF-e, tomador do CT-e),
+                nunca do remetente. Cada XML fica guardado {{ dias_retencao }} dias.
+                Para usar: na tela de <b>Auditoria</b> ou de <b>Gerar SPED</b>, escolha a empresa
+                e marque "usar os XMLs recebidos por e-mail".
+            </p>
+        </div>
+        {% if recebidos %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-[13px]">
+                <thead class="text-[11px] uppercase tracking-wide text-slate-500 bg-white border-b border-slate-100">
+                    <tr>
+                        <th class="text-left font-bold px-5 py-2">Empresa</th>
+                        <th class="text-left font-bold px-3 py-2">Competência</th>
+                        <th class="text-right font-bold px-3 py-2">NF-e</th>
+                        <th class="text-right font-bold px-3 py-2">CT-e</th>
+                        <th class="text-left font-bold px-3 py-2">Último recebido</th>
+                        <th class="px-3 py-2"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    {% for g in recebidos %}
+                    <tr class="hover:bg-slate-50">
+                        <td class="px-5 py-2 font-medium text-slate-800">{{ g.empresa }}</td>
+                        <td class="px-3 py-2 tabular-nums">{{ g.mes }}</td>
+                        <td class="px-3 py-2 text-right tabular-nums">{{ g.nfe }}</td>
+                        <td class="px-3 py-2 text-right tabular-nums">{{ g.cte }}</td>
+                        <td class="px-3 py-2 text-slate-500 tabular-nums">{{ g.ultimo_br }}</td>
+                        <td class="px-3 py-2 whitespace-nowrap text-right">
+                            <a href="/emails/zip?tenant_id={{ g.tenant_id | urlencode }}&competencia={{ (g.competencia or '') | urlencode }}"
+                               hx-boost="false" class="btn btn-xs btn-ghost text-slate-600">
+                                <i class="fa-solid fa-file-zipper text-[10px]"></i> ZIP</a>
+                            <button type="button" class="btn btn-xs btn-ghost text-red-600"
+                                    hx-post="/emails/xmls/excluir"
+                                    hx-vals='{"tenant_id": {{ g.tenant_id | string | tojson }}, "competencia": {{ (g.competencia or "") | tojson }}}'
+                                    hx-confirm="Excluir os {{ g.nfe + g.cte }} XMLs guardados de {{ g.empresa }} ({{ g.mes }})? O e-mail original e o SIEG não são tocados.">
+                                <i class="fa-solid fa-trash text-[10px]"></i> Excluir</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="px-5 py-4 text-[13px] text-slate-500">Nenhum XML recebido por e-mail{% if not admin %} para as suas empresas{% endif %} nos últimos {{ dias_retencao }} dias.</p>
+        {% endif %}
+    </section>
+
+    {# SPEDs que chegaram por e-mail, com o download do SIEG. Saíram da tela
+       inicial em 30/09/2026 (poluíam a tela de todo mundo) e vivem aqui. #}
+    <section class="syn-card overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-200 bg-slate-50">
+            <h3 class="font-bold text-sm text-slate-800 flex items-center gap-2">
+                <i class="fa-solid fa-file-lines text-syn-600"></i> SPEDs recebidos por e-mail
+            </h3>
+            <p class="text-[11px] text-slate-500 mt-0.5">
+                Para cada SPED, o sistema baixa do SIEG os XMLs das notas de entrada. Excluir apaga
+                a cópia do Synax (o SPED e os XMLs baixados para ele) — o e-mail e o SIEG não são tocados.
+            </p>
+        </div>
+        {% if speds %}
+        <ul class="divide-y divide-slate-100">
+            {% for x in speds %}{% set s = x.s %}
+            <li class="px-5 py-2.5 flex flex-wrap items-center justify-between gap-3 text-[13px]">
+                <span class="min-w-0">
+                    <b class="text-slate-800">{{ x.empresa }}</b>
+                    <span class="text-slate-500">· {{ "Contribuições" if s.leiaute == "contribuicoes" else "Fiscal" }}{% if s.competencia %} {{ rotulo_mes(s.competencia) }}{% endif %}</span>
+                    <span class="text-[11px] text-slate-400">· chegou {{ (s.recebido_em or s.created_at) | hora_br }}</span>
+                    <span class="block text-[12px] text-slate-500">
+                        SIEG: {{ {"pendente": "na fila", "baixando": "baixando", "concluido": "concluído",
+                                  "parcial": "parcial", "falhou": "falhou", "cancelado": "cancelado"}.get(s.sieg_status, s.sieg_status) }}
+                        — {{ (s.ja_tinha or 0) + (s.baixados or 0) }} de {{ s.chaves_total or 0 }} XMLs
+                        {% if s.nao_encontrados %}· {{ s.nao_encontrados }} não estão no SIEG{% endif %}
+                    </span>
+                </span>
+                <span class="whitespace-nowrap">
+                    <a href="/emails/zip?sped={{ s.id }}" hx-boost="false" class="btn btn-xs btn-ghost text-slate-600">
+                        <i class="fa-solid fa-file-zipper text-[10px]"></i> ZIP</a>
+                    <button type="button" class="btn btn-xs btn-ghost text-red-600"
+                            hx-post="/emails/sped/{{ s.id }}/excluir"
+                            hx-confirm="Excluir o SPED de {{ x.empresa }} e os XMLs baixados do SIEG para ele?{% if s.sieg_status in ('pendente', 'baixando') %} O download em andamento para.{% endif %}">
+                        <i class="fa-solid fa-trash text-[10px]"></i> Excluir</button>
+                </span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="px-5 py-4 text-[13px] text-slate-500">Nenhum SPED recebido por e-mail.</p>
+        {% endif %}
+    </section>
+
+    {% if admin %}
+    <section class="syn-card overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-200 bg-amber-50/60">
+            <h3 class="font-bold text-sm text-amber-900 flex items-center gap-2">
+                <i class="fa-solid fa-triangle-exclamation text-amber-600"></i> Precisam de atenção
+                <span class="text-[11px] font-normal text-amber-800">· últimos {{ dias_atencao }} dias</span>
+            </h3>
+            <p class="text-[11px] text-amber-900/80 mt-0.5">
+                XML que chegou e não entrou — de empresa não cadastrada, de saída, cancelado, ilegível — ou e-mail que não pôde ser aberto. Não aproveitar pode ser o certo; o que não pode é passar sem ninguém ver.
+            </p>
+        </div>
+        {% if atencao %}
+        <ul class="divide-y divide-slate-100">
+            {% for a in atencao %}
+            <li class="px-5 py-3">
+                <div class="text-[12px] text-slate-500">
+                    {{ a.quando }} · <span class="font-semibold text-slate-700" title="{{ a.endereco }}">{{ a.de }}</span> · {{ a.assunto }}
+                    {% if a.aceitos %}<span class="ml-1 text-emerald-700 font-semibold">({{ a.aceitos }} aproveitado{{ 's' if a.aceitos != 1 }})</span>{% endif %}
+                </div>
+                <ul class="mt-1 space-y-0.5">
+                    {% for r in a.motivos %}
+                    <li class="text-[12px] text-slate-700">
+                        {% if r.arquivo %}<span class="font-mono text-[11px] text-slate-500">{{ r.arquivo }}</span> — {% endif %}{{ r.motivo }}
+                    </li>
+                    {% endfor %}
+                    {% if a.mais %}<li class="text-[11px] text-slate-400">… e mais {{ a.mais }}.</li>{% endif %}
+                </ul>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="px-5 py-4 text-[13px] text-slate-500">Nada pendente: todo XML que chegou nos últimos {{ dias_atencao }} dias foi aproveitado.</p>
+        {% endif %}
+    </section>
+
+    <section class="syn-card overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-200 bg-slate-50">
+            <h3 class="font-bold text-sm text-slate-800 flex items-center gap-2">
+                <i class="fa-solid fa-inbox text-syn-600"></i> Últimos e-mails lidos
+            </h3>
+        </div>
+        {% if recentes %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-[12px]">
+                <tbody class="divide-y divide-slate-100">
+                    {% for m in recentes %}
+                    <tr class="hover:bg-slate-50">
+                        <td class="px-5 py-2 text-slate-500 whitespace-nowrap tabular-nums">{{ (m.recebido_em or m.created_at) | hora_br }}</td>
+                        <td class="px-3 py-2 text-slate-700 max-w-[16rem]" title="{{ m.remetente }}">
+                            <div class="truncate">{{ m.remetente_nome or m.remetente }}</div>
+                            {% if m.pasta and "/" in m.pasta %}<div class="truncate text-[10px] text-slate-400">na caixa {{ m.pasta.split("/")[0] }}</div>{% endif %}
+                            {% if m.empresa %}<div class="truncate text-[11px] font-semibold text-blue-700">{{ m.empresa }}</div>{% endif %}
+                        </td>
+                        <td class="px-3 py-2 text-slate-800 max-w-[28rem] truncate {{ 'text-slate-400' if m.silenciado }}" title="{{ m.assunto }}">{{ m.assunto or "(sem assunto)" }}</td>
+                        <td class="px-3 py-2 whitespace-nowrap">
+                            {% if m.situacao == "com_xml" %}
+                            <span class="text-emerald-700 font-semibold">{{ m.xmls_aceitos }} XML{{ 's' if m.xmls_aceitos != 1 }}{% if m.xmls_repetidos %} <span class="font-normal text-slate-400">(+{{ m.xmls_repetidos }} repetido{{ 's' if m.xmls_repetidos != 1 }})</span>{% endif %}</span>
+                            {% elif m.situacao in ("xml_recusado", "grande", "erro") %}
+                            <span class="text-amber-700 font-semibold">{{ rotulo_situacao.get(m.situacao, "") }}</span>
+                            {% else %}
+                            <span class="text-slate-400">{{ rotulo_situacao.get(m.situacao, "") }}</span>
+                            {% endif %}
+                        </td>
+                        {# Silenciar com um clique. "Parece automático" é só a dica do
+                           cabeçalho do e-mail — quem decide é quem clica. #}
+                        <td class="px-3 py-2 whitespace-nowrap text-right">
+                            {% if m.silenciado %}
+                            <span class="text-[11px] text-slate-400"><i class="fa-solid fa-volume-xmark text-[10px]"></i> silenciado</span>
+                            {% elif m.remetente %}
+                            {% if m.automatico %}<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 mr-1" title="O cabeçalho do e-mail diz que é envio automático ou de lista">parece automático</span>{% endif %}
+                            <button type="button" class="btn btn-xs btn-ghost text-slate-500"
+                                    hx-post="/emails/remetentes/silenciar"
+                                    hx-vals='{"endereco": {{ m.remetente | tojson }}, "alcance": "endereco"}'
+                                    title="Tirar {{ m.remetente }} do resumo da IA">
+                                <i class="fa-solid fa-volume-xmark text-[10px]"></i> Silenciar
+                            </button>
+                            {% if m.dominio_silenciavel %}
+                            <button type="button" class="btn btn-xs btn-ghost text-slate-500"
+                                    hx-post="/emails/remetentes/silenciar"
+                                    hx-vals='{"endereco": {{ m.remetente | tojson }}, "alcance": "dominio"}'
+                                    hx-confirm="Silenciar TODO e-mail que vier de @{{ m.remetente.rpartition('@')[2] }}?"
+                                    title="Tirar todo o domínio do resumo da IA">
+                                domínio
+                            </button>
+                            {% endif %}
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="px-5 py-4 text-[13px] text-slate-500">Nenhum e-mail lido ainda.</p>
+        {% endif %}
+    </section>
+
+    <div id="remetentes">
+        {% include "partials/emails/remetentes.html" %}
+    </div>
+    {% endif %}
+
+</main>
+{% endblock %}

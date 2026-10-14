@@ -2,51 +2,85 @@
 {% block title %}Administração | Synax | Auditor Fiscal Inteligente{% endblock %}
 
 {% block content %}
+{# Estilo DENTRO do conteúdo, não no {% block head %}: o <body> tem
+   hx-boost, e o HTMX 1.9 troca só o body na navegação — o <head> da
+   página nova é descartado, e a tela chegaria sem estes estilos. #}
+<style>
+    /* Abas em "trilho": uma barra só, a aba ativa vira um cartão branco em
+       cima dela. Lê-se de relance qual seção está aberta. */
+    .syn-abas {
+        display: flex; gap: .25rem; padding: .3rem; overflow-x: auto;
+        background: #e3edf3; border: 1px solid #d3e2ea; border-radius: .9rem;
+    }
+    .syn-aba {
+        display: inline-flex; align-items: center; gap: .5rem; white-space: nowrap; cursor: pointer;
+        padding: .5rem .9rem; border-radius: .65rem; font-size: 13px; font-weight: 600; color: #52667a;
+        transition: background .15s, color .15s, box-shadow .15s;
+    }
+    .syn-aba i { font-size: 12px; color: #8aa0b2; transition: color .15s; }
+    .syn-aba:hover { color: var(--syn-900); background: rgba(255, 255, 255, .55); }
+    .syn-aba.is-active {
+        background: #fff; color: var(--syn-900);
+        box-shadow: 0 1px 2px rgba(2, 42, 64, .08), 0 2px 8px -2px rgba(2, 42, 64, .12);
+    }
+    .syn-aba.is-active i { color: var(--syn-700); }
+    .syn-aba.htmx-request i { animation: fa-spin 1s linear infinite; }
+</style>
 <main class="w-full">
-    <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-3">
-        <h2 class="text-xl font-bold text-[#026a9e] flex items-center gap-2.5">
-            <i class="fa-solid fa-gear text-[#037fb5] text-base"></i> Administração
-        </h2>
-        <p class="text-[13px] text-slate-500">Empresas, acessos e regras fiscais por cliente.</p>
+    <div class="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 mb-4">
+        <div>
+            <h2 class="syn-h2 text-[22px] font-bold flex items-center gap-2.5 tracking-tight">
+                <i class="fa-solid fa-gear text-lg" style="color: var(--syn-700);"></i> Administração
+            </h2>
+            <p class="text-[13px] text-slate-500 mt-0.5">Empresas, acessos e regras fiscais por cliente.</p>
+        </div>
     </div>
 
-    <!-- Abas DaisyUI para Navegação -->
-    <div role="tablist" class="tabs tabs-bordered mb-4" hx-boost="true" hx-target="#admin-content" hx-swap="innerHTML transition:true">
-        
-        <a role="tab" class="tab tab-active text-blue-700 font-semibold border-blue-600" 
+    {# O estado ativo é marcado só nas abas DESTA barra. O `onclick` antigo
+       varria `.tab` do documento inteiro e desligava também as abas de dentro
+       do conteúdo carregado. #}
+    <div role="tablist" id="admin-abas" class="syn-abas mb-5" hx-boost="true" hx-target="#admin-content" hx-swap="innerHTML transition:true">
+
+        <a role="tab" class="syn-aba is-active" aria-selected="true"
            hx-get="/admin/tenants/list" hx-push-url="false"
-           onclick="document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active', 'text-blue-700', 'border-blue-600', 'text-slate-500')); this.classList.add('tab-active', 'text-blue-700', 'border-blue-600');">
-           <i class="fa-solid fa-building mr-2"></i> Empresas e Usuários
+           onclick="ativarAbaAdmin(this)">
+           <i class="fa-solid fa-building"></i> Empresas e Usuários
         </a>
-        
-        <a role="tab" class="tab text-slate-500 font-medium" 
+
+        <a role="tab" class="syn-aba" aria-selected="false"
            hx-get="/admin/rules?tenant_id={{ tenants[0].id if tenants else '' }}" hx-push-url="false"
-           onclick="document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active', 'text-blue-700', 'border-blue-600')); this.classList.add('tab-active', 'text-blue-700', 'border-blue-600');">
-           <i class="fa-solid fa-scale-balanced mr-2"></i> Regras por Empresa
+           onclick="ativarAbaAdmin(this)">
+           <i class="fa-solid fa-scale-balanced"></i> Regras por Empresa
         </a>
-        
-        <a role="tab" class="tab text-slate-500 font-medium"
+
+        <a role="tab" class="syn-aba" aria-selected="false"
            hx-get="/admin/certificados" hx-push-url="false"
-           onclick="document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active', 'text-blue-700', 'border-blue-600')); this.classList.add('tab-active', 'text-blue-700', 'border-blue-600');">
-           <i class="fa-solid fa-file-shield mr-2"></i> Certificados
+           onclick="ativarAbaAdmin(this)">
+           <i class="fa-solid fa-file-shield"></i> Certificados
         </a>
 
-        <a role="tab" class="tab text-slate-500 font-medium"
+        <a role="tab" class="syn-aba" aria-selected="false"
            hx-get="/admin/erros" hx-push-url="false"
-           onclick="document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active', 'text-blue-700', 'border-blue-600')); this.classList.add('tab-active', 'text-blue-700', 'border-blue-600');">
-           <i class="fa-solid fa-triangle-exclamation mr-2"></i> Erros do Sistema
+           onclick="ativarAbaAdmin(this)">
+           <i class="fa-solid fa-triangle-exclamation"></i> Erros do Sistema
         </a>
 
-        <a role="tab" class="tab text-slate-500 font-medium"
+        <a role="tab" class="syn-aba" aria-selected="false"
            hx-get="/admin/configuracoes" hx-push-url="false"
-           onclick="document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active', 'text-blue-700', 'border-blue-600')); this.classList.add('tab-active', 'text-blue-700', 'border-blue-600');">
-           <i class="fa-solid fa-gear mr-2"></i> Configurações
+           onclick="ativarAbaAdmin(this)">
+           <i class="fa-solid fa-sliders"></i> Configurações
         </a>
 
-        <a role="tab" class="tab text-slate-500 font-medium"
+        <a role="tab" class="syn-aba" aria-selected="false"
            hx-get="/admin/activity/painel" hx-push-url="false"
-           onclick="document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active', 'text-blue-700', 'border-blue-600')); this.classList.add('tab-active', 'text-blue-700', 'border-blue-600');">
-           <i class="fa-solid fa-satellite-dish mr-2"></i> Radar de Atividade
+           onclick="ativarAbaAdmin(this)">
+           <i class="fa-solid fa-satellite-dish"></i> Radar de Atividade
+        </a>
+
+        <a role="tab" class="syn-aba" aria-selected="false"
+           hx-get="/admin/automacoes" hx-push-url="false"
+           onclick="ativarAbaAdmin(this)">
+           <i class="fa-solid fa-clock-rotate-left"></i> Automações
         </a>
     </div>
 
@@ -54,10 +88,21 @@
     <div id="admin-content">
         <!-- Inicialmente carrega a aba 1 via include ou chamando o próprio endpoint HTMX no load -->
         <div hx-get="/admin/tenants/list" hx-trigger="load" hx-swap="outerHTML">
-            <div class="flex justify-center p-12">
+            <div class="syn-card flex flex-col items-center justify-center gap-3 py-16">
                 <span class="loading loading-spinner text-blue-600 loading-lg"></span>
+                <span class="text-[13px] text-slate-500 font-medium">Carregando empresas…</span>
             </div>
         </div>
     </div>
 </main>
+<script>
+    function ativarAbaAdmin(aba) {
+        document.querySelectorAll('#admin-abas .syn-aba').forEach(function (a) {
+            a.classList.remove('is-active');
+            a.setAttribute('aria-selected', 'false');
+        });
+        aba.classList.add('is-active');
+        aba.setAttribute('aria-selected', 'true');
+    }
+</script>
 {% endblock %}

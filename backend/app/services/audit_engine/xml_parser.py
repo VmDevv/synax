@@ -369,12 +369,26 @@ def parse_nfe_xml(path):
             "emit_uf": emit_uf,
             "emit_ie": _t(emit, "IE"),
             "emit_cod_mun": _t(ender_emit, "cMun"),
+            # Endereço do emitente (fornecedor) para o 0150 do gerador de SPED: o
+            # PVA exige logradouro, e ele está no XML — não precisa inventar.
+            "emit_lgr": _t(ender_emit, "xLgr"),
+            "emit_num": _t(ender_emit, "nro"),
+            "emit_compl": _t(ender_emit, "xCpl"),
+            "emit_bairro": _t(ender_emit, "xBairro"),
+            "emit_cep": _t(ender_emit, "CEP"),
             "dest_uf": dest_uf,
             "dest_id": dest_cnpj,
             "dest_name": _t(dest, "xNome"),
             "dest_ie": _t(dest, "IE"),
             "dest_cod_mun": _t(ender_dest, "cMun"),
             "dest_mun": _t(ender_dest, "xMun"),
+            # Endereço do destinatário (a própria empresa, numa entrada) para o
+            # 0005 do gerador de SPED — mesmo motivo do emitente acima.
+            "dest_lgr": _t(ender_dest, "xLgr"),
+            "dest_num": _t(ender_dest, "nro"),
+            "dest_compl": _t(ender_dest, "xCpl"),
+            "dest_bairro": _t(ender_dest, "xBairro"),
+            "dest_cep": _t(ender_dest, "CEP"),
             "vl_doc": v_nf,
             "vl_st": v_st_total,
             "vl_merc": _tot("vProd"),
@@ -435,6 +449,13 @@ def parse_cte_xml(path):
         # participante do Brasil, e o CT-e os traz em <emit>/<enderEmit>.
         emit_ie = _txt(emit, "ns:IE")
         emit_cod_mun = _txt(ender_emit, "ns:cMun")
+        # Endereço do transportador para o 0150 do gerador de SPED: o PVA exige
+        # logradouro, e o CT-e o traz em <emit>/<enderEmit>.
+        emit_lgr = _txt(ender_emit, "ns:xLgr")
+        emit_num = _txt(ender_emit, "ns:nro")
+        emit_compl = _txt(ender_emit, "ns:xCpl")
+        emit_bairro = _txt(ender_emit, "ns:xBairro")
+        emit_cep = _txt(ender_emit, "ns:CEP")
         # Origem e destino do serviço (D100 campos 24/25), tipo do CT-e
         # (D100 campo 13) e a situação no protocolo.
         cod_mun_ini = _txt(ide, "ns:cMunIni")
@@ -572,6 +593,11 @@ def parse_cte_xml(path):
             "p_icms": p_icms_cte,
             "emit_ie": emit_ie,
             "emit_cod_mun": emit_cod_mun,
+            "emit_lgr": emit_lgr,
+            "emit_num": emit_num,
+            "emit_compl": emit_compl,
+            "emit_bairro": emit_bairro,
+            "emit_cep": emit_cep,
             "cod_mun_ini": cod_mun_ini,
             "cod_mun_fim": cod_mun_fim,
             "tp_cte": tp_cte,

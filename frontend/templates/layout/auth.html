@@ -1,0 +1,162 @@
+{# Moldura das telas sem sessão: login, esqueci a senha e nova senha.
+
+   Não estende o base.html de propósito: aquelas telas não têm usuário, menu
+   nem HTMX, e carregar o cabeçalho do sistema para quem ainda não entrou só
+   mostraria links que redirecionam de volta para cá. As três compartilhavam o
+   mesmo cartão copiado três vezes — agora a moldura é uma só. #}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Synax | Auditor Fiscal Inteligente{% endblock %}</title>
+
+    <!-- Tailwind (Play CDN 3.4.17) servido daqui: cdn.tailwindcss.com não manda CORS,
+         então SRI nele faria o navegador recusar o script. Origem em static/js/vendor/README.md -->
+    <script src="/static/js/vendor/tailwind-3.4.17.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif']
+                    },
+                    colors: {
+                        syn: { 900: '#026092', 800: '#026A9E', 700: '#0377AA', 600: '#258EBA', 500: '#3A9EC7',
+                               400: '#5BAED1', 300: '#71BCDB', 200: '#7FC0DC', 100: '#9FDBEE', 50: '#EEF7FB' }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+          integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        html { -webkit-font-smoothing: antialiased; }
+        body { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
+        ::selection { background: #b9e1f1; color: #062a40; }
+
+        .syn-marca {
+            background:
+                radial-gradient(900px 500px at 110% -10%, rgba(159, 219, 238, .35), transparent 60%),
+                radial-gradient(700px 500px at -20% 120%, rgba(58, 158, 199, .45), transparent 60%),
+                linear-gradient(160deg, #026092 0%, #03507a 55%, #062a40 100%);
+        }
+        /* Grade discreta no fundo do painel da marca */
+        .syn-marca::before {
+            content: ""; position: absolute; inset: 0; pointer-events: none;
+            background-image:
+                linear-gradient(rgba(255, 255, 255, .06) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, .06) 1px, transparent 1px);
+            background-size: 44px 44px;
+            mask-image: linear-gradient(180deg, rgba(0, 0, 0, .9), transparent 85%);
+            -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, .9), transparent 85%);
+        }
+
+        .syn-campo {
+            width: 100%; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: .75rem;
+            padding: .75rem 1rem .75rem 2.75rem; font-size: 15px; color: #0f172a; outline: none;
+            transition: border-color .15s, box-shadow .15s, background .15s;
+        }
+        .syn-campo::placeholder { color: #94a3b8; }
+        .syn-campo:hover { border-color: #94a3b8; }
+        .syn-campo:focus { background: #fff; border-color: #0377AA; box-shadow: 0 0 0 4px rgba(3, 119, 170, .14); }
+        .syn-campo-icone { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: #94a3b8; pointer-events: none; }
+        .syn-campo:focus ~ .syn-campo-icone, .relative:focus-within .syn-campo-icone { color: #0377AA; }
+
+        .syn-botao {
+            width: 100%; display: flex; align-items: center; justify-content: center; gap: .5rem;
+            padding: .8rem 1rem; border-radius: .75rem; font-weight: 700; font-size: 15px; color: #fff;
+            background: linear-gradient(180deg, #0784ba, #0377AA); box-shadow: 0 8px 20px -8px rgba(3, 119, 170, .7);
+            transition: transform .12s, box-shadow .12s, filter .12s;
+        }
+        .syn-botao:hover { filter: brightness(1.06); transform: translateY(-1px); box-shadow: 0 12px 24px -10px rgba(3, 119, 170, .8); }
+        .syn-botao:active { transform: none; }
+        .syn-botao:disabled { opacity: .8; cursor: progress; transform: none; }
+
+        a:focus-visible, button:focus-visible { outline: 2px solid #3A9EC7; outline-offset: 2px; border-radius: .4rem; }
+
+        .syn-entra { animation: synEntra .35s ease-out both; }
+        @keyframes synEntra { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+        @media (prefers-reduced-motion: reduce) { .syn-entra { animation: none; } }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body class="min-h-screen bg-[#eef5f9] text-slate-900 font-sans">
+
+    <div class="min-h-screen grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+
+        <!-- Painel da marca (só em tela larga) -->
+        <aside class="syn-marca relative overflow-hidden hidden lg:flex flex-col justify-between p-12 xl:p-16 text-white">
+            <div class="relative flex items-center gap-3">
+                <span class="w-11 h-11 rounded-xl bg-white/95 grid place-items-center shadow-lg">
+                    <img src="/static/img/logo.svg" alt="" class="h-7 w-7 object-contain">
+                </span>
+                <span class="leading-none">
+                    <span class="block text-2xl font-extrabold tracking-tight">Synax</span>
+                    <span class="block text-[11px] font-bold uppercase tracking-[.2em] text-sky-200/80 mt-1">Auditor Fiscal</span>
+                </span>
+            </div>
+
+            <div class="relative max-w-lg">
+                <h2 class="text-[34px] xl:text-[40px] leading-[1.1] font-extrabold tracking-tight">
+                    Conferência de entradas,<br>
+                    <span class="text-sky-200">nota por nota.</span>
+                </h2>
+                <ul class="mt-9 space-y-5 text-[15px]">
+                    <li class="flex gap-4">
+                        <span class="w-9 h-9 rounded-lg bg-white/10 border border-white/15 grid place-items-center shrink-0"><i class="fa-solid fa-code-compare text-sky-200"></i></span>
+                        <span><b class="block text-white">SPED × XML, item a item</b>
+                        <span class="text-sky-100/80">NF-e e CT-e cruzados com o que foi escriturado.</span></span>
+                    </li>
+                    <li class="flex gap-4">
+                        <span class="w-9 h-9 rounded-lg bg-white/10 border border-white/15 grid place-items-center shrink-0"><i class="fa-solid fa-sack-dollar text-sky-200"></i></span>
+                        <span><b class="block text-white">O valor em jogo primeiro</b>
+                        <span class="text-sky-100/80">Crédito a estornar, a aproveitar e a recolher, antes da lista.</span></span>
+                    </li>
+                    <li class="flex gap-4">
+                        <span class="w-9 h-9 rounded-lg bg-white/10 border border-white/15 grid place-items-center shrink-0"><i class="fa-solid fa-user-check text-sky-200"></i></span>
+                        <span><b class="block text-white">Regras revisadas por pessoas</b>
+                        <span class="text-sky-100/80">O que foi aprovado uma vez vale nos meses seguintes.</span></span>
+                    </li>
+                </ul>
+            </div>
+
+            <p class="relative text-[12px] text-sky-100/60">
+                <i class="fa-solid fa-lock mr-1"></i> Acesso restrito a usuários cadastrados pelo escritório.
+            </p>
+        </aside>
+
+        <!-- Formulário -->
+        <main class="flex items-center justify-center p-5 sm:p-10">
+            <div class="w-full max-w-[410px] syn-entra">
+                <!-- Marca no celular, onde o painel lateral não aparece -->
+                <div class="lg:hidden flex items-center justify-center gap-3 mb-8">
+                    <span class="w-12 h-12 rounded-2xl bg-white border border-slate-200 grid place-items-center shadow-sm">
+                        <img src="/static/img/logo.svg" alt="Synax Logo" class="h-8 w-8 object-contain">
+                    </span>
+                    <span class="leading-none">
+                        <span class="block text-2xl font-extrabold tracking-tight" style="color:#026092;">Synax</span>
+                        <span class="block text-[10px] font-bold uppercase tracking-[.2em] text-slate-400 mt-1">Auditor Fiscal</span>
+                    </span>
+                </div>
+
+                {% block conteudo %}{% endblock %}
+
+                <p class="text-center text-[12px] text-slate-400 mt-8">
+                    Autenticação por <span class="font-semibold text-slate-500">Supabase Auth</span>
+                </p>
+            </div>
+        </main>
+    </div>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

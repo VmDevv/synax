@@ -18,6 +18,7 @@ CFOPS_ENTRADA: dict[str, str] = {
     "1122": "Compra para industrialização com mercadoria sujeita a ST",
     "1124": "Industrialização efetuada por outra empresa",
     "1126": "Compra para utilização na prestação de serviço",
+    "2126": "Compra para utilização na prestação de serviço (interestadual)",
 
     # --- Transferências ---
     "1151": "Transferência para industrialização",

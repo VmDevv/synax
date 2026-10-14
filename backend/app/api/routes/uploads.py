@@ -22,6 +22,8 @@ from ...domain.models.audit import AuditTask
 from ...domain.models.rules import CfopClassification, CteCfopClassification, IpiCreditRule, CfopCreditRule, PisCofinsCreditRule
 from ...services.audit_engine.cross_checker import (
     execute_audit, levantar_nao_conferidos, chave_item_match)
+from ...services.audit_engine.sped_parser import (
+    CONTRIBUICOES, FISCAL, LeiauteInesperado, detectar_leiaute)
 from ...services.audit_engine.ia_matcher import casar_nao_conferidos, ia_disponivel
 from ...services.audit_engine import email_catalog
 from ...services.audit_engine.resumo_financeiro import resumo_financeiro
@@ -66,13 +68,22 @@ def get_current_user_email(current_user = Depends(get_current_user)):
 async def upload_files(
     request: Request,
     background_tasks: BackgroundTasks,
-    sped_file: UploadFile = File(...),
+    sped_file: UploadFile = File(None),
     xmls_zip: UploadFile = File(None),
     use_sieg: bool = Form(False),
     sped_only_mode: bool = Form(False),
     ignore_saidas: bool = Form(False),
     # Combustíveis: soma o ICMS monofásico do XML ao crédito de ICMS.
     considerar_icms_mono: bool = Form(False),
+    # Lê o arquivo pelo leiaute do EFD Contribuições (PIS/COFINS) em vez do
+    # EFD ICMS/IPI. Muda SÓ a leitura: as regras da auditoria são as mesmas.
+    sped_contribuicoes: bool = Form(False),
+    # XMLs que chegaram por e-mail (services/email_recebimento): entram os das
+    # notas que estão NESTE SPED, pela chave — não pelo mês.
+    usar_xmls_email: bool = Form(False),
+    # SPED que chegou por e-mail (tabela email_speds), no lugar do arquivo:
+    # é o "Auditar" da caixa de novidades da tela inicial.
+    sped_email_id: str = Form(""),
     tenant_id: str = Form(...),
     current_user = Depends(get_current_user),
     db_session: Session = Depends(get_db),
@@ -109,6 +120,20 @@ async def upload_files(
                     "Envie o ZIP de XMLs ou habilite o Modo Somente SPED."),
         )
 
+    if sped_file is not None and not (sped_file.filename or "").strip():
+        sped_file = None
+    sped_do_email = None
+    if sped_file is None:
+        if not sped_email_id:
+            raise HTTPException(status_code=400, detail="Envie o arquivo SPED.")
+        from ...services.email_recebimento import recebidos as xmls_recebidos
+        # A empresa já foi validada acima para o perfil; o SPED tem de ser DELA —
+        # senão um id de outra empresa auditaria o arquivo alheio.
+        sped_do_email = xmls_recebidos.sped_da_empresa(db_session, sped_email_id, tenant_id)
+        if sped_do_email is None:
+            raise HTTPException(status_code=404, detail=(
+                "Esse SPED recebido por e-mail não está mais disponível para esta empresa."))
+
     # 1. Criar pastas efêmeras e receber os arquivos ANTES de registrar a task:
     # upload recusado não pode deixar uma AuditTask órfã presa em 'pendente'.
     task_dir = os.path.join(TEMP_DIR, task_id)
@@ -122,9 +147,31 @@ async def upload_files(
         # "xmls.zip" sobrescreveria o ZIP). O nome original fica na AuditTask,
         # que é onde a trilha de auditoria precisa dele.
         sped_path = os.path.join(task_dir, "sped.txt")
-        await gravar_com_limite(sped_file, sped_path, LIMITE_SPED_BYTES, "O arquivo SPED")
+        if sped_do_email is not None:
+            origem_sped = xmls_recebidos.caminho_do_sped(sped_do_email)
+            if not origem_sped:
+                raise HTTPException(status_code=404, detail=(
+                    "O arquivo desse SPED não está mais no servidor. Envie o arquivo."))
+            shutil.copyfile(origem_sped, sped_path)
+        else:
+            await gravar_com_limite(sped_file, sped_path, LIMITE_SPED_BYTES, "O arquivo SPED")
 
-        # 3. Salvar e extrair o ZIP de XMLs
+        # 2b. O arquivo é mesmo do leiaute marcado na tela? Os dois começam
+        # com |0000| e só diferem de posição, então o trocado NÃO dá erro: a
+        # auditoria roda inteira com o CNPJ da empresa lido como uma data de
+        # oito dígitos e a competência nula. Recusar aqui, antes de existir
+        # tarefa, é a diferença entre um aviso e um relatório errado.
+        leiaute_real = detectar_leiaute(sped_path)
+        esperado = CONTRIBUICOES if sped_contribuicoes else FISCAL
+        if leiaute_real and leiaute_real != esperado:
+            raise HTTPException(
+                status_code=400,
+                detail=LeiauteInesperado(esperado, leiaute_real).mensagem)
+
+        # 3. Salvar e extrair o ZIP de XMLs. Input de arquivo vazio chega como
+        # UploadFile sem nome — não é pacote.
+        if xmls_zip is not None and not (xmls_zip.filename or "").strip():
+            xmls_zip = None
         if xmls_zip:
             # Nome interno neutro: o pacote pode ser ZIP ou RAR, e quem decide
             # qual é a assinatura do conteúdo, não a extensão que veio do cliente.
@@ -139,7 +186,20 @@ async def upload_files(
                     os.remove(zip_path)
                 except OSError:
                     pass
-        elif not sped_only_mode:
+        if usar_xmls_email and not sped_only_mode:
+            from ...services.email_recebimento import recebidos as xmls_recebidos
+            copiados, chaves_sped = xmls_recebidos.copiar_para_auditoria(
+                db_session, tenant_id, sped_path, xml_dir)
+            logger.info("Auditoria %s: %d XML(s) recebidos por e-mail para %d nota(s) do SPED",
+                        task_id, copiados, chaves_sped)
+            if not copiados and not xmls_zip:
+                # Nada a cruzar não pode virar auditoria com TODAS as notas
+                # acusadas de "XML faltante": recusar aqui diz o que houve.
+                raise HTTPException(status_code=400, detail=(
+                    "Nenhum dos XMLs recebidos por e-mail desta empresa corresponde às "
+                    f"{chaves_sped} nota(s) deste SPED. Confira a empresa e o mês, ou envie "
+                    "o pacote de XMLs."))
+        elif not xmls_zip and not sped_only_mode:
             # Se não vier ZIP e não for Modo Somente SPED
             raise HTTPException(status_code=400, detail="É necessário enviar o ZIP de XMLs, marcar a opção SIEG, ou habilitar o Modo Somente SPED.")
     except Exception:
@@ -155,9 +215,14 @@ async def upload_files(
         id=task_id,
         status="pendente",
         user_id=str(current_user.id),
-        file_name=nome_seguro(sped_file.filename, "sped.txt")
+        file_name=nome_seguro(sped_do_email.nome_original if sped_do_email is not None
+                              else sped_file.filename, "sped.txt")
     )
     repo.audit_tasks.add(new_task)
+    if sped_do_email is not None:
+        # "Esta caixa já virou auditoria?" — a tela inicial mostra.
+        sped_do_email.auditoria_id = task_id
+        db_session.commit()
     
     # 5. Acionar processamento em Background (Liberando o Event Loop)
     from ...infrastructure.database.session import SessionLocal
@@ -184,8 +249,10 @@ async def upload_files(
                         for r in RulesRepository(bg_session, tenant_id).item_match_rules.get_all()
                         if getattr(r, "status", "aprovado") == "aprovado"
                     }
-                    notas = levantar_nao_conferidos(sped_path, xml_dir, ignore_saidas,
-                                                    pares_conhecidos=conhecidos)
+                    notas = levantar_nao_conferidos(
+                        sped_path, xml_dir, ignore_saidas,
+                        pares_conhecidos=conhecidos,
+                        sped_contribuicoes=sped_contribuicoes)
                     sugestoes = casar_nao_conferidos(notas).get("sugestoes", [])
                 except Exception:
                     # Modelo fora do ar não pode impedir a apuração do mês.
@@ -204,6 +271,7 @@ async def upload_files(
                             "sped_only_mode": sped_only_mode,
                             "ignore_saidas": ignore_saidas,
                             "considerar_icms_mono": considerar_icms_mono,
+                            "sped_contribuicoes": sped_contribuicoes,
                         },
                     })
                     bg_session.commit()
@@ -214,7 +282,8 @@ async def upload_files(
             # entrada, então não há caminho para dados falsos chegarem ao motor.
             execute_audit(task_id, tenant_id, sped_path, xml_dir, bg_session,
                           sped_only_mode=sped_only_mode, ignore_saidas=ignore_saidas,
-                          considerar_icms_mono=considerar_icms_mono)
+                          considerar_icms_mono=considerar_icms_mono,
+                          sped_contribuicoes=sped_contribuicoes)
         except Exception:
             # O traceback vai para o log do servidor, NUNCA para o banco: error_message
             # é renderizado na tela do cliente e exporia caminhos internos e trechos
@@ -534,7 +603,8 @@ def aplicar_pares_ia(
                           sped_only_mode=bool(opcoes.get("sped_only_mode")),
                           ignore_saidas=bool(opcoes.get("ignore_saidas", True)),
                           considerar_icms_mono=bool(opcoes.get("considerar_icms_mono")),
-                          pares_ia=pares_ia)
+                          pares_ia=pares_ia,
+                          sped_contribuicoes=bool(opcoes.get("sped_contribuicoes")))
         except Exception:
             logger.exception("Falha ao processar auditoria task_id=%s", task_id)
             try:
