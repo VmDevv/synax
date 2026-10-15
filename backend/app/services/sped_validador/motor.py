@@ -30,6 +30,12 @@ from ..sped_rewriter.documento import BOMS, ler_texto
 from . import campos as cp
 from . import dados
 from .contas import REGRAS_DE_CONTA
+from .documentos import DE_CAMPO as REGRAS_DE_DOCUMENTO_CAMPO
+from .documentos import DE_REGISTRO as REGRAS_DE_DOCUMENTO
+
+# Regras que rodam depois de a árvore inteira estar montada: as de conta
+# (somas) e as de documento (chave, operação, CFOP, CST).
+REGRAS_POSTERIORES = {**REGRAS_DE_CONTA, **REGRAS_DE_DOCUMENTO}
 
 ERRO = "erro"
 ADVERTENCIA = "advertencia"
@@ -765,7 +771,7 @@ class _Validacao:
     def _regras_do_registro(self, no: _No) -> None:
         for regra in no.d.regras:
             if (regra.id in CADASTRO_DA_REGRA or regra.id in JA_COBERTAS
-                    or regra.id in REGRAS_DE_CONTA):
+                    or regra.id in REGRAS_POSTERIORES):
                 continue
             verificar = REGRAS_DE_REGISTRO.get(regra.id)
             if verificar is not None:
@@ -891,7 +897,7 @@ class _Validacao:
             if not no.campos_ok:
                 continue
             for regra in no.d.regras:
-                verificar = REGRAS_DE_CONTA.get(regra.id)
+                verificar = REGRAS_POSTERIORES.get(regra.id)
                 if verificar is not None:
                     verificar(self, no, regra)
 
@@ -1060,6 +1066,7 @@ REGRAS_DE_CAMPO = {
     "REGRA_VALIDA_CPF_CNPJ_CAMPO_V2": _cpf_ou_cnpj,
     "REGRA_VALIDA_CHV_NFE_CTE": _chave,
     "REGRA_VL_DOC_GRANDE": _vl_doc_grande,
+    **REGRAS_DE_DOCUMENTO_CAMPO,
 }
 
 
@@ -1195,7 +1202,7 @@ REGRAS_DE_REGISTRO = {
 
 # Regras implementadas, para o relatório de cobertura.
 IMPLEMENTADAS = frozenset(REGRAS_DE_CAMPO) | frozenset(REGRAS_DE_REGISTRO) \
-    | frozenset(CADASTRO_DA_REGRA) | JA_COBERTAS | frozenset(REGRAS_DE_CONTA)
+    | frozenset(CADASTRO_DA_REGRA) | JA_COBERTAS | frozenset(REGRAS_POSTERIORES)
 
 
 # -------------------------------------------------------------- entradas

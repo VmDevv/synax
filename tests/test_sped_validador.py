@@ -221,7 +221,7 @@ check("empresa lida do 0000",
       and base.empresa["dt_fin"] == "20260430")
 check("as regras específicas que ficaram de fora são CONTADAS",
       sum(base.nao_conferidas.values()) > 0
-      and "REGRA_CFOP_C100" in base.nao_conferidas,
+      and "REGRA_VALIDA_IE_0000_V2" in base.nao_conferidas,
       base.nao_conferidas.most_common(3))
 check("e regra implementada não entra na conta de não conferidas",
       "REGRA_MAIOR_ZERO" not in base.nao_conferidas
@@ -868,6 +868,111 @@ res = validar({**blocos_base(), "C": ["|C001|0|", trocar_campo(C100, 6, "06"),
                                       C170_020, C190_020]})
 check("nota complementar (COD_SIT 06) com CST 020 sem redução: não acusa",
       not achar(res, "REGRA_CST_ICMS_RED_BC_COM_COD_SIT_C190"), regras(res))
+
+
+# ============================================================================
+print("\n=== 12d. Documento: chave, operação/CFOP e CST do C190 ===")
+
+
+def nota(c100=C100, itens=(C170,), analiticos=(C190,)):
+    b = blocos_base()
+    b["C"] = ["|C001|0|", c100, *itens, *analiticos]
+    return validar(b)
+
+
+res = nota(trocar_campo(C100, 5, "65"))
+check("modelo do C100 (65) diferente do da chave (55)",
+      achar(res, "REGRA_COMPARA_CODIGO_MODELO", "C100", "CHV_NFE"))
+res = nota(trocar_campo(C100, 7, "2"))
+check("série do C100 (2) diferente da série da chave (1)",
+      achar(res, "REGRA_VALIDA_SERIE_CHAVE", "C100", "CHV_NFE"))
+res = nota(trocar_campo(C100, 7, "001"))
+check("série '001' é a mesma série 1 da chave",
+      not achar(res, "REGRA_VALIDA_SERIE_CHAVE"))
+res = nota(trocar_campo(C100, 8, "124"))
+check("número do C100 (124) diferente do número da chave (123)",
+      achar(res, "REGRA_COMPARA_NUM_DOC_NFE_CTE_C100_V4", "C100", "CHV_NFE"))
+
+b = blocos_base()
+b["0"].insert(4, R0150.replace("|F001|", "|F002|").replace(FORNECEDOR, "11222333000181"))
+b["C"][1] = trocar_campo(C100, 4, "F002")
+res = validar(b)
+check("terceiros: CNPJ da chave não é o do participante do 0150",
+      achar(res, "REGRA_COMPARA_CNPJ_NFE_PARTICIPANTE_12001_V1", "C100", "CHV_NFE"))
+
+propria = trocar_campo(trocar_campo(C100, 2, "1"), 3, "0")
+res = nota(propria)
+check("emissão própria com o CNPJ do fornecedor na chave",
+      achar(res, "REGRA_COMPARA_CNPJ_NFE_CTE_12001_V1", "C100", "CHV_NFE"))
+chave_rj = "33" + chave("000000123", EMPRESA)[2:43]
+pesos = [2, 3, 4, 5, 6, 7, 8, 9]
+resto = sum(int(x) * pesos[i % 8] for i, x in enumerate(reversed(chave_rj))) % 11
+chave_rj += str(0 if resto < 2 else 11 - resto)
+res = nota(trocar_campo(propria, 9, chave_rj),
+           itens=(trocar_campo(C170, 11, "5102"),),
+           analiticos=(trocar_campo(C190, 3, "5102"),))
+check("chave válida da UF 33 (RJ) em emissão própria de informante do ES",
+      achar(res, "REGRA_COMPARA_UF_NFE_CTE_13001_V1", "C100", "CHV_NFE"), regras(res))
+check("e o CNPJ dela é o do informante: essa regra não acusa",
+      not achar(res, "REGRA_COMPARA_CNPJ_NFE_CTE_12001_V1"))
+
+res = nota(trocar_campo(C100, 9, ""))
+check("NF-e de terceiros sem chave",
+      achar(res, "REGRA_OBRIGATORIO_CHV_NFE_CTE_TERCEIROS_12001_V1", "C100", "CHV_NFE"))
+res = nota(trocar_campo(propria, 9, ""),
+           itens=(trocar_campo(C170, 11, "5102"),),
+           analiticos=(trocar_campo(C190, 3, "5102"),))
+check("NF-e de emissão própria sem chave",
+      achar(res, "REGRA_OBRIGATORIO_CHV_NFE_CTE_A13E1V2", "C100", "CHV_NFE"))
+res = nota(trocar_campo(C100, 5, "01"))
+check("chave informada em nota modelo 01 (papel)",
+      achar(res, "REGRA_CHVDFE_MODELO_12001_V1", "C100", "CHV_NFE"))
+
+res = nota(trocar_campo(C100, 2, "1"))
+check("documento de terceiros como saída (IND_OPER 1)",
+      achar(res, "REGRA_IND_EMIT", "C100", "IND_EMIT"))
+res = nota(trocar_campo(trocar_campo(C100, 2, "1"), 6, "08"))
+check("regime especial (COD_SIT 08): saída de terceiros é admitida",
+      not achar(res, "REGRA_IND_EMIT"), regras(res))
+res = nota(C100, itens=(trocar_campo(C170, 11, "5102"),),
+           analiticos=(trocar_campo(C190, 3, "5102"),))
+check("CFOP de saída (5102) em nota de entrada: no item e no analítico",
+      achar(res, "REGRA_CFOP_C100", "C170", "CFOP")
+      and achar(res, "REGRA_CFOP_C100", "C190", "CFOP"))
+dois = trocar_campo(trocar_campo(C170, 2, "2"), 11, "2102")
+res = nota(C100, itens=(C170, dois),
+           analiticos=(C190, trocar_campo(C190, 3, "2102")))
+check("itens da mesma nota com CFOP 1xxx e 2xxx",
+      achar(res, "REGRA_COERENCIA_CFOP_C170", "C100", "CFOP"))
+
+nfce = linha("C100", {2: "0", 3: "1", 5: "65", 6: "00", 7: "1", 8: "126",
+                      9: chave("000000126", EMPRESA, "65"), 10: "05042026",
+                      12: "10,00", 13: "0", 17: "9"}, 29)
+res = nota(nfce, itens=(),
+           analiticos=("|C190|000|1102|0,00|10,00|0,00|0,00|0,00|0,00|0,00|0,00||",))
+check("NFC-e como entrada e de terceiros: operação, emitente e CFOP",
+      achar(res, "REGRA_IND_OPER_NFCE_12001_V1", "C100", "IND_OPER")
+      and achar(res, "REGRA_IND_EMIT_NFCE", "C100", "IND_EMIT")
+      and achar(res, "REGRA_CFOP_NFCE", "C190", "CFOP"))
+res = nota(trocar_campo(nfce, 9, "").replace("|0|1|", "|1|0|", 1), itens=(),
+           analiticos=("|C190|000|5102|0,00|10,00|0,00|0,00|0,00|0,00|0,00|0,00||",))
+check("NFC-e sem chave", achar(res, "REGRA_OBRIGATORIO_CHVE_NFCE_A7E2V1", "C100"))
+check("e a regra genérica de chave própria não acusa a mesma coisa de novo",
+      not achar(res, "REGRA_OBRIGATORIO_CHV_NFE_CTE_A13E1V2"))
+
+saida_61 = trocar_campo(trocar_campo(C190, 2, "061"), 3, "5102")
+res = nota(propria, itens=(), analiticos=(trocar_campo(saida_61, 9, "5,00"),))
+check("CST 61 (monofásico cobrado antes) com ICMS ST na saída",
+      achar(res, "REGRA_VALIDA_CST_VL_ICMS_ST_C190", "C190", "VL_ICMS_ST"))
+check("CST 61 com base de ICMS",
+      achar(res, "REGRA_VALIDA_CST_VL_BC_ICMS_C190", "C190", "VL_BC_ICMS"))
+check("CST 61 na saída com alíquota e ICMS",
+      achar(res, "REGRA_CST_ICMS_CAMPOS_ICMS_C190", "C190", "CST_ICMS"))
+saida_02 = trocar_campo(trocar_campo(C190, 2, "002"), 3, "5102")
+res = nota(propria, itens=(), analiticos=(saida_02,))
+item = achar(res, "REGRA_CST_ICMS_CAMPOS_ICMS_C190", "C190")
+check("CST 02 na saída com ICMS: só ADVERTÊNCIA (o PVA pede ao Simples que "
+      "desconsidere)", item and item[0].gravidade == ADVERTENCIA, item)
 
 
 # ============================================================================
