@@ -81,6 +81,9 @@
     #upload-progresso-barra { transition: width .2s ease; }
 </style>
 <main class="w-full">
+    {# Novidades depois do login: a janela só vem se houver novidade não vista
+       para o papel da pessoa; senão a resposta é vazia e nada aparece. #}
+    <div hx-get="/api/novidades" hx-trigger="load" hx-swap="outerHTML"></div>
 
     <div class="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 mb-4">
         <div>

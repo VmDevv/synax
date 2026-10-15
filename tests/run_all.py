@@ -69,6 +69,7 @@ SUITES = [
     ("test_sped_contribuicoes.py", "Segundo leiaute: EFD Contribuições por caixa na tela, com trava de arquivo trocado"),
     ("test_sped_debito_subapuracao.py", "Ajuste C195/C197 (débito sub-apuração) nos C190 de CFOP 5106/6106"),
     ("test_sped_validador.py", "Validar SPED: leiaute do PVA, regras genéricas, Bloco 9 e a aba por empresa"),
+    ("test_novidades.py", "Novidades depois do login: só o não visto, por papel, gravado no banco"),
     ("test_busca_regras.py", "Busca única nas Regras por Empresa: no banco, sem vazar tenant"),
     ("test_planilhas.py", "Excel: estilo único, chave/CNPJ como texto e moeda formatada"),
     ("test_nfse_nacional.py", "NFS-e do ADN (layout nacional): nota completa, não só o número"),

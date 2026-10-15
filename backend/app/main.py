@@ -169,6 +169,11 @@ app.include_router(ajuste_sped_router)
 from .api.routes.validar_sped import router as validar_sped_router  # noqa: E402
 app.include_router(validar_sped_router)
 
+# Novidades: a janela da tela principal depois do login. Qualquer papel logado;
+# o que cada um vê é filtrado no serviço.
+from .api.routes.novidades import router as novidades_router  # noqa: E402
+app.include_router(novidades_router)
+
 # E-mails: XMLs que chegam na caixa do escritório e o resumo da manhã. Cada
 # rota valida papel por dentro — o operador vê só os XMLs das empresas dele.
 from .api.routes.emails import router as emails_router  # noqa: E402

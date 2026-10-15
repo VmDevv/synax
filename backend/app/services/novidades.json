@@ -1,0 +1,21 @@
+{
+  "_como_escrever": "Uma novidade por funcionalidade que muda o dia a dia. Título curto; texto em 2 ou 3 frases dizendo o que mudou e como usar; sem versão, sem nome técnico. 'papeis' diz quem vê (admin, operador, cliente). A data (AAAA-MM-DD) decide a ordem e o 'já vi'. Entra no mesmo commit da funcionalidade.",
+  "novidades": [
+    {
+      "data": "2026-10-15",
+      "titulo": "Nova aba: Validar SPED",
+      "texto": "Antes de levar o SPED do cliente ao PVA, suba o arquivo na aba Validar SPED: ela aponta linha, registro, campo e o motivo de cada erro, e a lista sai em planilha. Confere leiaute, cadastros do Bloco 0, chaves das notas, somas da nota e da apuração e o Bloco 9. O PVA continua sendo a conferência final.",
+      "link": "/validar-sped",
+      "rotulo_link": "Abrir Validar SPED",
+      "papeis": ["admin", "operador"]
+    },
+    {
+      "data": "2026-10-15",
+      "titulo": "Gerar SPED: CEP e CFOP de entrada",
+      "texto": "O SPED gerado a partir dos XMLs agora traz o CEP da empresa no registro 0005 (se nenhum XML trouxer, a tela avisa) e só usa CFOP de entrada que existe na tabela oficial. Saídas sem equivalente direto, como 5405, aparecem como sugestão (1403) para aprovar no mapeamento.",
+      "link": "/gerar-sped",
+      "rotulo_link": "Abrir Gerar SPED",
+      "papeis": ["admin", "operador"]
+    }
+  ]
+}

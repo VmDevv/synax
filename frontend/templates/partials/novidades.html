@@ -1,0 +1,34 @@
+{# Janela de novidades depois do login. Só chega aqui com item pendente.
+   "Entendi" e "Abrir" marcam como visto; o "Abrir" navega depois de marcar. #}
+<div id="novidades-janela" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+     role="dialog" aria-modal="true" aria-labelledby="novidades-titulo">
+    <div class="w-full max-w-lg bg-white rounded-2xl shadow-xl overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+            <i class="fa-solid fa-bullhorn" style="color: var(--syn-700);"></i>
+            <h3 id="novidades-titulo" class="font-bold text-slate-800">Novidades no Synax</h3>
+        </div>
+        <ul class="divide-y divide-slate-100 max-h-[60vh] overflow-y-auto">
+            {% for i in itens %}
+            <li class="px-5 py-4">
+                <div class="font-semibold text-slate-800 text-[14px]">{{ i.titulo }}</div>
+                <p class="text-[13px] text-slate-600 leading-relaxed mt-1">{{ i.texto }}</p>
+                {% if i.link %}
+                <a href="{{ i.link }}" hx-boost="false"
+                   hx-post="/api/novidades/vistas" hx-swap="none"
+                   hx-on::after-request="window.location.href = this.getAttribute('href')"
+                   class="inline-flex items-center gap-1 mt-2 text-[13px] font-semibold"
+                   style="color: var(--syn-700);">
+                    {{ i.rotulo_link or "Abrir" }} <i class="fa-solid fa-arrow-right text-[11px]"></i>
+                </a>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        <div class="px-5 py-3 bg-slate-50 flex justify-end">
+            <button type="button" class="btn btn-sm bg-syn-700 hover:bg-syn-800 text-white"
+                    hx-post="/api/novidades/vistas" hx-target="#novidades-janela" hx-swap="outerHTML">
+                Entendi
+            </button>
+        </div>
+    </div>
+</div>

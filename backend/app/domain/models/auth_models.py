@@ -40,6 +40,10 @@ class UserProfile(Base):
     role = Column(String(50), default="cliente") # admin, cliente, operador
     name = Column(String(255))
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Data (AAAA-MM-DD) da última novidade que a pessoa viu na tela principal
+    # (`services/novidades.py`). No banco, não no navegador: o escritório usa
+    # mais de um computador. NULO = nunca viu nenhuma.
+    novidades_vistas_ate = Column(String(10), nullable=True)
     
     from sqlalchemy.orm import relationship
     # `lazy="joined"`: as empresas do operador vêm JUNTO com o perfil, numa

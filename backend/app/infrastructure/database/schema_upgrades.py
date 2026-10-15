@@ -21,6 +21,11 @@ logger = logging.getLogger(__name__)
 
 # tabela -> [(coluna, DDL do tipo/default)]
 COLUNAS_NOVAS = {
+    "user_profiles": [
+        # Janela de novidades depois do login (15/10/2026). Sem default: NULO é
+        # "nunca viu nenhuma", e aí aparecem só as do último mês.
+        ("novidades_vistas_ate", "VARCHAR(10)"),
+    ],
     # Leitura da caixa de e-mail: a tabela nasceu em 28/09/2026 de manhã e esta
     # coluna à tarde (sugestão de silenciar remetente automático). Sem default:
     # NULO é "lido antes de existir a marca", não "não é automático".
