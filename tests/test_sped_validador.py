@@ -976,6 +976,392 @@ check("CST 02 na saída com ICMS: só ADVERTÊNCIA (o PVA pede ao Simples que "
 
 
 # ============================================================================
+print("\n=== 12e. Documento: datas, situação, valores × itens e duplicidade ===")
+
+res = nota(trocar_campo(C100, 11, "04042026"))
+item = achar(res, "REGRA_DT_E_S_MAIOR_IGUAL_DT_DOC", "C100", "DT_E_S")
+check("entrada (04/04) antes da emissão (05/04): erro",
+      item and item[0].gravidade == "erro", item)
+res = nota(trocar_campo(trocar_campo(C100, 11, "04042026"), 6, "08"))
+item = achar(res, "REGRA_DT_E_S_MAIOR_IGUAL_DT_DOC", "C100", "DT_E_S")
+check("no regime especial (08) o Guia admite: só ADVERTÊNCIA (Exceção 5)",
+      item and item[0].gravidade == ADVERTENCIA, item)
+res = nota(trocar_campo(C100, 11, "02052026"))
+check("entrada depois do fim do período",
+      achar(res, "REGRA_DATA_MENOR_IGUAL_DT_FIN_0000_DT_ES", "C100", "DT_E_S"))
+fora = trocar_campo(trocar_campo(C100, 10, "01052026"), 11, "02052026")
+res = nota(fora)
+check("emissão depois do fim do período",
+      achar(res, "REGRA_DATA_MENOR_IGUAL_DT_FIN_0000_DT_DOC_C100", "C100", "DT_DOC"))
+res = nota(trocar_campo(fora, 6, "08"))
+check("...mas não no regime especial, em que a emissão pode vir depois",
+      not achar(res, "REGRA_DATA_MENOR_IGUAL_DT_FIN_0000_DT_DOC_C100"), regras(res))
+
+saida = trocar_campo(trocar_campo(propria, 10, "01052026"), 11, "")
+res = nota(saida, itens=(), analiticos=(trocar_campo(C190, 3, "5102"),))
+check("saída emitida depois do período sem a data de saída",
+      achar(res, "REGRA_OBRIGATORIO_DT_E_S", "C100", "DT_E_S"))
+res = nota(trocar_campo(propria, 11, ""), itens=(),
+           analiticos=(trocar_campo(C190, 3, "5102"),))
+check("saída emitida no período: a data de saída é opcional",
+      not achar(res, "REGRA_OBRIGATORIO_DT_E_S")
+      and not achar(res, "REGRA_CAMPO_OBRIGATORIO", "C100", "DT_E_S"), regras(res))
+
+antes = trocar_campo(trocar_campo(C100, 10, "30032026"), 11, "31032026")
+res = nota(antes)
+check("regular (00) com entrada em março num arquivo de abril: é extemporâneo",
+      achar(res, "REGRA_DOCUMENTO_NORMAL_DT_ES", "C100", "COD_SIT"))
+res = nota(trocar_campo(antes, 6, "01"))
+check("o mesmo documento como extemporâneo (01) passa",
+      not achar(res, "REGRA_DOCUMENTO_NORMAL_DT_ES")
+      and not achar(res, "REGRA_DOCUMENTO_EXTEMPORANEO_DT_E_S"), regras(res))
+res = nota(trocar_campo(C100, 6, "01"))
+check("extemporâneo (01) com entrada dentro do período: é regular",
+      achar(res, "REGRA_DOCUMENTO_EXTEMPORANEO_DT_E_S", "C100", "COD_SIT"))
+res = nota(trocar_campo(trocar_campo(C100, 11, ""), 10, "30032026"))
+check("sem DT_E_S, a data que decide é a emissão (Guia, E110 campo 02)",
+      achar(res, "REGRA_DOCUMENTO_NORMAL_DT_ES", "C100", "COD_SIT"), regras(res))
+res = com_frete(trocar_campo(trocar_campo(D100, 11, "30032026"), 12, "31032026"))
+check("CT-e regular com aquisição em março: DT_A_P no lugar da DT_E_S",
+      achar(res, "REGRA_DOCUMENTO_NORMAL_DT_AP", "D100", "COD_SIT"))
+
+# Valores do documento contra os itens
+res = nota(trocar_campo(C100, 14, "10,00"))
+check("desconto no C100 que os C170 não têm",
+      achar(res, "REGRA_VALIDA_DESC_DOC_ITEM", "C100", "VL_DESC"))
+res = nota(trocar_campo(C100, 14, "10,00"), itens=(trocar_campo(C170, 8, "10,00"),))
+check("desconto igual à soma dos itens passa",
+      not achar(res, "REGRA_VALIDA_DESC_DOC_ITEM"), regras(res))
+res = nota(trocar_campo(C100, 15, "5,00"))
+check("abatimento não tributado sem os itens",
+      achar(res, "REGRA_VALIDA_VL_ABAT_NT", "C100", "VL_ABAT_NT"))
+res = nota(trocar_campo(propria, 14, "10,00"), itens=(trocar_campo(C170, 11, "5102"),),
+           analiticos=(trocar_campo(C190, 3, "5102"),))
+check("NF-e própria: os C170 são parciais, o desconto não é somado",
+      not achar(res, "REGRA_VALIDA_DESC_DOC_ITEM"), regras(res))
+
+modelo_01 = trocar_campo(trocar_campo(C100, 5, "01"), 9, "")
+res = nota(trocar_campo(modelo_01, 16, "900,00"))
+check("nota modelo 01 de terceiros com mercadoria abaixo da soma dos itens",
+      achar(res, "REGRA_VL_MERC_C170", "C100", "VL_MERC"))
+res = nota(trocar_campo(modelo_01, 16, "1100,00"))
+check("mercadoria ACIMA da soma: o Guia diz igual e o PVA diz maior ou igual; "
+      "sem acordo, sem acusação", not achar(res, "REGRA_VL_MERC_C170"))
+res = nota(trocar_campo(C100, 16, "900,00"))
+check("NF-e (55) fica fora da regra do VL_MERC", not achar(res, "REGRA_VL_MERC_C170"))
+
+C195 = "|C195|001||"
+C197 = "|C197|ES10000001||P001|1000,00|17,00|1000,00|0,00|"
+res = nota(C100, analiticos=(C190, C195, C197))
+check("ICMS dos ajustes do documento igual ao valor da nota",
+      achar(res, "REGRA_VL_ICMS_MAIOR_VL_DOC_C100", "C100", "VL_DOC"))
+res = nota(C100, analiticos=(C190, C195, trocar_campo(C197, 7, "170,00")))
+check("ajuste menor que o valor da nota passa",
+      not achar(res, "REGRA_VL_ICMS_MAIOR_VL_DOC_C100"))
+
+# Situação do documento
+cancelada = linha("C100", {2: "0", 3: "1", 5: "55", 6: "02", 7: "1", 8: "123",
+                           9: CHAVE}, 29)
+res = nota(cancelada, itens=(), analiticos=())
+check("cancelada só com a identificação e a chave passa",
+      not achar(res, "REGRA_NOTA_FISCAL_CANCELADA_14001_V1")
+      and not achar(res, "REGRA_CAMPO_OBRIGATORIO"), regras(res))
+res = nota(trocar_campo(trocar_campo(cancelada, 10, "05042026"), 12, "1000,00"))
+check("cancelada com data e valor: cada campo acusado",
+      achar(res, "REGRA_NOTA_FISCAL_CANCELADA_14001_V1", "C100", "DT_DOC")
+      and achar(res, "REGRA_NOTA_FISCAL_CANCELADA_14001_V1", "C100", "VL_DOC"))
+check("e os filhos dela também (C170 e C190)",
+      achar(res, "REGRA_NOTA_FISCAL_CANCELADA_14001_V1", "C170")
+      and achar(res, "REGRA_NOTA_FISCAL_CANCELADA_14001_V1", "C190"))
+res = nota(trocar_campo(trocar_campo(cancelada, 6, "05"), 12, "1,00"),
+           itens=(), analiticos=())
+check("numeração inutilizada (05) com valor",
+      achar(res, "REGRA_NOTA_FISCAL_INUTILIZADA_A12E1V2", "C100", "VL_DOC"))
+res = nota(trocar_campo(trocar_campo(cancelada, 6, "04"), 5, "01")
+           .replace(CHAVE, ""), itens=(), analiticos=())
+check("denegada (04) só existe para NF-e e NFC-e",
+      achar(res, "REGRA_VALIDA_SITUACAO_PARA_NFE_A7E2V1", "C100", "COD_SIT"))
+
+nfce_saida = linha("C100", {2: "1", 3: "0", 5: "65", 6: "00", 7: "1", 8: "126",
+                            9: chave("000000126", EMPRESA, "65"), 10: "05042026",
+                            12: "10,00", 13: "0", 17: "9"}, 29)
+C190_NFCE = "|C190|000|5102|0,00|10,00|0,00|0,00|0,00|0,00|0,00|0,00||"
+res = nota(nfce_saida, itens=(), analiticos=(C190_NFCE,))
+check("NFC-e de saída correta não acusa o modificador",
+      not achar(res, "REGRA_NFE_CONSUMIDOR_14001V1"), regras(res))
+res = nota(trocar_campo(nfce_saida, 26, "0,10"), itens=(), analiticos=(C190_NFCE,))
+check("NFC-e com PIS informado",
+      achar(res, "REGRA_NFE_CONSUMIDOR_14001V1", "C100", "VL_PIS"))
+res = nota(trocar_campo(trocar_campo(nfce_saida, 6, "08"), 13, ""), itens=(),
+           analiticos=(C190_NFCE,))
+check("NFC-e em regime especial (08) segue a obrigatoriedade normal",
+      achar(res, "REGRA_CAMPO_OBRIGATORIO", "C100", "IND_PGTO"), regras(res))
+res = nota(trocar_campo(trocar_campo(C100, 6, "08"), 13, ""))
+check("...e a NF-e em regime especial não exige o IND_PGTO",
+      not achar(res, "REGRA_CAMPO_OBRIGATORIO", "C100", "IND_PGTO"), regras(res))
+check("NF-e de terceiros em regime especial sem o C110 da norma",
+      achar(res, "REGRA_OBRIGATORIO_C110_14001_V1", "C100"))
+res = nota(trocar_campo(propria, 6, "08"), itens=(),
+           analiticos=(trocar_campo(C190, 3, "5102"),))
+check("NF-e de emissão própria em regime especial dispensa o C110",
+      not achar(res, "REGRA_OBRIGATORIO_C110_14001_V1"), regras(res))
+
+res = nota(propria, itens=(trocar_campo(C170, 11, "5102"),),
+           analiticos=(trocar_campo(C190, 3, "5102"),))
+check("C170 em NF-e de emissão própria sem C176/C177/C180/C181",
+      achar(res, "REGRA_COMPLEMENTO_NFE_EMITIDA_15001_V1_C176_C177_C180_C181", "C170"))
+C176 = linha("C176", {}, len(dados.leiaute("020").registros["C176"].campos))
+res = nota(propria, itens=(trocar_campo(C170, 11, "5102"), C176),
+           analiticos=(trocar_campo(C190, 3, "5102"),))
+check("...com o C176 (ressarcimento) o item é admitido",
+      not achar(res, "REGRA_COMPLEMENTO_NFE_EMITIDA_15001_V1_C176_C177_C180_C181"))
+
+base = validar(blocos_base())
+check("os modificadores do C100 saem da conta das não conferidas",
+      not any(k in base.nao_conferidas for k in (
+          "REGRA_NOTA_FISCAL_CANCELADA_14001_V1", "REGRA_NOTA_FISCAL_INUTILIZADA_A12E1V2",
+          "REGRA_NOTA_FISCAL_COMPLEMENTAR_17001_V2", "REGRA_NOTA_FISCAL_ESP_14001V1",
+          "REGRA_NFE_EMITIDA_15001_V1", "REGRA_NFE_CONSUMIDOR_14001V1")),
+      base.nao_conferidas.most_common(8))
+
+# Duplicidade
+b = blocos_base()
+b["C"] = ["|C001|0|", C100, C170, C190, C100, C170, C190]
+res = validar(b)
+item = achar(res, "REGRA_DUPLICIDADE_NO_REGISTRO_C100_EMISSAO_TERCEIROS", "C100")
+check("a mesma NF-e de terceiros duas vezes: acusada na segunda",
+      len(item) == 1 and "linha" in item[0].mensagem, item)
+b = blocos_base()
+segunda = trocar_campo(propria, 4, "F002")
+b["C"] = ["|C001|0|", propria, trocar_campo(C190, 3, "5102"),
+          segunda, trocar_campo(C190, 3, "5102")]
+res = validar(b)
+check("emissão própria: o participante não distingue a nota",
+      achar(res, "REGRA_DUPLICIDADE_NO_REGISTRO_C100_EMISSAO_PROPRIA", "C100"))
+b = blocos_base()
+b["C"] = ["|C001|0|", modelo_01, C170, C190, trocar_campo(modelo_01, 5, "1B"), C170, C190]
+res = validar(b)
+item = achar(res, "REGRA_MULTIPLAS_OCORRENCIAS_C100", "C100")
+check("mesma nota em papel com modelo 01 e 1B: ADVERTÊNCIA, não duplicidade",
+      item and item[0].gravidade == ADVERTENCIA
+      and not achar(res, "REGRA_DUPLICIDADE_NO_REGISTRO_C100_EMISSAO_TERCEIROS"),
+      regras(res))
+b = blocos_base()
+b["D"] = ["|D001|0|", D100, D190, D100, D190]
+b["E"][2] = E110_COM_FRETE
+res = validar(b)
+check("o mesmo CT-e duas vezes",
+      achar(res, "REGRA_DUPLICIDADE_NO_REGISTRO_D100_EMISSAO_TERCEIROS_A9E2V1", "D100"))
+
+
+# ============================================================================
+print("\n=== 12f. Cadastros: participante (0150) e item (0200) ===")
+
+lt20 = dados.leiaute("020")
+check("posição do campo vem da ORDEM do descritor, não do número dele",
+      all([c.n for c in d.campos] == list(range(1, len(d.campos) + 1))
+          for d in lt20.registros.values()))
+check("0220: o código de barras é o 4º campo (o descritor do PVA diz 3)",
+      lt20.registros["0220"].indice_campo["COD_BARRA"].n == 4)
+check("C890: VL_ICMS é o 7º e COD_OBS o 8º (o descritor diz 6 para os dois)",
+      lt20.registros["C890"].indice_campo["VL_ICMS"].n == 7
+      and lt20.registros["C890"].indice_campo["COD_OBS"].n == 8)
+
+
+def com_cadastro(*, r0150=R0150, r0200=R0200, extras_0=(), r0000=R0000, filhos_c170=()):
+    b = blocos_base()
+    b["0"] = [r0000, "|0001|0|", R0005, r0150, R0190, r0200, *extras_0]
+    b["C"] = ["|C001|0|", C100, C170, *filhos_c170, C190]
+    return validar(b)
+
+
+exterior = trocar_campo(trocar_campo(R0150, 4, "2496"), 8, "")
+res = com_cadastro(r0150=exterior)
+check("participante do exterior com CNPJ",
+      achar(res, "REGRA_NAO_PREENCHER_BRA_CNPJ", "0150", "CNPJ"))
+res = com_cadastro(r0150=trocar_campo(trocar_campo(exterior, 5, ""), 7, "123"))
+check("participante do exterior com IE", achar(res, "REGRA_NAO_PREENCHER_BRA_IE", "0150", "IE")
+      and not achar(res, "REGRA_NAO_PREENCHER_BRA_CNPJ"))
+check("...e do exterior não precisa de município", not achar(
+    res, "REGRA_OBRIGATORIO_PARA_BRASIL_A10E3V4"), regras(res))
+res = com_cadastro(r0150=trocar_campo(R0150, 6, "52998224725"))
+check("CNPJ e CPF no mesmo participante", achar(res, "REGRA_CNPJ_EXCLUDENTE", "0150", "CNPJ"))
+res = com_cadastro(r0150=trocar_campo(R0150, 5, ""))
+check("participante do Brasil sem CNPJ nem CPF",
+      achar(res, "REGRA_OBRIGATORIO_CPF_BRA_V2", "0150", "CNPJ"))
+for municipio in ("", "9999999"):
+    res = com_cadastro(r0150=trocar_campo(R0150, 8, municipio))
+    check(f"participante do Brasil com município '{municipio}'",
+          achar(res, "REGRA_OBRIGATORIO_PARA_BRASIL_A10E3V4", "0150", "COD_MUN"))
+res = com_cadastro(r0150=trocar_campo(R0150, 4, "01058"))
+check("Brasil escrito 01058 é o mesmo 1058", res.total == 0,
+      [(i.regra, i.campo) for i in res.inconsistencias])
+
+res = com_cadastro(r0150=trocar_campo(R0150, 9, "200187414"))
+check("SUFRAMA com dígito certo passa", not achar(res, "REGRA_DIGITO_SUFRAMA"))
+res = com_cadastro(r0150=trocar_campo(R0150, 9, "200187415"))
+check("SUFRAMA com dígito errado", achar(res, "REGRA_DIGITO_SUFRAMA", "0150", "SUFRAMA"))
+
+res = com_cadastro(extras_0=(R0150.replace("|F001|", "|F002|"),))
+item = achar(res, "REGRA_REFERENCIADO_COD_PART_17002_V1", "0150", "COD_PART")
+check("participante que nenhum registro usa", len(item) == 1 and item[0].valor == "F002",
+      item)
+P002 = R0200.replace("|P001|", "|P002|")
+res = com_cadastro(extras_0=(P002,))
+check("item que nenhum registro usa",
+      [i.valor for i in achar(res, "REGRA_REFERENCIADO_COD_ITEM_17002_V1")] == ["P002"])
+res = com_cadastro(extras_0=(P002, "|0220|UN|12||"))
+check("...com fator de conversão (0220) o item sem movimento é admitido",
+      not achar(res, "REGRA_REFERENCIADO_COD_ITEM_17002_V1"), regras(res))
+check("e o 0220 sem código de barras não exige o do 0200 (lido no campo certo)",
+      not achar(res, "REGRA_OBRIGATORIO_COD_BARRA"), regras(res))
+res = com_cadastro(extras_0=("|0220|UN|12|7891000315507|",))
+check("0220 com código de barras exige o do 0200",
+      achar(res, "REGRA_OBRIGATORIO_COD_BARRA", "0200", "COD_BARRA"))
+
+industrial = R0000[:-3] + "|0|"
+assert industrial.count("|") == R0000.count("|")
+res = com_cadastro(r0000=industrial, r0200=trocar_campo(R0200, 8, ""))
+check("industrial (IND_ATIV 0) com mercadoria sem NCM",
+      achar(res, "REGRA_OBRIGATORIO_NCM", "0200", "COD_NCM"))
+res = com_cadastro(r0000=industrial, r0200=trocar_campo(trocar_campo(R0200, 8, ""), 7, "07"))
+check("...material de uso e consumo (07) dispensa o NCM",
+      not achar(res, "REGRA_OBRIGATORIO_NCM"))
+res = com_cadastro(r0200=trocar_campo(R0200, 8, ""))
+check("comércio (IND_ATIV 1) não precisa de NCM", not achar(res, "REGRA_OBRIGATORIO_NCM"))
+res = com_cadastro(r0200=trocar_campo(R0200, 8, "99999999"))
+check("NCM 99999999", achar(res, "REGRA_VALIDA_COD_NCM", "0200", "COD_NCM"))
+res = com_cadastro(r0200=trocar_campo(R0200, 5, "ANTIGO1"))
+check("código anterior no 0200 (vai no 0205)",
+      achar(res, "REGRA_NAO_INFORMAR_COD_ANT_ITEM_0200", "0200", "COD_ANT_ITEM"))
+res = com_cadastro(r0200=trocar_campo(R0200, 11, "1401"))
+check("serviço da LC 116 sem o ponto", achar(res, "REGRA_VALIDA_COD_LST", "0200", "COD_LST"))
+res = com_cadastro(r0200=trocar_campo(R0200, 11, "14.01"))
+check("...no formato NN.NN passa", not achar(res, "REGRA_VALIDA_COD_LST"))
+
+res = com_cadastro(r0200=R0200, filhos_c170=())
+check("item na unidade do estoque não pede fator de conversão",
+      not achar(res, "REGRA_VALIDA_UNID_CONVERSAO_17001_V1"))
+b = blocos_base()
+b["C"][2] = trocar_campo(C170, 6, "CX")
+res = validar(b)
+check("item em CX com estoque em UN e sem 0220",
+      achar(res, "REGRA_VALIDA_UNID_CONVERSAO_17001_V1", "C170", "UNID"))
+b["0"].append("|0220|CX|12||")
+res = validar(b)
+check("...com o 0220 do item a unidade diferente é admitida",
+      not achar(res, "REGRA_VALIDA_UNID_CONVERSAO_17001_V1"), regras(res))
+
+C180 = linha("C180", {}, len(lt20.registros["C180"].campos))
+res = com_cadastro(filhos_c170=(C180,))
+check("item com ressarcimento de ST (C180) e sem alíquota interna no 0200",
+      achar(res, "REGRA_OBRIGATORIO_ALIQ_RESSARC_ST", "0200", "ALIQ_ICMS"))
+res = com_cadastro(filhos_c170=(C180,), r0200=trocar_campo(R0200, 12, "17,00"))
+check("...com a alíquota informada passa", not achar(res, "REGRA_OBRIGATORIO_ALIQ_RESSARC_ST"))
+
+
+# ============================================================================
+print("\n=== 12g. Item (C170): CST × campos, CST do IPI e quantidade ===")
+
+
+def item_c170(**campos):
+    texto = C170
+    for n, valor in campos.items():
+        texto = trocar_campo(texto, int(n[1:]), valor)
+    return texto
+
+
+res = nota(C100, itens=(item_c170(c10="061"),))
+check("entrada monofásica (CST 61) com base de ICMS",
+      achar(res, "REGRA_VALIDA_CST_VL_BC_ICMS_C170", "C170", "VL_BC_ICMS"))
+res = nota(C100, itens=(item_c170(c10="002", c13="0,00", c14="", c15="0,00"),))
+achados = achar(res, "REGRA_VALIDA_CST_ALIQ_ICMS_C170", "C170", "ALIQ_ICMS")
+check("entrada CST 02 com a alíquota VAZIA: acusada, e como advertência "
+      "(o texto do PVA termina em '- ADVERTÊNCIA')",
+      achados and achados[0].gravidade == ADVERTENCIA, achados)
+res = nota(C100, itens=(item_c170(c10="015", c13="0,00", c14="17,00", c15="0,00"),))
+check("entrada CST 15 sem alíquota de ST",
+      achar(res, "REGRA_VALIDA_CST_ALIQ_ST_C170", "C170", "ALIQ_ST"))
+res = nota(C100, itens=(item_c170(c10="061", c13="0,00", c14="", c15="0,00", c17="5,00"),))
+check("entrada CST 61 com alíquota de ST",
+      achar(res, "REGRA_VALIDA_CST_ALIQ_ST_C170", "C170", "ALIQ_ST"))
+res = nota(C100, itens=(item_c170(c10="040"),))
+check("o confronto de CST × ICMS da SAÍDA não se aplica à entrada",
+      not achar(res, "REGRA_CST_ICMS_CAMPOS_ICMS_C170_V3"), regras(res))
+
+saida_item = trocar_campo(item_c170(c10="040"), 11, "5102")
+res = nota(propria, itens=(saida_item,), analiticos=(trocar_campo(C190, 3, "5102"),))
+check("saída isenta (CST 40) com base, alíquota e ICMS",
+      achar(res, "REGRA_CST_ICMS_CAMPOS_ICMS_C170_V3", "C170", "CST_ICMS"))
+res = nota(propria, itens=(item_c170(c11="5102", c14="", c15="0,00"),),
+           analiticos=(trocar_campo(C190, 3, "5102"),))
+check("saída tributada (CST 00) com base e sem alíquota nem ICMS",
+      achar(res, "REGRA_CST_ICMS_CAMPOS_ICMS_C170_V3", "C170", "CST_ICMS"))
+res = nota(propria, itens=(item_c170(c10="020", c11="5102", c14="", c15="0,00"),),
+           analiticos=(trocar_campo(C190, 3, "5102"),))
+check("...mas a redução de base (CST 20) pode vir zerada",
+      not achar(res, "REGRA_CST_ICMS_CAMPOS_ICMS_C170_V3"), regras(res))
+res = nota(propria, itens=(item_c170(c10="061", c11="5102", c13="0,00", c14="", c15="0,00",
+                                c18="3,00"),),
+           analiticos=(trocar_campo(C190, 3, "5102"),))
+check("saída CST 61 com ICMS ST",
+      achar(res, "REGRA_CST_ICMS_CAMPOS_ST_COM_COD_SIT_C170_V2", "C170", "CST_ICMS"))
+
+res = nota(C100, itens=(item_c170(c20="50"),))
+check("CST do IPI de saída (50) em item de entrada",
+      achar(res, "REGRA_VALIDA_CST_IPI", "C170", "CST_IPI"))
+res = nota(C100, itens=(item_c170(c20="49"),))
+check("CST do IPI de entrada (49) passa", not achar(res, "REGRA_VALIDA_CST_IPI"))
+res = nota(C100, itens=(item_c170(c5="0"),))
+check("item com quantidade zero",
+      achar(res, "REGRA_MAIOR_ZERO_CONDICAO_COD_SIT", "C170", "QTD"))
+res = nota(trocar_campo(C100, 6, "06"), itens=(item_c170(c5="0"),))
+check("...no complementar (06) a quantidade zero é admitida",
+      not achar(res, "REGRA_MAIOR_ZERO_CONDICAO_COD_SIT"), regras(res))
+
+
+# ============================================================================
+print("\n=== 12h. Transporte (D100/D190): CT-e, BP-e e datas ===")
+
+b = blocos_base()
+b["0"].insert(4, R0150.replace("|F001|", "|F002|").replace(FORNECEDOR, EMPRESA))
+b["D"] = ["|D001|0|", trocar_campo(D100, 4, "F002"), D190]
+b["E"][2] = E110_COM_FRETE
+res = validar(b)
+check("CT-e de terceiros com participante de outro CNPJ que o da chave",
+      achar(res, "REGRA_COMPARA_CNPJ_CTE_PARTICIPANTE_14003_V5", "D100", "CHV_CTE"))
+res = com_frete(trocar_campo(D100, 24, ""))
+check("CT-e de entrada sem município de origem",
+      achar(res, "REGRA_OBRIGATORIO_COD_MUN_DOCE_ORIG_V3", "D100", "COD_MUN_ORIG"))
+res = com_frete(trocar_campo(D100, 12, "02052026"))
+check("aquisição do frete depois do fim do período",
+      achar(res, "REGRA_DATA_MENOR_IGUAL_DT_FIN_0000_DT_A_P", "D100", "DT_A_P"))
+res = com_frete(trocar_campo(D100, 14, chave("000000556", FORNECEDOR, "57")))
+check("chave referenciada num CT-e normal (tipo 0)",
+      achar(res, "REGRA_VALIDA_CHV_CTE_REF", "D100", "CHV_CTE_REF"))
+res = com_frete(trocar_campo(D100, 14, chave("000000555", FORNECEDOR, "57")))
+check("chave referenciada igual à do próprio CT-e",
+      achar(res, "REGRA_DIFERENTE_CTE_REF", "D100", "CHV_CTE_REF"))
+res = com_frete(trocar_campo(D100, 13, "3"))
+check("CT-e substituto (tipo 3) sem a chave do substituído",
+      achar(res, "REGRA_VALIDA_CHV_CTE_REF", "D100", "CHV_CTE_REF"))
+res = com_frete(d190=trocar_campo(D190, 2, "100"))
+check("CST de serviço com origem diferente de 0",
+      achar(res, "REGRA_CST_ICMS_SERVICO", "D190", "CST_ICMS"))
+res = com_frete(trocar_campo(trocar_campo(D100, 5, "07"), 10, ""))
+check("nota de serviço de transporte (modelo 07) emitida depois de 2018",
+      achar(res, "REGRA_DATA_MAXIMA_MODELO_DOC_A13E1V2", "D100", "DT_DOC"))
+res = com_frete(trocar_campo(trocar_campo(D100, 5, "63"), 13, "1"))
+check("BP-e (63) de entrada, de terceiros e de tipo 1: as três regras do BP-e",
+      achar(res, "REGRA_BPE_SAIDA", "D100", "IND_OPER")
+      and achar(res, "REGRA_BPE_EMISSAO_PROPRIA", "D100", "IND_EMIT")
+      and achar(res, "REGRA_TIPO_BPE_V2", "D100", "TP_CT_E"))
+res = com_frete(trocar_campo(trocar_campo(trocar_campo(D100, 2, "1"), 6, "08"), 10, ""))
+check("CT-e de saída de terceiros em regime especial sem a chave",
+      achar(res, "REGRA_CHAVE_REGIME_ESPECIAL_CTE", "D100", "CHV_CTE"))
+
+
+# ============================================================================
 print("\n=== 13. A aba: empresa, papel e download ===")
 
 import json  # noqa: E402

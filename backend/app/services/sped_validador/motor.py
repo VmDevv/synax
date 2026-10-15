@@ -29,13 +29,19 @@ from dataclasses import asdict, dataclass, field
 from ..sped_rewriter.documento import BOMS, ler_texto
 from . import campos as cp
 from . import dados
+from .cadastros import DE_CAMPO as REGRAS_DE_CADASTRO_CAMPO
+from .cadastros import DE_REGISTRO as REGRAS_DE_CADASTRO
 from .contas import REGRAS_DE_CONTA
 from .documentos import DE_CAMPO as REGRAS_DE_DOCUMENTO_CAMPO
+from .documentos import DE_CAMPO_VAZIO as REGRAS_DE_CAMPO_VAZIO
+from .documentos import DE_MODIFICADOR as REGRAS_DE_MODIFICADOR
 from .documentos import DE_REGISTRO as REGRAS_DE_DOCUMENTO
 
 # Regras que rodam depois de a árvore inteira estar montada: as de conta
-# (somas) e as de documento (chave, operação, CFOP, CST).
-REGRAS_POSTERIORES = {**REGRAS_DE_CONTA, **REGRAS_DE_DOCUMENTO}
+# (somas), as de documento (chave, operação, CFOP, CST, datas, duplicidade)
+# e as de cadastro (participante e item usados no arquivo).
+REGRAS_POSTERIORES = {**REGRAS_DE_CONTA, **REGRAS_DE_DOCUMENTO,
+                      **REGRAS_DE_CADASTRO}
 
 ERRO = "erro"
 ADVERTENCIA = "advertencia"
@@ -65,6 +71,18 @@ CAMPOS_DE_MODIFICADOR = {
     "REGRA_OBRIGATORIO_COD_MOT_REST_COMPL_17001_V1": {"COD_MOT_REST_COMPL"},
     "REGRA_OBRIGATORIEDADE_COD_MOT_RESP_COMPL_17001_V1": {"COD_MOT_REST_COMPL"},
 }
+
+# Modificadores que só REDUZEM a obrigatoriedade, e cuja redução o motor já
+# faz por outro caminho: complementar (06/07) e regime especial (08) em
+# `_isencoes`; o C170 dispensado da NF-e de emissão própria porque nenhum
+# C170 é exigido em `_filhos_obrigatorios` (o descritor o marca condicional).
+# O que esses modificadores PROÍBEM, quando proíbem, está em
+# REGRAS_DE_MODIFICADOR ou numa regra própria do registro filho.
+MODIFICADORES_APLICADOS = frozenset({
+    "REGRA_NOTA_FISCAL_COMPLEMENTAR_17001_V2",
+    "REGRA_NOTA_FISCAL_ESP_14001V1",
+    "REGRA_NFE_EMITIDA_15001_V1",
+})
 
 # Fonte de valores válidos (data-source do PVA) -> tipos de Tabela Externa.
 # É a parte "interpretação" do mapeamento: o configurador do PVA dá só o nome
@@ -172,6 +190,11 @@ GRAVIDADE = {
     "REGRA_CST_ICMS_RED_BC_COM_COD_SIT_C590": ADVERTENCIA,
     "REGRA_CST_ICMS_RED_BC_COM_COD_SIT_D190": ADVERTENCIA,
     "REGRA_CST_ICMS_RED_BC_COM_COD_SIT_D590": ADVERTENCIA,
+    # O Guia diz com todas as letras (C100, Validação do Registro): "Será
+    # emitida mensagem de advertência".
+    "REGRA_MULTIPLAS_OCORRENCIAS_C100": ADVERTENCIA,
+    # O próprio texto do PVA termina em "- ADVERTÊNCIA".
+    "REGRA_VALIDA_CST_ALIQ_ICMS_C170": ADVERTENCIA,
 }
 
 
@@ -559,7 +582,9 @@ class _Validacao:
                 self._duplicidade(no, chaves_vistas)
                 self._regras_do_registro(no)
             for mod in d.modificadores:
-                if mod not in CAMPOS_DE_MODIFICADOR:
+                if (mod not in CAMPOS_DE_MODIFICADOR
+                        and mod not in MODIFICADORES_APLICADOS
+                        and mod not in REGRAS_DE_MODIFICADOR):
                     self.nao_conferidas[mod] += 1
             for ob in d.obrigatoriedade:
                 self.nao_conferidas[ob] += 1
@@ -585,6 +610,9 @@ class _Validacao:
                     self.acusar(r.linha, r.reg, c.id, "REGRA_CAMPO_OBRIGATORIO",
                                 f"{self.msg('MSG_CAMPO_OBRIGATORIO')} "
                                 f"({c.id} — {c.rotulo})")
+                for regra in c.regras:
+                    if regra in REGRAS_DE_CAMPO_VAZIO:
+                        REGRAS_DE_CAMPO[regra](self, no, c, v)
                 continue
             if v != v.strip():
                 self.acusar(r.linha, r.reg, c.id, "REGRA_ESPACOS_INICIO_FINAL",
@@ -623,7 +651,10 @@ class _Validacao:
         if "COD_SIT" in no.d.indice_campo:
             if no.sit in SITUACOES_SEM_EFEITO:
                 so_estes = CAMPOS_DE_IDENTIFICACAO
-            elif no.sit in SITUACOES_PARCIAIS:
+            elif no.sit in SITUACOES_PARCIAIS and not (
+                    no.sit == "08" and no.modelo == "65"):
+                # A NFC-e em regime especial segue a obrigatoriedade normal
+                # (MSG_REGRA_NOTA_FISCAL_ESP: "e COD_MOD diferente de '65'").
                 so_estes = CAMPOS_DOCUMENTO_PARCIAL
         elif no.sit in SITUACOES_SEM_EFEITO:
             # Filho de documento cancelado nem deveria existir; exigir campo
@@ -900,6 +931,10 @@ class _Validacao:
                 verificar = REGRAS_POSTERIORES.get(regra.id)
                 if verificar is not None:
                     verificar(self, no, regra)
+            for mod in no.d.modificadores:
+                verificar = REGRAS_DE_MODIFICADOR.get(mod)
+                if verificar is not None:
+                    verificar(self, no, mod)
 
     def _totalizadores(self, doc) -> None:
         """x990, 9900, 9990 e 9999 contra o que o arquivo de fato tem."""
@@ -1067,6 +1102,7 @@ REGRAS_DE_CAMPO = {
     "REGRA_VALIDA_CHV_NFE_CTE": _chave,
     "REGRA_VL_DOC_GRANDE": _vl_doc_grande,
     **REGRAS_DE_DOCUMENTO_CAMPO,
+    **REGRAS_DE_CADASTRO_CAMPO,
 }
 
 
@@ -1184,6 +1220,8 @@ def _r_versao_leiaute(v_, no, regra):
 REGRAS_DE_REGISTRO = {
     "REGRA_VALIDA_CHV_NFE_CTE": _r_chave,
     "REGRA_DATA_MENOR_IGUAL_DT_FIN_0000_DT_DOC": _r_ate_dt_fin_0000,
+    "REGRA_DATA_MENOR_IGUAL_DT_FIN_0000_DT_ES": _r_ate_dt_fin_0000,
+    "REGRA_DATA_MENOR_IGUAL_DT_FIN_0000_DT_A_P": _r_ate_dt_fin_0000,
     "REGRA_DATA_ENTRE_DT_INI_DT_FIN_0000_DT_INI": _r_dentro_do_periodo,
     "REGRA_DATA_ENTRE_DT_INI_DT_FIN_0000_DT_FIN": _r_dentro_do_periodo,
     "REGRA_DATA_MENOR_IGUAL_DT_FIN_DT_INI_DT_FIN": _r_ini_ate_fin,
@@ -1202,7 +1240,8 @@ REGRAS_DE_REGISTRO = {
 
 # Regras implementadas, para o relatório de cobertura.
 IMPLEMENTADAS = frozenset(REGRAS_DE_CAMPO) | frozenset(REGRAS_DE_REGISTRO) \
-    | frozenset(CADASTRO_DA_REGRA) | JA_COBERTAS | frozenset(REGRAS_POSTERIORES)
+    | frozenset(CADASTRO_DA_REGRA) | JA_COBERTAS | frozenset(REGRAS_POSTERIORES) \
+    | frozenset(REGRAS_DE_MODIFICADOR) | MODIFICADORES_APLICADOS
 
 
 # -------------------------------------------------------------- entradas

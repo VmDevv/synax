@@ -107,9 +107,19 @@ class Leiaute:
         return f"leiaute {self.ato} (estrutura {self.estrutura} v{self.versao})"
 
 
-def _campo(c: dict) -> Campo:
+def _campo(c: dict, posicao: int) -> Campo:
+    """`posicao` é a ordem do campo no descritor, e é ela que vale.
+
+    O atributo de número do próprio descritor do PVA erra em cinco registros
+    do leiaute 020 e anteriores: o 0220 traz FAT_CONV e COD_BARRA os dois
+    como campo 3, o C890 dá o número 6 a três campos, o K300 e o 1710 pulam
+    números, e o D700 dos leiautes 017/018 tem dois campos 27. A ORDEM dos
+    campos é a do Guia em todos; o número, não. Lido pelo número, o motor
+    conferia o fator de conversão como se fosse o código de barras e nunca
+    lia o 4º campo do 0220.
+    """
     return Campo(
-        n=c["n"], id=c["id"], tipo=c["tipo"], tamanho=c.get("tamanho"),
+        n=posicao, id=c["id"], tipo=c["tipo"], tamanho=c.get("tamanho"),
         exato=bool(c.get("exato")), decimais=c.get("decimais"),
         rotulo=c.get("rotulo", ""), obrigatorio=c.get("obrigatorio"),
         obrig_saida=c.get("obrig_saida"), obrig_entrada=c.get("obrig_entrada"),
@@ -137,7 +147,7 @@ def leiaute(ato: str) -> Leiaute | None:
     bruto = _ler(f"leiaute_{ato}.json")
     registros = {}
     for ordem, r in enumerate(bruto["registros"]):
-        campos = tuple(_campo(c) for c in r["campos"])
+        campos = tuple(_campo(c, i) for i, c in enumerate(r["campos"], start=1))
         registros[r["reg"]] = Registro(
             reg=r["reg"], bloco=r["bloco"], nivel=r["nivel"], pai=r["pai"],
             ocorrencia=r["ocorrencia"], obrigatorio=r["obrigatorio"],

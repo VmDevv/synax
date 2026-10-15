@@ -1,8 +1,9 @@
 """Regras de CONTA: o valor de um registro tem de bater com a soma de outros.
 
 São as regras do PVA que cruzam registros — o analítico (C190) contra os itens
-(C170), o documento (C100) contra os analíticos, e a apuração (E110) contra os
-ajustes (E111), as guias (E116) e os próprios campos dela. Rodam DEPOIS que o
+(C170), o documento (C100) contra os analíticos e contra os itens (mercadoria,
+desconto, abatimento, ajustes), e a apuração (E110) contra os ajustes (E111),
+as guias (E116) e os próprios campos dela. Rodam DEPOIS que o
 arquivo inteiro virou árvore, e só nos registros em que o descritor do PVA as
 aplica: a regra `REGRA_VL_ICMS_ANALIT` está no C100, C500, C600 e D100, e é
 nesses que ela roda — mapear "à mão" quem soma o quê esqueceria um.
@@ -149,6 +150,83 @@ def _documento_x_analiticos(campo_id: str, chave_msg: str):
                   f"{moeda(informado)}; soma dos {analitico}: {moeda(soma)}.",
                   valor=no.valor(campo_id))
     return verificar
+
+
+# ------------------------------------------------- documento contra itens
+
+def _nfe_propria(no) -> bool:
+    """NF-e de emissão própria só traz o C170 do item com C176/C177/C180/C181
+    (Guia, C100, Exceção 2): a soma dos itens ali é PARCIAL por desenho."""
+    return no.valor("IND_EMIT").strip() == "0" and no.modelo == "55"
+
+
+def _vl_merc_x_itens(v_, no, regra):
+    """VL_MERC do C100 contra a soma do VL_ITEM dos C170.
+
+    As duas fontes não dizem a mesma coisa: o Guia (C100 campo 16) manda
+    IGUALAR na nota que não é NF-e, de terceiros, regular ou extemporânea; o
+    texto do PVA diz MAIOR OU IGUAL, exceto na NF-e de entrada. O motor
+    acusa só onde as duas concordam: modelo diferente de 55, terceiros,
+    COD_SIT 00/01, e mercadoria MENOR que a soma dos itens. Gabarito a buscar:
+    nota assim com VL_MERC acima da soma — o PVA acusa ou não?
+    """
+    if (no.modelo in (None, "55") or no.valor("IND_EMIT").strip() != "1"
+            or no.sit not in ("00", "01")):
+        return
+    itens = [f for f in no.filhos if f.d.reg == "C170"]
+    if not itens:
+        return
+    informado, soma = _valor(no, "VL_MERC"), _soma(itens, "VL_ITEM")
+    if informado is None or soma is None or informado >= soma:
+        return
+    v_.acusar(no.r.linha, no.d.reg, "VL_MERC", regra.id,
+              f"{v_.msg('MSG_VL_MERC_C170')} Informado {moeda(informado)}; soma "
+              f"dos VL_ITEM dos C170: {moeda(soma)}.", valor=no.valor("VL_MERC"))
+
+
+def _documento_x_itens(campo_id: str, chave_msg: str):
+    """Desconto (VL_DESC) e abatimento (VL_ABAT_NT) do C100 = soma dos C170.
+
+    Fora: a NF-e de emissão própria (itens parciais) e, no complementar e no
+    regime especial, o C100 que deixou o campo vazio — ali ele é facultativo
+    (Guia, C100, Exceções 3 e 4).
+    """
+    def verificar(v_, no, regra):
+        if not _em_vigor(no) or _nfe_propria(no):
+            return
+        if no.sit in ("06", "07", "08") and not no.valor(campo_id).strip():
+            return
+        itens = [f for f in no.filhos if f.d.reg == "C170"]
+        if not itens or campo_id not in itens[0].d.indice_campo:
+            return
+        informado, soma = _valor(no, campo_id), _soma(itens, campo_id)
+        if informado is None or soma is None or informado == soma:
+            return
+        v_.acusar(no.r.linha, no.d.reg, campo_id, regra.id,
+                  f"{v_.msg(chave_msg)} Informado {moeda(informado)}; soma dos "
+                  f"C170: {moeda(soma)}.", valor=no.valor(campo_id))
+    return verificar
+
+
+def _ajustes_abaixo_do_documento(v_, no, regra):
+    """ICMS dos ajustes do documento (C197) abaixo do VL_DOC do C100.
+
+    Fora o complementar (06/07): a nota que só complementa o ICMS tem VL_DOC
+    igual ao imposto, e o ajuste dela pode ter o mesmo valor.
+    """
+    if not _em_vigor(no) or no.sit in ("06", "07"):
+        return
+    ajustes = [n for f in no.filhos if f.d.reg == "C195"
+               for n in f.filhos if n.d.reg == "C197"]
+    if not ajustes:
+        return
+    soma, vl_doc = _soma(ajustes, "VL_ICMS"), _valor(no, "VL_DOC")
+    if soma is None or vl_doc is None or soma <= 0 or soma < vl_doc:
+        return
+    v_.acusar(no.r.linha, no.d.reg, "VL_DOC", regra.id,
+              f"{v_.msg('MSG_VL_ICMS_MAIOR_VL_DOC_C100')} Soma do VL_ICMS dos "
+              f"C197: {moeda(soma)}; VL_DOC: {moeda(vl_doc)}.",
+              valor=no.valor("VL_DOC"))
 
 
 # ------------------------------------------------------- apuração (E110)
@@ -353,6 +431,12 @@ REGRAS_DE_CONTA = {
         _documento_x_analiticos("VL_ICMS_ST", "MSG_VL_ICMS_ST_ANALIT"),
     "REGRA_VL_IPI_C190":
         _documento_x_analiticos("VL_IPI", "MSG_VL_IPI_ANALIT"),
+    "REGRA_VL_MERC_C170": _vl_merc_x_itens,
+    "REGRA_VALIDA_DESC_DOC_ITEM":
+        _documento_x_itens("VL_DESC", "MSG_VALIDA_DESC_DOC_ITEM"),
+    "REGRA_VALIDA_VL_ABAT_NT":
+        _documento_x_itens("VL_ABAT_NT", "MSG_VALIDA_VL_ABAT_NT"),
+    "REGRA_VL_ICMS_MAIOR_VL_DOC_C100": _ajustes_abaixo_do_documento,
     "REGRA_SLD_DEVEDOR_E110": _sld_devedor,
     "REGRA_SLD_CREDOR_E110": _sld_credor,
     "REGRA_ICMS_RECOLHER": _icms_recolher,
