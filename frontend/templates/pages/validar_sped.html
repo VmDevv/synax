@@ -65,6 +65,28 @@
 
     <div id="resultado-validar" class="mt-5"></div>
 
+    <section class="syn-card overflow-hidden mt-6">
+        <div class="p-5">
+            <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
+                <h3 class="font-bold text-sm text-slate-800">
+                    <i class="fa-solid fa-calendar-check text-syn-600 mr-1"></i> Validações do mês
+                </h3>
+                {# Recarrega o quadro ao trocar o mês; `hx-boost="false"` porque o
+                   form é só do htmx. #}
+                <form hx-get="/api/validar-sped/painel" hx-target="#painel-validar"
+                      hx-trigger="change, load, htmx:afterRequest from:#formValidarSped"
+                      hx-boost="false"
+                      class="flex items-center gap-2">
+                    <label class="text-[12px] text-slate-500" for="competencia-painel">Competência</label>
+                    <input id="competencia-painel" type="month" name="competencia"
+                           value="{{ competencia }}"
+                           class="input input-bordered input-sm text-sm">
+                </form>
+            </div>
+            <div id="painel-validar" class="text-sm text-slate-500">Carregando…</div>
+        </div>
+    </section>
+
     <section class="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-4">
         <h3 class="font-bold text-sm text-amber-900 mb-1">
             <i class="fa-solid fa-circle-info mr-1"></i> O que esta versão confere

@@ -411,7 +411,7 @@ class _Validacao:
             leiaute=self.lt.ato, leiaute_rotulo=self.lt.rotulo,
             cod_ver=self.cod_ver,
             empresa={"nome": c0("NOME"), "cnpj": c0("CNPJ"), "cpf": c0("CPF"),
-                     "uf": self.uf, "ie": c0("IE"),
+                     "uf": self.uf, "ie": c0("IE"), "cod_fin": c0("COD_FIN"),
                      "dt_ini": self.dt_ini, "dt_fin": self.dt_fin},
             linhas=len(doc.registros), inconsistencias=self.saida,
             total=self.total, por_regra=self.por_regra,

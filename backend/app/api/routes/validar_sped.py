@@ -35,12 +35,17 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from ...core.authz import (assert_internal, assert_tenant_access, get_profile,
+from ...core import competencia as comp
+from ...core.authz import (allowed_tenant_ids, assert_internal,
+                           assert_tenant_access, get_profile,
                            resolve_tenant_for_write)
 from ...core.templating import build_templates
-from ...core.uploads_seguros import LIMITE_SPED_BYTES, gravar_com_limite
+from ...core.uploads_seguros import (LIMITE_SPED_BYTES, gravar_com_limite,
+                                     nome_seguro)
+from ...domain.models.audit import SpedValidacao
 from ...domain.models.auth_models import Tenant
 from ...infrastructure.database.session import get_db
+from ...services.sped_entregas import hash_do_corpo_arquivo
 from ...services.sped_validador import ArquivoNaoValidavel, validar_arquivo
 from ...services.sped_validador.campos import br
 
@@ -82,8 +87,9 @@ def _responder(request, contexto: dict, status: int = 200):
             {"request": request, **contexto}, status_code=status)
     if "erro" in contexto:
         return JSONResponse({"erro": contexto["erro"]}, status_code=status)
-    return JSONResponse(contexto["resultado"].como_dict()
-                        | {"processo": contexto.get("processo")},
+    extras = {k: contexto.get(k) for k in
+              ("processo", "competencia", "hash_corpo", "registrada")}
+    return JSONResponse(contexto["resultado"].como_dict() | extras,
                         status_code=status)
 
 
@@ -93,7 +99,7 @@ def tela(request: Request, db_session: Session = Depends(get_db),
     assert_internal(profile)
     return templates.TemplateResponse(request, "pages/validar_sped.html", {
         "request": request, "tenants": _empresas(db_session, profile),
-        "user_profile": profile,
+        "user_profile": profile, "competencia": comp.fechada(),
     })
 
 
@@ -123,6 +129,7 @@ async def validar(request: Request,
         await gravar_com_limite(sped_file, caminho, LIMITE_SPED_BYTES,
                                 "O arquivo SPED")
         resultado = await run_in_threadpool(validar_arquivo, caminho, LIMITE_LISTA)
+        hash_corpo = await run_in_threadpool(hash_do_corpo_arquivo, caminho)
     except HTTPException:
         shutil.rmtree(pasta, ignore_errors=True)
         raise
@@ -172,11 +179,115 @@ async def validar(request: Request,
                 resultado.erros, resultado.advertencias,
                 getattr(profile, "name", "") or getattr(profile, "id", ""))
 
+    competencia = _competencia(resultado)
+    anteriores = _validacoes_anteriores(db_session, tenant_id, competencia)
+    registrada = _registrar(db_session, processo, tenant_id, profile,
+                            nome_seguro(sped_file.filename, "sped.txt"),
+                            competencia, resultado, hash_corpo)
+
     return _responder(request, {
         "resultado": resultado, "processo": processo, "empresa": empresa,
         "sem_cnpj_no_cadastro": not do_cadastro,
         "limite_tela": LIMITE_TELA, "br": br,
+        "competencia": competencia, "hash_corpo": hash_corpo,
+        "anteriores": anteriores, "registrada": registrada,
     })
+
+
+def _competencia(resultado) -> str | None:
+    dt_ini = resultado.empresa.get("dt_ini") or ""
+    return comp.valida(f"{dt_ini[:4]}-{dt_ini[4:6]}") if len(dt_ini) == 8 else None
+
+
+def _validacoes_anteriores(db_session: Session, tenant_id: str,
+                           competencia: str | None) -> list:
+    """As validações já feitas desta empresa nesta competência, mais recente
+    primeiro: a segunda pessoa a validar fica sabendo que alguém já validou, e
+    se foi o mesmo arquivo (mesmo hash do corpo)."""
+    if not competencia:
+        return []
+    try:
+        return (db_session.query(SpedValidacao.created_at, SpedValidacao.user_name,
+                                 SpedValidacao.erros, SpedValidacao.hash_corpo,
+                                 SpedValidacao.cod_fin)
+                .filter(SpedValidacao.tenant_id == str(tenant_id),
+                        SpedValidacao.competencia == competencia)
+                .order_by(SpedValidacao.created_at.desc())
+                .limit(10).all())
+    except Exception:                                     # noqa: BLE001
+        logger.warning("Não foi possível ler as validações anteriores",
+                       exc_info=True)
+        db_session.rollback()
+        return []
+
+
+def _registrar(db_session: Session, processo: str, tenant_id: str, profile,
+               nome_arquivo: str, competencia: str | None, resultado,
+               hash_corpo: str) -> bool:
+    """Grava a validação. Se falhar, a tela avisa que não ficou registrada:
+    foi um INSERT falhando em silêncio que fez a trilha da correção do SPED
+    se perder em 10/09/2026."""
+    do_arquivo = _identificador(resultado.empresa.get("cnpj")
+                                or resultado.empresa.get("cpf"))
+    try:
+        db_session.add(SpedValidacao(
+            id=processo, tenant_id=str(tenant_id),
+            user_id=str(getattr(profile, "id", "") or ""),
+            user_name=getattr(profile, "name", None),
+            file_name=nome_arquivo, competencia=competencia,
+            cnpj=do_arquivo[:14] or None,
+            cod_fin=(resultado.empresa.get("cod_fin") or None),
+            leiaute=resultado.leiaute, linhas=resultado.linhas,
+            erros=resultado.erros, advertencias=resultado.advertencias,
+            nao_conferidas=sum(resultado.nao_conferidas.values()),
+            hash_corpo=hash_corpo,
+            versao_pva=(resultado.pva or {}).get("versao") or None))
+        db_session.commit()
+        return True
+    except Exception:                                     # noqa: BLE001
+        logger.exception("Não foi possível registrar a validação do SPED")
+        db_session.rollback()
+        return False
+
+
+@router.get("/api/validar-sped/painel", response_class=HTMLResponse)
+def painel(request: Request, competencia: str = "",
+           db_session: Session = Depends(get_db),
+           profile=Depends(get_profile)):
+    """As empresas do usuário numa competência: validada ou não, e como saiu.
+
+    Coluna a coluna, sem carregar objeto inteiro: é tela de listagem.
+    """
+    assert_internal(profile)
+    competencia = comp.valida(competencia) or comp.fechada()
+    empresas = _empresas(db_session, profile)
+    permitidas = allowed_tenant_ids(profile)
+    ids = [str(t.id) for t in empresas]
+    if permitidas is not None:
+        ids = [i for i in ids if i in set(permitidas)]
+    linhas = []
+    if ids:
+        linhas = (db_session.query(
+                      SpedValidacao.tenant_id, SpedValidacao.created_at,
+                      SpedValidacao.user_name, SpedValidacao.erros,
+                      SpedValidacao.advertencias, SpedValidacao.cod_fin)
+                  .filter(SpedValidacao.tenant_id.in_(ids),
+                          SpedValidacao.competencia == competencia)
+                  .order_by(SpedValidacao.created_at.desc())
+                  .all())
+    ultima: dict = {}
+    quantas: dict = {}
+    for linha in linhas:
+        ultima.setdefault(linha.tenant_id, linha)
+        quantas[linha.tenant_id] = quantas.get(linha.tenant_id, 0) + 1
+    quadro = [{"empresa": t, "ultima": ultima.get(str(t.id)),
+               "quantas": quantas.get(str(t.id), 0)}
+              for t in empresas if str(t.id) in ids]
+    return templates.TemplateResponse(
+        request, "partials/validar_sped_painel.html",
+        {"request": request, "quadro": quadro, "competencia": competencia,
+         "rotulo": comp.rotulo(competencia),
+         "validadas": sum(1 for q in quadro if q["ultima"])})
 
 
 @router.get("/api/validar-sped/{processo}/csv")

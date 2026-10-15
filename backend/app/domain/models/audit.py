@@ -109,3 +109,47 @@ class SpedCorrectionRun(Base, TenantMixin, TimestampMixin):
     # gravado com o restante para o texto que foi entregue ao cliente ser o
     # mesmo que se lê aqui depois — regerar com o modelo daria outro.
     resumo_ia = Column(Text, nullable=True)
+
+
+class SpedValidacao(Base, TenantMixin, TimestampMixin):
+    """Cada EFD ICMS IPI que passou pela aba Validar SPED — quem, quando, qual.
+
+    Responde "o abril desta empresa já foi validado, e como saiu?" sem guardar
+    o arquivo: o SPED do cliente não fica no servidor, fica o resumo e o HASH
+    DO CORPO (`services/sped_entregas.hash_do_corpo`). É esse hash que, quando
+    o recibo da transmissão for lido, diz se o arquivo entregue é o mesmo que
+    foi validado — a assinatura do PVA vai depois do 9999 e não o altera;
+    editar a escrituração no PVA altera.
+
+    As contagens são colunas para o painel do mês ser uma consulta só, sem
+    abrir relatório nenhum. O relatório linha a linha não é guardado: ele é
+    refeito em segundos validando o arquivo de novo.
+    """
+    __tablename__ = 'sped_validacoes'
+    __table_args__ = (
+        Index('idx_validacao_tenant_comp', 'tenant_id', 'competencia'),
+    )
+
+    id = Column(String(36), primary_key=True)
+    user_id = Column(String(36), nullable=True)
+    user_name = Column(String(255), nullable=True)
+    file_name = Column(String(255), nullable=True)
+
+    # Do registro 0000. Competência sem 0000 legível é NULA, nunca chutada
+    # (mesma regra de `audit_tasks.competencia`).
+    competencia = Column(String(7), nullable=True)
+    cnpj = Column(String(14), nullable=True)
+    # 0 = original, 1 = substituta. Entregar a substituta de um mês já
+    # entregue é rotina, e o painel precisa saber qual das duas é qual.
+    cod_fin = Column(String(1), nullable=True)
+    leiaute = Column(String(3), nullable=True)
+
+    linhas = Column(Integer, default=0)
+    erros = Column(Integer, default=0)
+    advertencias = Column(Integer, default=0)
+    # Aplicações de regra específica do PVA que a v1 NÃO confere. Fica gravado
+    # para "0 erros" nunca ser lido, depois, como "o PVA aceitou".
+    nao_conferidas = Column(Integer, default=0)
+
+    hash_corpo = Column(String(64), nullable=True)
+    versao_pva = Column(String(20), nullable=True)   # dos dados do leiaute

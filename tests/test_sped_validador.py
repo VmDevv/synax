@@ -858,7 +858,91 @@ r = enviar("ope", tA, contrib.encode("latin-1"))
 check("EFD Contribuições pela API: 422 com o motivo",
       r.status_code == 422 and "Contribuições" in r.json().get("erro", ""))
 
+# ============================================================================
+print("\n=== 14. Histórico da validação e painel do mês ===")
+
+from backend.app.domain.models.audit import SpedValidacao  # noqa: E402
+from backend.app.services.sped_entregas import hash_do_corpo  # noqa: E402
+
+ss = SessionLocal()
+regs = (ss.query(SpedValidacao.tenant_id, SpedValidacao.competencia,
+                 SpedValidacao.cnpj, SpedValidacao.erros, SpedValidacao.hash_corpo,
+                 SpedValidacao.cod_fin, SpedValidacao.user_name)
+        .order_by(SpedValidacao.created_at).all())
+ss.close()
+check("cada validação aceita fica registrada (3 de A; as recusadas não)",
+      len(regs) == 3 and all(r.tenant_id == str(tA) for r in regs),
+      [(r.tenant_id, r.erros) for r in regs])
+check("com competência, CNPJ do 0000, original/substituta e quem validou",
+      regs and regs[0].competencia == "2026-04" and regs[0].cnpj == EMPRESA
+      and regs[0].cod_fin == "0" and regs[0].user_name == "Operador")
+check("e o hash do corpo é o do arquivo enviado",
+      regs and regs[0].hash_corpo == hash_do_corpo(ARQ))
+check("o arquivo com erro ficou com o número de erros",
+      regs and regs[-1].erros == 1)
+check("a API devolve o hash e diz que registrou",
+      corpo.get("registrada") is True and corpo.get("hash_corpo") == hash_do_corpo(errado))
+
+r = enviar("ope", tA, ARQ, htmx=True)
+check("validar de novo avisa que a competência já foi validada, com o MESMO arquivo",
+      "já tinha" in r.text and "MESMO arquivo já tinha sido validado" in r.text,
+      re.sub(r"\s+", " ", r.text)[:600])
+r = enviar("ope", tA, certo.replace("|1|\r\n|0001|", "|1|\r\n|0001|", 1)
+           .replace("RUA A", "RUA B").encode("latin-1"), htmx=True)
+check("e, com outro conteúdo, que o arquivo é DIFERENTE",
+      "DIFERENTE" in r.text, r.text[-400:])
+
+r = as_("ope").get("/api/validar-sped/painel?competencia=2026-04")
+check("painel do mês responde ao operador", r.status_code == 200, r.status_code)
+check("mostra as empresas dele: a validada e a que falta",
+      "EMPRESA TESTE LTDA" in r.text and "OUTRA EMPRESA LTDA" in r.text
+      and "não validada" in r.text)
+check("e não mostra empresa de outro operador",
+      "EMPRESA DE OUTRO OPERADOR" not in r.text)
+r = as_("ope2").get("/api/validar-sped/painel?competencia=2026-04")
+check("o outro operador só vê a dele, sem a validação de A",
+      "EMPRESA DE OUTRO OPERADOR" in r.text and "EMPRESA TESTE LTDA" not in r.text)
+r = as_("ope").get("/api/validar-sped/painel?competencia=2026-03")
+check("em outro mês, nada validado", "0</strong> de 2" in r.text, r.text[:300])
+r = as_("ope").get("/api/validar-sped/painel?competencia=lixo")
+check("competência inválida não derruba (vale a última fechada)", r.status_code == 200)
+check("cliente não vê o painel",
+      as_("cli").get("/api/validar-sped/painel").status_code == 403)
+check("a aba traz o painel do mês",
+      "/api/validar-sped/painel" in as_("ope").get("/validar-sped").text)
+
+
+# ============================================================================
+print("\n=== 15. Hash do corpo: a assinatura do PVA não muda, a edição muda ===")
+
+# A ajuda do PVA: sem edição, "a assinatura do arquivo será alocada ao final
+# do arquivo texto original". O bloco simulado aqui só precisa vir DEPOIS do 9999.
+ASSINATURA = b"SBRCAAEPDR" + bytes(range(256)) * 4
+h0 = hash_do_corpo(ARQ)
+check("o hash é SHA-256 em hexadecimal", len(h0) == 64 and int(h0, 16) >= 0)
+check("arquivo assinado (bloco depois do 9999) tem o mesmo hash do corpo",
+      hash_do_corpo(ARQ + ASSINATURA) == h0)
+check("assinatura grudada na linha do 9999 também",
+      hash_do_corpo(ARQ.rstrip(b"\r\n") + ASSINATURA) == h0)
+check("sem a quebra de linha final, o mesmo hash",
+      hash_do_corpo(ARQ.rstrip(b"\r\n")) == h0)
+check("BOM no começo não muda o hash", hash_do_corpo(b"\xef\xbb\xbf" + ARQ) == h0)
+check("um valor alterado (edição no PVA) muda o hash",
+      hash_do_corpo(ARQ.replace(b"|1000,00|1|", b"|1000,01|1|", 1)) != h0)
+import tempfile  # noqa: E402
+with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
+    tmp.write(ARQ + ASSINATURA)
+from backend.app.services.sped_entregas import hash_do_corpo_arquivo  # noqa: E402
+check("lendo do disco em fluxo dá o mesmo hash",
+      hash_do_corpo_arquivo(tmp.name) == h0)
+os.remove(tmp.name)
+
 import shutil as _shutil  # noqa: E402
+ss = SessionLocal()
+_processos = [r.id for r in ss.query(SpedValidacao.id).all()]
+ss.close()
+for p in _processos:
+    _shutil.rmtree(os.path.join(os.getcwd(), "temp_uploads", p), ignore_errors=True)
 for p in (processo, processo_limpo):
     _shutil.rmtree(os.path.join(os.getcwd(), "temp_uploads", p), ignore_errors=True)
 _eng.dispose()

@@ -1,0 +1,41 @@
+{# Painel do mês: as empresas do usuário numa competência. "Validada" é só
+   validada no Synax — transmissão entra quando o recibo .REC for lido. #}
+<div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+    <span class="text-[13px] text-slate-600">
+        <strong>{{ validadas }}</strong> de {{ quadro | length }} empresa(s) com validação em {{ rotulo }}
+    </span>
+</div>
+{% if quadro %}
+<div class="overflow-x-auto">
+    <table class="table table-xs w-full border border-slate-200">
+        <thead>
+            <tr class="text-[11px] uppercase text-slate-500 bg-slate-50">
+                <th>Empresa</th><th>Situação</th><th>Última validação</th><th>Por</th><th class="text-right">Validações</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for q in quadro %}
+            {% set u = q.ultima %}
+            <tr>
+                <td class="text-[12px] font-semibold text-slate-700">{{ q.empresa.name }}</td>
+                <td class="text-[12px]">
+                    {% if not u %}
+                    <span class="text-slate-400">não validada</span>
+                    {% elif u.erros %}
+                    <span class="badge badge-error badge-sm text-white">{{ u.erros }} erro(s)</span>
+                    {% else %}
+                    <span class="badge badge-ghost badge-sm">sem erros nas regras conferidas</span>
+                    {% endif %}
+                    {% if u and u.cod_fin == '1' %}<span class="badge badge-outline badge-xs ml-1">substituta</span>{% endif %}
+                </td>
+                <td class="text-[12px] font-mono">{% if u %}{{ u.created_at | hora_br }}{% else %}—{% endif %}</td>
+                <td class="text-[12px]">{{ u.user_name if u else "—" }}</td>
+                <td class="text-[12px] text-right">{{ q.quantas or "—" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="text-xs text-slate-500">Nenhuma empresa vinculada ao seu usuário.</p>
+{% endif %}

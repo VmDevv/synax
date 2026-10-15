@@ -41,6 +41,26 @@
             </div>
         </div>
 
+        {% if anteriores %}
+        {% set ultima = anteriores[0] %}
+        {% set igual = anteriores | selectattr("hash_corpo", "equalto", hash_corpo) | first %}
+        <p class="text-xs bg-sky-50 border border-sky-200 text-sky-900 rounded-lg p-3">
+            <i class="fa-solid fa-clock-rotate-left mr-1"></i>
+            Esta competência já tinha {{ anteriores | length }} validação(ões) desta empresa
+            (a última em {{ ultima.created_at | hora_br }}{% if ultima.user_name %}, por {{ ultima.user_name }}{% endif %}).
+            {% if igual %}Este MESMO arquivo já tinha sido validado em {{ igual.created_at | hora_br }}{% if igual.user_name %}, por {{ igual.user_name }}{% endif %}.
+            {% else %}Este arquivo é DIFERENTE de todos os validados antes.{% endif %}
+        </p>
+        {% endif %}
+
+        {% if registrada is defined and not registrada %}
+        <p class="text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3">
+            <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+            O resultado acima vale, mas a validação NÃO ficou registrada no histórico
+            da empresa (falha ao gravar). Valide de novo ou avise o administrador.
+        </p>
+        {% endif %}
+
         {% if sem_cnpj_no_cadastro %}
         <p class="text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3">
             <i class="fa-solid fa-triangle-exclamation mr-1"></i>
