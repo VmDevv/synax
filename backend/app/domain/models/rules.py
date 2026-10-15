@@ -170,3 +170,71 @@ class CestMvaRule(Base, TenantMixin, TimestampMixin):
     status = Column(String(20), nullable=False, default="aprovado")
     is_global = Column(Boolean, default=True)
     created_by = Column(String)
+
+
+# ---------------------------------------------------------------------------
+# Regras do GERADOR DE SPED (services/sped_builder) — separadas das da auditoria.
+#
+# O gerador escritura empresa que NÃO tem SPED, e o CFOP de entrada não existe
+# no XML: sai daqui. Pedido do Sandro em 09/10/2026: as regras dele ficam em
+# tabelas próprias, porque a regra aprovada para montar o arquivo de um cliente
+# não pode mudar o que a auditoria acusa nos outros — nem o contrário. Até
+# então a tela do gerador gravava em `cfop_classifications`, a tabela que o
+# motor da auditoria lê. O maker-checker é o mesmo (`rule_status_for`): o
+# operador grava pendente, o admin aprova na Curadoria, e sem tudo aprovado o
+# arquivo não sai. O status nasce pendente por padrão — falhar fechado.
+# ---------------------------------------------------------------------------
+
+class GeradorCfopRegra(Base, TenantMixin, TimestampMixin):
+    """CFOP de entrada de um ITEM de NF-e no SPED gerado dos XMLs.
+
+    Chave exata, sem curinga, com a mesma forma da `CfopClassification`:
+    empresa, fornecedor, CFOP do fornecedor e cProd. O cProd é o código do
+    FORNECEDOR — a empresa que não escritura não tem código interno, e é ele
+    que vira o COD_ITEM do 0200.
+    """
+    __table_args__ = (
+        Index('idx_gerador_cfop_status_tenant', 'status', 'tenant_id'),
+        Index('idx_gerador_cfop_status_created_by', 'status', 'created_by'),
+    )
+    __tablename__ = 'gerador_cfop_regras'
+
+    company_cnpj = Column(String, primary_key=True)
+    supplier_cnpj = Column(String, primary_key=True)
+    supplier_cfop = Column(String, primary_key=True)
+    product_code = Column(String, primary_key=True)
+    tenant_id = Column(String(36), primary_key=True)
+
+    # O que a Curadoria mostra para julgar a regra sem abrir a nota.
+    supplier_name = Column(String)
+    product_description = Column(String)
+    entry_cfop = Column(String(4), nullable=False)
+    status = Column(String(20), nullable=False, default="pendente_revisao")
+    created_by = Column(String)
+
+
+class GeradorCteCfopRegra(Base, TenantMixin, TimestampMixin):
+    """CFOP de entrada do FRETE (D190 do CT-e) no SPED gerado dos XMLs.
+
+    Chave: empresa, CFOP do CT-e e UF do transportador — a forma da
+    `CteCfopClassification` da auditoria (decisão do Sandro em 09/10/2026). O
+    CFOP de aquisição de transporte depende da atividade da empresa e de a
+    prestação ser interna ou não, e não de qual transportadora levou: por
+    transportadora, o mesmo 5353/ES pediria uma aprovação por empresa de frete.
+    """
+    __table_args__ = (
+        Index('idx_gerador_cte_status_tenant', 'status', 'tenant_id'),
+        Index('idx_gerador_cte_status_created_by', 'status', 'created_by'),
+    )
+    __tablename__ = 'gerador_cte_cfop_regras'
+
+    company_cnpj = Column(String, primary_key=True)
+    supplier_cfop = Column(String, primary_key=True)
+    emitter_uf = Column(String(2), primary_key=True)
+    tenant_id = Column(String(36), primary_key=True)
+
+    # Transportadoras vistas com esta combinação, só para a Curadoria julgar.
+    carrier_names = Column(String)
+    entry_cfop = Column(String(4), nullable=False)
+    status = Column(String(20), nullable=False, default="pendente_revisao")
+    created_by = Column(String)

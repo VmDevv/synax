@@ -1,96 +1,122 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login | Synax | Auditor Fiscal Inteligente</title>
-    
-    <!-- Tailwind (Play CDN 3.4.17) servido daqui: cdn.tailwindcss.com não manda CORS,
-         então SRI nele faria o navegador recusar o script. Origem em static/js/vendor/README.md -->
-    <script src="/static/js/vendor/tailwind-3.4.17.js"></script>
-    
-    <!-- FontAwesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
-          integrity="sha384-iw3OoTErCYJJB9mCa8LNS2hbsQ7M3C0EpIsO/H5+EGAkPGc6rk+V8i04oW/K5xq0" crossorigin="anonymous">
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-    </style>
-</head>
-<body class="bg-slate-100 text-slate-900 font-sans antialiased selection:bg-blue-200">
-    
-    <div class="min-h-screen w-full flex items-center justify-center p-4">
-        <main class="w-full max-w-md">
-            
-            <!-- Cabeçalho do Login -->
-            <div class="text-center mb-8">
-                <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white border border-slate-200 mb-4 shadow-sm">
-                    <img src="/static/img/logo.svg" alt="Synax Logo" class="h-10 w-10 object-contain">
-                </div>
-                <h1 class="text-3xl font-bold text-slate-800 mb-2 tracking-tight">Synax</h1>
-                <p class="text-slate-500 font-medium">Auditor Fiscal Inteligente</p>
-            </div>
+{% extends "layout/auth.html" %}
+{% block title %}Login | Synax | Auditor Fiscal Inteligente{% endblock %}
 
-            <!-- Card Branco -->
-            <form action="/api/auth/login" method="POST" class="bg-white border border-slate-200 p-8 rounded-2xl shadow-lg">
+{% block conteudo %}
+<div class="mb-7">
+    <h1 class="text-[28px] font-extrabold text-slate-800 tracking-tight">Entrar</h1>
+    <p class="text-slate-500 mt-1">Use o e-mail corporativo cadastrado no Synax.</p>
+</div>
 
-                {# Leva de volta à tela que o usuário tentou abrir antes de a sessão expirar. #}
-                <input type="hidden" name="next" value="{{ next or '/' }}">
+<form id="form-login" action="/api/auth/login" method="POST" class="bg-white border border-slate-200/80 p-7 rounded-2xl shadow-[0_20px_50px_-24px_rgba(2,42,64,.35)]">
 
-                {% if error %}
-                <div class="mb-6 bg-red-50 border border-red-200 text-red-600 text-sm p-4 rounded-xl flex items-start gap-3">
-                    <i class="fa-solid fa-circle-exclamation mt-0.5"></i>
-                    <p>{{ error }}</p>
-                </div>
-                {% endif %}
+    {# Leva de volta à tela que o usuário tentou abrir antes de a sessão expirar. #}
+    <input type="hidden" name="next" value="{{ next or '/' }}">
 
-                {% if success %}
-                <div class="mb-6 bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm p-4 rounded-xl flex items-start gap-3">
-                    <i class="fa-solid fa-circle-check mt-0.5"></i>
-                    <p>{{ success }}</p>
-                </div>
-                {% endif %}
-
-                <div class="space-y-5">
-                    <div>
-                        <label class="block text-sm font-semibold text-slate-700 mb-2">E-mail Corporativo</label>
-                        <div class="relative">
-                            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                                <i class="fa-regular fa-envelope text-slate-400"></i>
-                            </div>
-                            <input type="email" name="email" required placeholder="admin@suaempresa.com.br"
-                                class="w-full bg-slate-50 border border-slate-300 rounded-xl py-3 pl-11 pr-4 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all">
-                        </div>
-                    </div>
-
-                    <div>
-                        <div class="flex justify-between items-center mb-2">
-                            <label class="block text-sm font-semibold text-slate-700">Senha</label>
-                            <a href="/forgot-password" class="text-xs text-blue-600 hover:text-blue-700 transition-colors font-medium">Esqueceu?</a>
-                        </div>
-                        <div class="relative">
-                            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                                <i class="fa-solid fa-lock text-slate-400"></i>
-                            </div>
-                            <input type="password" name="password" required placeholder="••••••••"
-                                class="w-full bg-slate-50 border border-slate-300 rounded-xl py-3 pl-11 pr-4 text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all">
-                        </div>
-                    </div>
-
-                    <button type="submit" class="w-full mt-6 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-xl transition-all shadow-md hover:shadow-lg flex justify-center items-center gap-2">
-                        Entrar no Sistema
-                        <i class="fa-solid fa-arrow-right-to-bracket"></i>
-                    </button>
-                </div>
-            </form>
-
-            <p class="text-center text-sm text-slate-400 mt-8">
-                Motor de regras suportado pelo <span class="font-semibold text-slate-500">Supabase Auth</span>
-            </p>
-
-        </main>
+    {% if error %}
+    <div class="mb-5 bg-red-50 border border-red-200 text-red-700 text-sm p-3.5 rounded-xl flex items-start gap-3" role="alert">
+        <i class="fa-solid fa-circle-exclamation mt-0.5"></i>
+        <p>{{ error }}</p>
     </div>
-</body>
-</html>
+    {% endif %}
+
+    {% if success %}
+    <div class="mb-5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm p-3.5 rounded-xl flex items-start gap-3" role="status">
+        <i class="fa-solid fa-circle-check mt-0.5"></i>
+        <p>{{ success }}</p>
+    </div>
+    {% endif %}
+
+    <div class="space-y-5">
+        <div>
+            <label for="login-email" class="block text-sm font-semibold text-slate-700 mb-2">E-mail Corporativo</label>
+            <div class="relative">
+                <input id="login-email" type="email" name="email" required autocomplete="username" autofocus
+                       placeholder="voce@suaempresa.com.br" class="syn-campo">
+                <i class="fa-regular fa-envelope syn-campo-icone"></i>
+            </div>
+        </div>
+
+        <div>
+            <div class="flex justify-between items-center mb-2">
+                <label for="login-senha" class="block text-sm font-semibold text-slate-700">Senha</label>
+                <a href="/forgot-password" class="text-xs text-syn-700 hover:text-syn-900 transition-colors font-semibold">Esqueceu?</a>
+            </div>
+            <div class="relative">
+                <input id="login-senha" type="password" name="password" required autocomplete="current-password"
+                       placeholder="••••••••" class="syn-campo" style="padding-right: 3rem;">
+                <i class="fa-solid fa-lock syn-campo-icone"></i>
+                {# Ver o que foi digitado antes de errar três vezes e travar a conta
+                   no limite de tentativas. #}
+                <button type="button" id="login-ver-senha" tabindex="-1"
+                        class="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 grid place-items-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                        title="Mostrar senha" aria-label="Mostrar senha" aria-pressed="false">
+                    <i class="fa-regular fa-eye"></i>
+                </button>
+            </div>
+            <p id="login-caps" class="hidden mt-2 text-xs font-semibold text-amber-700 flex items-center gap-1.5">
+                <i class="fa-solid fa-triangle-exclamation"></i> Caps Lock está ligado.
+            </p>
+        </div>
+
+        <button type="submit" id="login-entrar" class="syn-botao mt-2">
+            <span class="syn-rotulo inline-flex items-center gap-2">Entrar no Sistema <i class="fa-solid fa-arrow-right-to-bracket"></i></span>
+        </button>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    var form = document.getElementById('form-login');
+    var email = document.getElementById('login-email');
+    var senha = document.getElementById('login-senha');
+    var ver = document.getElementById('login-ver-senha');
+    var caps = document.getElementById('login-caps');
+    var botao = document.getElementById('login-entrar');
+
+    // Depois de um login recusado a página volta com os campos vazios (a rota
+    // não devolve o e-mail). Guardar só o E-MAIL na aba poupa redigitar; a
+    // senha nunca é guardada.
+    try {
+        var lembrado = sessionStorage.getItem('syn-login-email');
+        if (lembrado && !email.value) {
+            email.value = lembrado;
+            senha.focus();
+        }
+    } catch (e) { /* sem storage: só não lembra */ }
+
+    ver.addEventListener('click', function () {
+        var mostrando = senha.type === 'text';
+        senha.type = mostrando ? 'password' : 'text';
+        ver.innerHTML = mostrando ? '<i class="fa-regular fa-eye"></i>' : '<i class="fa-regular fa-eye-slash"></i>';
+        ver.title = mostrando ? 'Mostrar senha' : 'Ocultar senha';
+        ver.setAttribute('aria-pressed', mostrando ? 'false' : 'true');
+        senha.focus();
+    });
+
+    function conferirCaps(e) {
+        if (!e.getModifierState) return;
+        caps.classList.toggle('hidden', !e.getModifierState('CapsLock'));
+    }
+    senha.addEventListener('keydown', conferirCaps);
+    senha.addEventListener('keyup', conferirCaps);
+    senha.addEventListener('blur', function () { caps.classList.add('hidden'); });
+
+    // Um clique só: o segundo clique enquanto o primeiro está no ar contava
+    // como outra tentativa no limite de login.
+    form.addEventListener('submit', function () {
+        try { sessionStorage.setItem('syn-login-email', email.value); } catch (e) { /* sem storage */ }
+        botao.disabled = true;
+        botao.querySelector('.syn-rotulo').innerHTML =
+            '<i class="fa-solid fa-circle-notch fa-spin"></i> Entrando…';
+    });
+    // Voltar pelo navegador reaproveita a página da memória com o botão travado.
+    window.addEventListener('pageshow', function () {
+        botao.disabled = false;
+        botao.querySelector('.syn-rotulo').innerHTML =
+            'Entrar no Sistema <i class="fa-solid fa-arrow-right-to-bracket"></i>';
+    });
+})();
+</script>
+{% endblock %}

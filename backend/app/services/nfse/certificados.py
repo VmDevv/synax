@@ -103,6 +103,18 @@ def carregar_todos(db: Session, tenant_ids: list[str] | None = None) -> dict:
     return {c.tenant_id: c for c in q.all()}
 
 
+def cnpj_de_outra_empresa(nome_arquivo: str | None, cnpj: str) -> str | None:
+    """O CNPJ escrito no NOME do arquivo, quando ele é de outra empresa (raiz
+    diferente). Matriz no lugar da filial passa — a consulta informa o CNPJ da
+    filial ao ADN. É um aviso barato, sem abrir o .pfx; quem barra de verdade
+    é o CNPJ de DENTRO do certificado (adn_client)."""
+    limpo = re.sub(r"\D", "", cnpj or "")
+    blocos = re.findall(r"(?<!\d)\d{14}(?!\d)", nome_arquivo or "")
+    if len(limpo) != 14 or not blocos or any(b[:8] == limpo[:8] for b in blocos):
+        return None
+    return blocos[0]
+
+
 def diagnosticar(registro, cnpj: str, arquivos: list[str] | None = None) -> dict:
     """Estado do certificado a partir de dados já carregados — sem tocar o banco."""
     if not registro:
@@ -110,6 +122,9 @@ def diagnosticar(registro, cnpj: str, arquivos: list[str] | None = None) -> dict
     nome = registro.arquivo or localizar_por_cnpj(cnpj, arquivos)
     if not nome:
         return {"ok": False, "motivo": "Arquivo não encontrado na pasta"}
+    outro = cnpj_de_outra_empresa(nome, cnpj)
+    if outro:
+        return {"ok": False, "motivo": f"Certificado de outra empresa ({outro})"}
     if arquivos is not None:
         if nome not in arquivos:
             return {"ok": False, "motivo": "Arquivo ausente na pasta"}

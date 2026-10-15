@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from html import escape as html_escape
 import logging
 import os
@@ -25,6 +26,7 @@ from .api.routes.auth import router as auth_router
 from .infrastructure.database.session import engine, get_db
 from .infrastructure.database import schema_upgrades
 from .domain.models.base import Base
+from .services.sped_builder import cfop_de_entrada_valido
 
 # Importar TODOS os modelos antes do create_all.
 #
@@ -36,8 +38,9 @@ from .domain.models.base import Base
 #
 # A lista é explícita e tem de citar cada módulo de modelo. `tests/
 # test_configuracoes.py` confere que nenhum ficou de fora.
-from .domain.models import (audit, auth_models, certificates, configuracao,
-                            integrations, nfse, rules)
+from .domain.models import (audit, auth_models, automacao, certificates,
+                            configuracao, email_recebido, integrations, nfse,
+                            rules)
 
 logger = logging.getLogger(__name__)
 
@@ -76,11 +79,29 @@ limpar_no_startup(os.path.join(os.getcwd(), "temp_uploads"))
 # `EXPOR_DOCS=1` no .env reabre para desenvolver.
 _DOCS_ABERTOS = os.getenv("EXPOR_DOCS", "").strip().lower() in ("1", "true", "sim")
 
+
+@asynccontextmanager
+async def _ciclo_de_vida(_app):
+    # Coleta automática de NFS-e (services/nfse/automacao.py). Liga no
+    # `lifespan` e não no import do módulo: assim só o servidor de verdade a
+    # sobe — os testes montam o app sem passar por aqui, e nenhuma suíte
+    # arrisca uma thread consultando o ADN.
+    from .infrastructure.database.session import SessionLocal
+    from .services.nfse import automacao as automacao_nfse
+    try:
+        automacao_nfse.iniciar_agendador(SessionLocal)
+    except Exception:
+        logger.exception("Não foi possível ligar o agendador de NFS-e")
+    yield
+    automacao_nfse.parar_agendador()
+
+
 app = FastAPI(
     title="SaaS Tax Audit - SPED",
     docs_url="/docs" if _DOCS_ABERTOS else None,
     redoc_url="/redoc" if _DOCS_ABERTOS else None,
     openapi_url="/openapi.json" if _DOCS_ABERTOS else None,
+    lifespan=_ciclo_de_vida,
 )
 
 
@@ -145,12 +166,21 @@ app.include_router(ajuste_sped_router)
 
 # Validar SPED: confere a EFD ICMS IPI pelo leiaute do PVA antes da
 # transmissão. Ferramenta interna; cada rota valida papel e empresa por dentro.
-from .api.routes.validar_sped import router as validar_sped_router
+from .api.routes.validar_sped import router as validar_sped_router  # noqa: E402
 app.include_router(validar_sped_router)
+
+# E-mails: XMLs que chegam na caixa do escritório e o resumo da manhã. Cada
+# rota valida papel por dentro — o operador vê só os XMLs das empresas dele.
+from .api.routes.emails import router as emails_router  # noqa: E402
+app.include_router(emails_router)
 
 from .api.routes.admin import router as admin_router, require_admin
 # RBAC: /admin inteiro é exclusivo de admin. Operador e cliente nunca entram.
 app.include_router(admin_router, prefix="/admin", dependencies=[Depends(require_admin)])
+
+# Automações (coleta agendada de NFS-e): aba da Administração, mesma trava.
+from .api.routes.automacoes import router as automacoes_router  # noqa: E402
+app.include_router(automacoes_router, prefix="/admin", dependencies=[Depends(require_admin)])
 
 # Auditoria de PDF por IA: aba nova, por ora só admin. O require_admin no
 # include é a trava do roteador; cada rota do módulo valida de novo.
@@ -223,13 +253,19 @@ RULE_KEY_FIELDS = {
     # Par SPED×XML aprovado na tela da IA. Mesma chave exata de cinco campos da
     # tabela — `_rule_by_key` reconstrói a linha a partir dela.
     'item_match': ('tenant_id', 'company_cnpj', 'supplier_cnpj', 'sped_cod', 'xml_cod'),
+    # Regras do GERADOR de SPED (09/10/2026): tabelas próprias, separadas das da
+    # auditoria, mas a mesma fila e o mesmo aprovar/descartar. O cProd fica por
+    # último na chave porque é o único campo que pode conter "|".
+    'gerador_cfop': ('tenant_id', 'company_cnpj', 'supplier_cnpj', 'supplier_cfop', 'product_code'),
+    'gerador_cte': ('tenant_id', 'company_cnpj', 'supplier_cfop', 'emitter_uf'),
 }
 
 
 def _rule_models():
     from .domain.models.rules import (
         CfopClassification, CteCfopClassification, PisCofinsCreditRule,
-        IpiCreditRule, CfopCreditRule, IcmsAnticipationRule, ItemMatchRule
+        IpiCreditRule, CfopCreditRule, IcmsAnticipationRule, ItemMatchRule,
+        GeradorCfopRegra, GeradorCteCfopRegra,
     )
     return {
         'cfop': CfopClassification,
@@ -242,14 +278,21 @@ def _rule_models():
         # regra ficava gravada em `pendente_revisao` sem tela onde ser aprovada,
         # e o item voltava a ser perguntado todo mês.
         'item_match': ItemMatchRule,
+        'gerador_cfop': GeradorCfopRegra,
+        'gerador_cte': GeradorCteCfopRegra,
     }
 
 
 # Campos que o admin pode alterar inline no data grid. Allow-list: impede que a
 # rota de edição escreva em colunas sensíveis como status, tenant_id ou is_global.
+# 'cfop_entrada' é texto que só passa se servir de CFOP de entrada (4 dígitos,
+# série 1, 2 ou 3): a regra do gerador vai direto para o arquivo, e "5102" ou
+# "110" aprovados ali sairiam escriturados. As abas da auditoria seguem 'str'.
 EDITABLE_FIELDS = {
     'cfop': {'entry_cfop': 'str'},
     'cte': {'entry_cfop': 'str'},
+    'gerador_cfop': {'entry_cfop': 'cfop_entrada'},
+    'gerador_cte': {'entry_cfop': 'cfop_entrada'},
     'icms': {'allow_credit': 'bool'},
     'ipi': {'allow_credit': 'bool'},
     'pis_cofins': {'allow_credit': 'bool'},
@@ -505,6 +548,10 @@ def curation_rule_update(
             parsed = str(value).strip().lower() in ('true', '1', 'on', 'sim')
         elif kind == 'float':
             parsed = float(str(value).replace(',', '.') or 0)
+        elif kind == 'cfop_entrada':
+            parsed = str(value).strip()
+            if not cfop_de_entrada_valido(parsed):
+                raise ValueError("CFOP que não serve para entrada")
         else:
             parsed = str(value).strip()
             if not parsed:
@@ -546,6 +593,18 @@ def curation_rule_approve(
     rule = _rule_by_key(db_session, model, rule_type, key)
     if not rule:
         return HTMLResponse("" + _tabs_oob(db_session, rule_type))
+
+    # Regra do gerador só se aprova com CFOP que serve para entrada — o que já
+    # estava gravado ou o que veio no Enter. Inválido: a linha volta intacta,
+    # pendente, em vez de aprovar um CFOP que o arquivo não pode receber.
+    cfop_campos = [f for f, k in EDITABLE_FIELDS.get(rule_type, {}).items()
+                   if k == 'cfop_entrada']
+    for campo in cfop_campos:
+        final = (str(value).strip() if field == campo and str(value or "").strip()
+                 else getattr(rule, campo))
+        if not cfop_de_entrada_valido(final):
+            return HTMLResponse(_row_html(request, rule, rule_type,
+                                          _tenant_name_for(db_session, rule.tenant_id)))
 
     try:
         if field and field in EDITABLE_FIELDS.get(rule_type, {}):

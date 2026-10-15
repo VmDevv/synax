@@ -16,7 +16,10 @@
         {# `hx-boost="false"`: o <body> tem boost e este form é multipart com
            HTMX próprio — deixar os dois disputarem o submit manda o ZIP duas
            vezes. #}
-        <form id="formGerarSped" hx-post="/api/gerar-sped"
+        {# Passo 1: /analisar lê os XMLs e devolve a tela de mapeamento de CFOP;
+           a geração em si é o passo seguinte (botão "Gerar SPED com estes
+           CFOPs" dentro daquela tela). #}
+        <form id="formGerarSped" hx-post="/api/gerar-sped/analisar"
               hx-encoding="multipart/form-data" hx-target="#resultado-gerar"
               hx-swap="innerHTML" hx-indicator="#spinner-gerar"
               hx-boost="false" class="p-5">
@@ -26,7 +29,7 @@
                     <label class="block text-[14px] font-bold text-slate-800 mb-2">
                         <i class="fa-solid fa-building-user text-syn-600 text-sm mr-1"></i> Empresa
                     </label>
-                    <select name="tenant_id" required
+                    <select name="tenant_id" required data-busca="empresas"
                             class="select select-bordered w-full font-medium text-sm rounded-lg">
                         <option value="" disabled selected>Selecione o cliente...</option>
                         {% for t in tenants %}
@@ -37,6 +40,14 @@
                         O CNPJ do cadastro é o que separa as notas de entrada dela
                         das saídas e das de outros clientes que venham no mesmo ZIP.
                     </p>
+                    {# Chegaram XMLs desta empresa por e-mail? Vazio quando não chegou
+                       nada. Aqui entram TODOS os guardados: o gerador é que separa os
+                       meses, como já faz com o ZIP. #}
+                    <div id="xmls-email-aviso" class="empty:hidden mt-3"
+                         hx-get="/emails/recebidos?destino=gerar"
+                         hx-trigger="change from:#formGerarSped select[name='tenant_id']"
+                         hx-include="#formGerarSped select[name='tenant_id']"
+                         hx-target="this" hx-swap="innerHTML"></div>
                 </div>
 
                 <div>
@@ -62,20 +73,35 @@
                 XMLs do mês (.zip)
             </label>
             <label class="flex items-center gap-4 border-2 border-dashed border-slate-300 rounded-xl p-5 cursor-pointer hover:border-syn-500 hover:bg-slate-50 transition-colors">
-                <input type="file" name="xmls_zip" accept=".zip,.rar" required class="file-input file-input-sm file-input-bordered w-full max-w-md">
+                <input id="gerar-xmls-zip" type="file" name="xmls_zip" accept=".zip,.rar" required
+                       class="file-input file-input-sm file-input-bordered w-full max-w-md">
                 <span class="text-[12px] text-slate-500">
-                    NF-e e CT-e de <strong>um mês só</strong> — o SPED é mensal, e um
-                    pacote com duas competências é recusado.
+                    NF-e e CT-e de entrada. O SPED é mensal: se o pacote tiver
+                    <strong>mais de um mês</strong>, sai o mais recente, e as notas
+                    dos meses anteriores aparecem para você trazer para a 1ª quinzena.
                 </span>
             </label>
 
+            {# Opcional: já dizer o mês evita a pergunta quando se sabe que o
+               cliente mandou o mês anterior junto. #}
+            <div class="mt-4 flex flex-wrap items-center gap-3">
+                <label for="gerar-competencia" class="text-[14px] font-bold text-slate-800">
+                    <i class="fa-regular fa-calendar text-syn-600 text-sm mr-1"></i> Competência
+                </label>
+                <input id="gerar-competencia" type="month" name="competencia"
+                       class="input input-bordered input-sm w-48 text-sm rounded-lg">
+                <span class="text-[11px] text-slate-500">
+                    Opcional. Em branco, vale o mês mais recente do pacote.
+                </span>
+            </div>
+
             <div class="flex items-center gap-3 mt-5">
                 <button type="submit" class="btn bg-syn-700 hover:bg-syn-800 text-white font-bold px-6 shadow-sm">
-                    <i class="fa-solid fa-gears mr-1"></i> Gerar arquivo
+                    <i class="fa-solid fa-diagram-project mr-1"></i> Revisar CFOPs e gerar
                 </button>
                 <span id="spinner-gerar" class="htmx-indicator text-sm text-slate-500">
                     <span class="loading loading-spinner loading-sm"></span>
-                    Lendo os XMLs e montando o arquivo…
+                    Lendo os XMLs…
                 </span>
             </div>
         </form>
@@ -91,12 +117,27 @@
             Os XMLs contêm as notas que a empresa recebeu — e só isso. Não há saídas,
             inventário, ativo nem produção, então os Blocos E, G, H, K e 1 saem
             declarados como <strong>sem dados</strong> e quem apura é o Domínio, depois
-            de receber os lançamentos. O CFOP de entrada vem da regra aprovada da
-            empresa quando existe; na falta, da conversão do primeiro dígito
-            (5&rarr;1, 6&rarr;2, 7&rarr;3), e a tela mostra quantos itens ficaram nessa
-            situação.
+            de receber os lançamentos.
+        </p>
+        <p class="text-xs text-slate-700 leading-relaxed mt-2">
+            O CFOP de entrada de cada item e de cada frete (CT-e) vem das regras
+            <strong>do gerador</strong>, aprovadas por um admin — separadas das regras da
+            auditoria. A conversão do primeiro dígito (5&rarr;1, 6&rarr;2, 7&rarr;3) só
+            sugere, e só quando o CFOP resultante existe na tabela oficial; para
+            algumas saídas sem esse espelho (5405, 6404, fretes 5357/6357/5359/6359)
+            a sugestão vem de um mapa de equivalências, marcada na linha. Enquanto
+            faltar regra aprovada, o botão de gerar fica bloqueado.
         </p>
     </section>
 
 </main>
+
+<script>
+    // Marcar "usar os XMLs recebidos por e-mail" dispensa o ZIP. Quem recusa de
+    // verdade é a rota, que responde com o motivo quando não há nada guardado.
+    window.alternarXmlsEmail = function (checkbox) {
+        const zip = document.getElementById('gerar-xmls-zip');
+        if (zip) zip.required = !checkbox.checked;
+    };
+</script>
 {% endblock %}

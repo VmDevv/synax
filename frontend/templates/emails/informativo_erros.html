@@ -1,0 +1,104 @@
+{# Informativo: erros do sistema no período. Montado por
+   services/automacoes/informe_erros.py.
+
+   O texto dos erros vem de exceção — e exceção já trouxe descrição de
+   produto de XML de fornecedor. Tudo passa pelo autoescape do Jinja; nada
+   aqui é `| safe`. #}
+{% set azul = "#0377AA" %}{% set azul_escuro = "#026092" %}
+{% set t = totais %}
+{% set tem_erro = t.relatorios or t.ocorrencias_log %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Erros do sistema</title></head>
+<body style="margin:0;padding:0;background:#eef5f9;font-family:Segoe UI,Arial,sans-serif;color:#0f172a;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef5f9;padding:24px 0;">
+<tr><td align="center">
+<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="width:640px;max-width:100%;background:#ffffff;border:1px solid #d6e6ee;border-radius:12px;overflow:hidden;">
+
+  <tr><td style="background:{{ '#7f1d1d' if t.altas else azul_escuro }};padding:20px 28px;">
+    <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;color:{{ '#fecaca' if t.altas else '#9fdbee' }};font-weight:bold;">Synax · Erros do sistema</div>
+    <div style="font-size:20px;color:#ffffff;font-weight:bold;margin-top:4px;">{{ nome }}</div>
+    <div style="font-size:13px;color:{{ '#fee2e2' if t.altas else '#cfe9f4' }};margin-top:2px;">Período: {{ periodo }} · gravidade: {{ gravidade_rotulo | lower }}</div>
+  </td></tr>
+
+  <tr><td style="padding:20px 28px 4px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+      {% for rotulo, valor, cor in [
+          ("Diagnosticados", t.relatorios ~ "", "#b91c1c" if t.relatorios else "#94a3b8"),
+          ("Gravidade alta", t.altas ~ "", "#b91c1c" if t.altas else "#94a3b8"),
+          ("No log", t.ocorrencias_log | num_br, "#b45309" if t.ocorrencias_log else "#94a3b8"),
+          ("Tipos no log", t.tipos_log ~ "", "#b45309" if t.tipos_log else "#94a3b8")] %}
+      <td width="25%" valign="top" style="padding:4px;">
+        <div style="border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;">
+          <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:bold;">{{ rotulo }}</div>
+          <div style="font-size:20px;font-weight:bold;color:{{ cor }};margin-top:2px;">{{ valor }}</div>
+        </div>
+      </td>
+      {% endfor %}
+    </tr></table>
+  </td></tr>
+
+  {% if not tem_erro %}
+  <tr><td style="padding:12px 28px 8px;">
+    <div style="font-size:13px;color:#047857;background:#ecfdf5;border-radius:8px;padding:10px 12px;">Nenhum erro registrado no período.</div>
+  </td></tr>
+  {% endif %}
+
+  {% if relatorios_mostrados %}
+  <tr><td style="padding:20px 28px 6px;">
+    <div style="font-size:15px;font-weight:bold;color:#b91c1c;border-bottom:2px solid #fca5a5;padding-bottom:6px;">Erros diagnosticados</div>
+  </td></tr>
+  <tr><td style="padding:4px 28px 8px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;border-collapse:collapse;">
+      {% for r in relatorios_mostrados %}
+      {% set cor = "background:#fee2e2;color:#b91c1c;" if r.nivel >= 3 else ("background:#fef3c7;color:#92400e;" if r.nivel == 2 else "background:#f1f5f9;color:#475569;") %}
+      <tr style="border-bottom:1px solid #eef2f6;">
+        <td style="padding:8px;vertical-align:top;">
+          <div style="font-size:11px;color:#64748b;">{{ r.quando }} · <b style="color:#334155;">{{ r.origem }}</b> · <span style="font-family:Consolas,monospace;">{{ r.tipo }}</span>
+            <span style="display:inline-block;font-size:10px;font-weight:bold;padding:1px 7px;border-radius:10px;margin-left:4px;{{ cor }}">{{ r.gravidade or "sem gravidade" }}</span></div>
+          <div style="color:#0f172a;margin-top:3px;">{{ r.resumo }}</div>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% if relatorios | length > relatorios_mostrados | length %}
+    <div style="font-size:12px;color:#475569;margin-top:6px;">… e mais {{ relatorios | length - relatorios_mostrados | length }} na aba Erros do Sistema.</div>
+    {% endif %}
+  </td></tr>
+  {% endif %}
+
+  {% if log_mostrado %}
+  <tr><td style="padding:16px 28px 6px;">
+    <div style="font-size:15px;font-weight:bold;color:#b45309;border-bottom:2px solid #fcd34d;padding-bottom:6px;">No log, agrupado <span style="font-weight:normal;font-size:12px;color:#64748b;">— a mesma falha repetida vira uma linha</span></div>
+  </td></tr>
+  <tr><td style="padding:4px 28px 8px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:12px;border-collapse:collapse;">
+      {% for g in log_mostrado %}
+      <tr style="border-bottom:1px solid #eef2f6;">
+        <td style="padding:7px 8px;vertical-align:top;width:44px;text-align:right;font-weight:bold;color:#b45309;white-space:nowrap;">{{ g.vezes }}×</td>
+        <td style="padding:7px 8px;vertical-align:top;">
+          <div style="font-family:Consolas,monospace;font-size:11px;color:#475569;">{{ g.origem }}</div>
+          <div style="color:#0f172a;margin-top:2px;word-break:break-word;">{{ g.mensagem }}</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:2px;">{% if g.vezes > 1 %}de {{ g.primeira }} a {{ g.ultima }}{% else %}em {{ g.ultima }}{% endif %}</div>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% if log | length > log_mostrado | length %}
+    <div style="font-size:12px;color:#475569;margin-top:6px;">… e mais {{ log | length - log_mostrado | length }} tipo{{ 's' if (log | length - log_mostrado | length) != 1 }} de erro na aba Erros do Sistema.</div>
+    {% endif %}
+  </td></tr>
+  {% endif %}
+
+  <tr><td style="padding:16px 28px 24px;font-size:12px;color:#64748b;">
+    O relatório completo de cada erro (causa provável e o que fazer) fica em Administração → Erros do Sistema.
+  </td></tr>
+
+  <tr><td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:12px 28px;font-size:11px;color:#94a3b8;">
+    Enviado automaticamente pelo Synax · Administração → Automações
+  </td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>

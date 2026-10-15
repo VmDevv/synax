@@ -15,6 +15,8 @@ _local_ui.db
 # ===== Dados fiscais de clientes (NUNCA versionar) =====
 # SPED e XMLs enviados para auditoria
 temp_uploads/
+# XMLs que os clientes mandam por e-mail (services/email_recebimento)
+recebidos_email/
 # DANFEs em cache vindas do cofre fiscal do SIEG
 .sieg_cache_pdf/
 # Diagnóstico automático de erros por IA (core/ai_error_reporter.py) — texto

@@ -63,13 +63,16 @@
    Enter numa caixa — seja capturado pelo boost do <body> e recarregue
    a tela de resultado por baixo. #}
 <form id="form-correcao-sped" hx-boost="false">
-    {% if grupos %}
-    {# A apuração é uma decisão À PARTE da de corrigir documento, e por isso tem
-       caixa própria: corrigir C170/C190/C100 é aritmética conferível, mexer no
-       E110 muda o imposto a recolher da competência. Vem marcada porque, uma
-       vez corrigido o crédito nos documentos, deixar o E110 velho entrega um
-       arquivo que se contradiz — mas desmarcar é um clique, e a prévia mostra
-       linha a linha o que vai ser reescrito. #}
+    {% if grupos and not contribuicoes %}
+    {# A apuração é uma decisão À PARTE da de corrigir documento, e por isso
+       tem caixa própria: corrigir C170/C190/C100 é aritmética conferível,
+       mexer no E110 muda o imposto a recolher da competência. Vem marcada
+       porque, uma vez corrigido o crédito nos documentos, deixar o E110 velho
+       entrega um arquivo que se contradiz — mas desmarcar é um clique, e a
+       prévia mostra linha a linha o que vai ser reescrito.
+
+       No EFD Contribuições a caixa nem aparece: lá não existe E110, e a
+       apuração de PIS/COFINS é o Bloco M, que esta correção não toca. #}
     <label class="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 cursor-pointer">
         <input type="checkbox" name="atualizar_e110" value="true" checked
                class="checkbox checkbox-sm checkbox-warning mt-0.5">

@@ -1,0 +1,146 @@
+{# Informativo: resumo dos e-mails que chegaram na caixa do escritório.
+   Montado por services/email_recebimento/resumo.py.
+
+   Remetente, assunto e o texto da IA vêm de e-mail de TERCEIRO — tudo passa
+   pelo autoescape do Jinja; nada aqui é `| safe`. O texto da IA chega em
+   `linhas` já separado em título/linha, e nunca vira HTML. #}
+{% set azul = "#0377AA" %}{% set azul_escuro = "#026092" %}
+{% set t = totais %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Resumo dos e-mails</title></head>
+<body style="margin:0;padding:0;background:#eef5f9;font-family:Segoe UI,Arial,sans-serif;color:#0f172a;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef5f9;padding:24px 0;">
+<tr><td align="center">
+<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="width:640px;max-width:100%;background:#ffffff;border:1px solid #d6e6ee;border-radius:12px;overflow:hidden;">
+
+  <tr><td style="background:{{ azul_escuro }};padding:20px 28px;">
+    <div style="font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#9fdbee;font-weight:bold;">Synax · Resumo dos e-mails</div>
+    <div style="font-size:20px;color:#ffffff;font-weight:bold;margin-top:4px;">{{ nome }}</div>
+    <div style="font-size:13px;color:#cfe9f4;margin-top:2px;">Período: {{ periodo }}</div>
+  </td></tr>
+
+  <tr><td style="padding:20px 28px 4px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+      {% for rotulo, valor, cor in [
+          ("E-mails", t.emails ~ "", azul if t.emails else "#94a3b8"),
+          ("XMLs guardados", t.xmls ~ "", "#047857" if t.xmls else "#94a3b8"),
+          ("Empresas", t.empresas ~ "", "#047857" if t.empresas else "#94a3b8"),
+          ("Não aproveitados", t.recusados ~ "", "#b45309" if t.recusados else "#94a3b8")] %}
+      <td width="25%" valign="top" style="padding:4px;">
+        <div style="border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;">
+          <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:bold;">{{ rotulo }}</div>
+          <div style="font-size:20px;font-weight:bold;color:{{ cor }};margin-top:2px;">{{ valor }}</div>
+        </div>
+      </td>
+      {% endfor %}
+    </tr></table>
+  </td></tr>
+
+  <tr><td style="padding:16px 28px 6px;">
+    <div style="font-size:15px;font-weight:bold;color:{{ azul_escuro }};border-bottom:2px solid #9fdbee;padding-bottom:6px;">
+      Resumo
+      <span style="font-weight:normal;font-size:11px;color:#64748b;">— {{ "escrito por IA a partir dos e-mails; confira na lista abaixo" if texto_ia else "gerado pelo sistema" }}</span>
+    </div>
+  </td></tr>
+  <tr><td style="padding:6px 28px 8px;font-size:13px;line-height:1.5;">
+    {% for l in linhas %}
+      {% if l.titulo %}
+      <div style="font-weight:bold;color:#0f172a;margin-top:10px;">{{ l.texto }}</div>
+      {% else %}
+      <div style="padding-left:14px;text-indent:-10px;margin-top:3px;">• {{ l.texto }}</div>
+      {% endif %}
+    {% endfor %}
+    {% if not texto_ia and motivo_sem_ia and t.emails %}
+    <div style="font-size:11px;color:#94a3b8;margin-top:8px;">Sem o resumo por IA: {{ motivo_sem_ia }}.</div>
+    {% endif %}
+  </td></tr>
+
+  {% if xmls %}
+  <tr><td style="padding:16px 28px 6px;">
+    <div style="font-size:15px;font-weight:bold;color:#047857;border-bottom:2px solid #6ee7b7;padding-bottom:6px;">XMLs recebidos <span style="font-weight:normal;font-size:12px;color:#64748b;">— prontos nas telas de Auditoria e Gerar SPED</span></div>
+  </td></tr>
+  <tr><td style="padding:4px 28px 8px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;border-collapse:collapse;">
+      {% for g in xmls %}
+      <tr style="border-bottom:1px solid #eef2f6;">
+        <td style="padding:7px 8px;">{{ g.empresa }}</td>
+        <td style="padding:7px 8px;color:#475569;white-space:nowrap;">{{ (g.competencia[5:7] ~ "/" ~ g.competencia[:4]) if g.competencia else "sem data" }}</td>
+        <td style="padding:7px 8px;text-align:right;white-space:nowrap;"><b>{{ g.nfe }}</b> NF-e{% if g.cte %} · <b>{{ g.cte }}</b> CT-e{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </td></tr>
+  {% endif %}
+
+  {% if recusas_mostradas %}
+  <tr><td style="padding:16px 28px 6px;">
+    <div style="font-size:15px;font-weight:bold;color:#b45309;border-bottom:2px solid #fcd34d;padding-bottom:6px;">Não aproveitados <span style="font-weight:normal;font-size:12px;color:#64748b;">— confira se era para ter entrado</span></div>
+  </td></tr>
+  <tr><td style="padding:4px 28px 8px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:12px;border-collapse:collapse;">
+      {% for r in recusas_mostradas %}
+      <tr style="border-bottom:1px solid #eef2f6;">
+        <td style="padding:7px 8px;vertical-align:top;">
+          <div style="font-size:11px;color:#64748b;">{{ r.hora }} · {{ r.de }} · {{ r.assunto }}</div>
+          <div style="color:#0f172a;margin-top:2px;word-break:break-word;">{% if r.arquivo %}<span style="font-family:Consolas,monospace;font-size:11px;">{{ r.arquivo }}</span> — {% endif %}{{ r.motivo }}</div>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% if recusas | length > recusas_mostradas | length %}
+    <div style="font-size:12px;color:#475569;margin-top:6px;">… e mais {{ recusas | length - recusas_mostradas | length }} na tela E-mails do Synax.</div>
+    {% endif %}
+  </td></tr>
+  {% endif %}
+
+  {% if emails_mostrados %}
+  <tr><td style="padding:16px 28px 6px;">
+    <div style="font-size:15px;font-weight:bold;color:#334155;border-bottom:2px solid #cbd5e1;padding-bottom:6px;">E-mails do período</div>
+  </td></tr>
+  <tr><td style="padding:4px 28px 8px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:12px;border-collapse:collapse;">
+      {% for e in emails_mostrados %}
+      <tr style="border-bottom:1px solid #eef2f6;">
+        <td style="padding:6px 8px;color:#64748b;white-space:nowrap;vertical-align:top;">{{ e.hora }}</td>
+        <td style="padding:6px 8px;vertical-align:top;">
+          <div style="color:#0f172a;">{{ e.assunto }}</div>
+          <div style="font-size:11px;color:#64748b;">{% if e.empresa %}<b style="color:{{ azul_escuro }};">{{ e.empresa }}</b> · {% endif %}{{ e.de_rotulo }}{% if e.situacao_rotulo %} · <b style="color:{{ '#047857' if e.situacao == 'com_xml' else '#b45309' if e.situacao in ('xml_recusado', 'grande', 'erro') else '#64748b' }};">{{ e.situacao_rotulo }}</b>{% endif %}</div>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% if emails | length > emails_mostrados | length %}
+    <div style="font-size:12px;color:#475569;margin-top:6px;">… e mais {{ emails | length - emails_mostrados | length }} na tela E-mails do Synax.</div>
+    {% endif %}
+  </td></tr>
+  {% endif %}
+
+  {% if silenciados %}
+  <tr><td style="padding:12px 28px 4px;">
+    <div style="font-size:12px;color:#64748b;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;">
+      <b style="color:#475569;">Automáticos, fora do resumo:</b>
+      {% for s in silenciados %}{{ s.rotulo }} ×{{ s.vezes }}{{ " · " if not loop.last }}{% endfor %}
+      <div style="font-size:11px;color:#94a3b8;margin-top:2px;">Remetentes silenciados na tela E-mails do Synax. XML que vier deles continua sendo aproveitado.</div>
+    </div>
+  </td></tr>
+  {% endif %}
+
+  {% if not t.emails %}
+  <tr><td style="padding:12px 28px 8px;">
+    <div style="font-size:13px;color:#475569;background:#f1f5f9;border-radius:8px;padding:10px 12px;">Nenhum e-mail chegou no período.</div>
+  </td></tr>
+  {% endif %}
+
+  <tr><td style="padding:16px 28px 24px;font-size:12px;color:#64748b;">
+    O sistema só lê a caixa: nenhum e-mail foi marcado como lido, movido ou apagado.
+  </td></tr>
+
+  <tr><td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:12px 28px;font-size:11px;color:#94a3b8;">
+    Enviado automaticamente pelo Synax · Administração → Automações
+  </td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>

@@ -1,0 +1,24 @@
+{# Aviso nas telas de Auditoria e Gerar SPED: chegaram XMLs desta empresa por
+   e-mail. A caixa marcada manda a rota usar esses XMLs — na auditoria, os das
+   notas que estão no SPED (pela chave); no gerador, todos os guardados. #}
+<div class="rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3">
+    <label class="flex items-start gap-3 cursor-pointer">
+        <input type="checkbox" name="usar_xmls_email" value="true" id="usar_xmls_email"
+               class="checkbox checkbox-sm checkbox-success mt-0.5"
+               onchange="if (window.alternarXmlsEmail) alternarXmlsEmail(this)">
+        <span class="min-w-0">
+            <span class="block text-[13px] font-bold text-emerald-900">
+                <i class="fa-solid fa-envelope-circle-check mr-1"></i>
+                Usar os {{ total }} XML{{ 's' if total != 1 }} recebido{{ 's' if total != 1 }} por e-mail
+            </span>
+            <span class="block text-[11px] text-emerald-900/80 mt-0.5">
+                {% for m in meses[:4] %}{{ m.mes }}: {{ m.nfe }} NF-e{% if m.cte %}, {{ m.cte }} CT-e{% endif %}{{ " · " if not loop.last }}{% endfor %}{% if meses | length > 4 %} · e mais {{ meses | length - 4 }} mês(es){% endif %}.
+                {% if destino == "auditoria" %}
+                Entram os XMLs das notas que estiverem no SPED enviado. Se você também subir um pacote, os dois se somam.
+                {% else %}
+                Entram todos os guardados desta empresa; o gerador separa os meses como faz com o ZIP. Se você também subir um pacote, os dois se somam.
+                {% endif %}
+            </span>
+        </span>
+    </label>
+</div>

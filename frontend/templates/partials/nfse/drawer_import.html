@@ -43,11 +43,15 @@
 
         <!-- ===== Aba: seleção de empresas (certificado vem da rede) ===== -->
         {% if pode_lote %}
+        {# O lote roda em segundo plano: o clique só o começa, a janela fecha na
+           hora e o andamento aparece no painel acima da tabela (#nfse-lote).
+           Sem empresa marcada o pedido nem sai — a janela fica aberta e diz por quê. #}
         <form x-show="aba === 'empresas'" id="form-empresas"
               hx-post="/nfse/consultar-lote"
-              hx-target="#nfse-tabela" hx-swap="outerHTML"
-              hx-indicator="#lote-carregando"
-              hx-on::after-request="if(event.detail.successful) { document.getElementById('drawer-container').innerHTML = ''; }"
+              hx-target="#nfse-lote" hx-swap="outerHTML"
+              hx-on::before-request="if (!this.querySelector('input[name=tenant_ids]')) { event.preventDefault(); document.getElementById('lote-sem-empresa').classList.remove('hidden'); return; }
+                                     var d = document.getElementById('nfse-drawer'); if (window.Alpine && d) { Alpine.$data(d).aberto = false; } else if (d) { d.style.display = 'none'; }"
+              hx-on::after-request="document.getElementById('drawer-container').innerHTML = '';"
               class="flex-1 overflow-y-auto px-5 py-5 space-y-4"
               x-data='{
                   sel: [], busca: "", limite: 40, so_prontas: false,
@@ -61,9 +65,22 @@
                   marcarTodas() { this.sel = this.filtradas.filter(e => e.ok).map(e => e.id); }
               }'>
 
+            {% if lote_rodando %}
+            <div class="p-3 rounded-lg border border-sky-200 bg-sky-50 text-[12px] text-sky-900">
+                <i class="fa-solid fa-hourglass-half mr-1"></i>
+                Há um lote em andamento{% if lote_dono %}, iniciado por {{ lote_dono }}{% endif %}.
+                Um lote por vez: acompanhe na tela e busque de novo quando ele terminar.
+            </div>
+            {% endif %}
+
+            <p id="lote-sem-empresa" class="hidden p-2.5 rounded-lg border border-amber-200 bg-amber-50 text-[12px] text-amber-900">
+                <i class="fa-solid fa-triangle-exclamation mr-1"></i> Marque ao menos uma empresa.
+            </p>
+
             <div class="flex items-center justify-between gap-2">
                 <p class="text-[13px] text-slate-600">
-                    O certificado de cada empresa é lido da pasta da rede.
+                    O certificado de cada empresa é lido da pasta da rede. O lote roda em
+                    segundo plano: a janela fecha e o andamento aparece na tela.
                 </p>
                 <span class="px-2 py-1 rounded-full text-[12px] font-bold tabular-nums shrink-0"
                       style="background: var(--syn-tint-12); color: var(--syn-900);"
@@ -147,11 +164,6 @@
                     <span class="font-semibold text-slate-700">Recomeçar do zero</span> — ignora o histórico de NSU.
                 </span>
             </label>
-
-            <div id="lote-carregando" class="htmx-indicator items-center gap-2 text-[13px] text-slate-600">
-                <span class="loading loading-spinner loading-sm text-[#037fb5]"></span>
-                Consultando o ADN empresa por empresa…
-            </div>
         </form>
         {% endif %}
 
@@ -270,7 +282,8 @@
                 </p>
                 <p class="text-[11px] text-slate-500 font-mono break-all">{{ storage_dir }}</p>
                 <p class="text-[11px] text-slate-500 mt-1.5">
-                    Organizado automaticamente em <span class="font-mono">CNPJ / ano-mês / arquivo.xml</span>.
+                    Organizado automaticamente em <span class="font-mono">EMPRESA CNPJ / data / NFSe_chave.xml</span>
+                    — a mesma pasta da empresa que o lote usa.
                 </p>
                 {% if not storage_ok %}
                 <p class="mt-2 px-2 py-1.5 rounded bg-amber-50 border border-amber-200 text-[11px] text-amber-800">
@@ -286,12 +299,13 @@
                     @click="aberto = false; setTimeout(() => document.getElementById('drawer-container').innerHTML = '', 200)">Cancelar</button>
             <button type="button"
                     @click="document.getElementById(aba === 'empresas' ? 'form-empresas' : (aba === 'adn' ? 'form-adn' : 'form-arquivo')).requestSubmit()"
-                    class="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-lg text-white shadow-sm transition"
+                    :disabled="aba === 'empresas' && {{ 'true' if lote_rodando else 'false' }}"
+                    class="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-lg text-white shadow-sm transition disabled:opacity-40 disabled:cursor-not-allowed"
                     style="background: var(--syn-700);"
                     onmouseover="this.style.background='var(--syn-900)'"
                     onmouseout="this.style.background='var(--syn-700)'">
                 <i class="fa-solid text-[12px]" :class="aba === 'arquivo' ? 'fa-file-import' : 'fa-cloud-arrow-down'"></i>
-                <span x-text="aba === 'arquivo' ? 'Importar' : 'Buscar notas'"></span>
+                <span x-text="aba === 'arquivo' ? 'Importar' : (aba === 'empresas' ? 'Executar lote' : 'Buscar notas')"></span>
             </button>
         </div>
     </aside>

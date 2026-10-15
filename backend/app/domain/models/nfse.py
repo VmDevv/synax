@@ -43,6 +43,7 @@ class NfseDocument(Base, TenantMixin, TimestampMixin):
         Index('idx_nfse_tenant_prestador', 'tenant_id', 'prestador'),
         Index('idx_nfse_tenant_tomador', 'tenant_id', 'tomador'),
         Index('idx_nfse_tenant_status', 'tenant_id', 'status'),
+        Index('idx_nfse_lote', 'lote_id'),
     )
 
     # Identidade natural: a mesma nota não entra duas vezes.
@@ -96,6 +97,11 @@ class NfseDocument(Base, TenantMixin, TimestampMixin):
     arquivo_xml = Column(String(500))       # caminho relativo do XML guardado
     arquivo_pdf = Column(String(500))       # caminho relativo do PDF, quando houver
     origem = Column(String(20), default="upload")  # upload | adn | sieg
+    # Último lote de NFS-e que gravou esta nota (services/nfse/lote.py). É o
+    # que deixa a tela abrir só no que acabou de chegar — com 5.539 notas
+    # guardadas, a busca de hoje se perdia no meio do histórico. Nota que vem
+    # de novo num lote seguinte passa a ser daquele lote.
+    lote_id = Column(String(36))
 
     @property
     def cancelada(self) -> bool:

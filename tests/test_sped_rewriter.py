@@ -545,13 +545,32 @@ check("e o primeiro dígito (origem) sobrevive ao ajuste (140 -> 100)",
 # ============================================================================
 print("\n=== 9c. As opções da tela de curadoria ===")
 
-check("são sete", len(OPCOES_DE_CORRECAO) == 7, len(OPCOES_DE_CORRECAO))
+# As opções são POR LEIAUTE desde 17/09/2026. As sete de ICMS/IPI são as de
+# sempre e continuam só no Fiscal — esta trava é a prova de que a correção de
+# PIS/COFINS não encostou nelas. A oitava, a de PIS/COFINS, passou a valer
+# nos DOIS em 18/09/2026: os campos 25 a 36 do C170 são os mesmos nos dois
+# leiautes, e glosar neles não entra na chave do C190 nem no Bloco E.
+from backend.app.services.sped_rewriter.patch import (  # noqa: E402
+    LEIAUTE_CONTRIBUICOES, LEIAUTE_FISCAL, opcoes_do_leiaute)
+
+_FISCAIS = opcoes_do_leiaute(LEIAUTE_FISCAL)
+check("são oito no SPED Fiscal", len(_FISCAIS) == 8, len(_FISCAIS))
 check("com os códigos combinados",
-      [o.codigo for o in OPCOES_DE_CORRECAO]
+      [o.codigo for o in _FISCAIS]
       == ["cfop_produto", "cfop_frete", "credito_icms_mercadoria",
           "credito_icms_frete", "credito_ipi", "valor_documento",
-          "valor_frete"],
-      [o.codigo for o in OPCOES_DE_CORRECAO])
+          "valor_frete", "credito_pis_cofins"],
+      [o.codigo for o in _FISCAIS])
+check("e a do EFD Contribuições é só a de PIS/COFINS",
+      [o.codigo for o in opcoes_do_leiaute(LEIAUTE_CONTRIBUICOES)]
+      == ["credito_pis_cofins"],
+      [o.codigo for o in opcoes_do_leiaute(LEIAUTE_CONTRIBUICOES)])
+check("a de PIS/COFINS é a ÚNICA em comum — nenhuma de ICMS/IPI vaza",
+      ({o.codigo for o in _FISCAIS}
+       & {o.codigo for o in opcoes_do_leiaute(LEIAUTE_CONTRIBUICOES)})
+      == {"credito_pis_cofins"},
+      {o.codigo for o in _FISCAIS}
+      & {o.codigo for o in opcoes_do_leiaute(LEIAUTE_CONTRIBUICOES)})
 _CAMPOS_POR_REG = {"C170": CAMPOS_C170, "C190": CAMPOS_C190_EDITAVEIS,
                    "D190": CAMPOS_D190, "C100": CAMPOS_C100, "D100": CAMPOS_D100}
 check("todo campo declarado é de fato corrigível no registro que a opção diz",
@@ -1002,6 +1021,139 @@ check("e a retenção segue o prazo que já existe",
       "limpar_uploads" in bloco_final,
       "o comentário precisa dizer quem apaga o SPED depois, senão ele vira "
       "documento fiscal acumulando sem dono")
+
+
+# ============================================================================
+print("\n=== 16. PIS/COFINS no arquivo FISCAL: a glosa e o CST 70 ===")
+
+# Pedido do Sandro em 18/09/2026. Os campos 25 a 36 do C170 são os MESMOS nos
+# dois leiautes e a glosa de PIS/COFINS não depende de nada que só exista no
+# EFD Contribuições: ela sai do CST escriturado e da regra cadastrada, não do
+# XML. O que NÃO atravessa é a correção de BASE — no Fiscal o VL_BC_PIS quase
+# nunca vem preenchido (decisão de 28/08/2026), e escrever base nova ali seria
+# inventar o que aquele arquivo não escritura.
+
+
+def c170_pis(num_item, cod_item, vl_item, bc, icms, cst_pis="", bc_pis="",
+             aliq_pis="", vl_pis="", cst_cofins="", bc_cofins="",
+             aliq_cofins="", vl_cofins=""):
+    return linha("C170", {
+        2: num_item, 3: cod_item, 5: "10,00000", 6: "UN", 7: vl_item,
+        9: "0", 10: "000", 11: "1102", 13: bc, 14: "12,00", 15: icms,
+        25: cst_pis, 26: bc_pis, 27: aliq_pis, 30: vl_pis,
+        31: cst_cofins, 32: bc_cofins, 33: aliq_cofins, 36: vl_cofins,
+    }, 38)
+
+
+# O item 2 vai SEM PIS/COFINS de propósito: é o retrato do EFD ICMS/IPI real,
+# onde o C170 traz esses campos vazios na maioria das linhas.
+_SPED_PC = montar_sped(
+    [c170_pis("1", "CAFE500", "1000,00", "1000,00", "120,00",
+              cst_pis="50", bc_pis="900,00", aliq_pis="1,65", vl_pis="14,85",
+              cst_cofins="50", bc_cofins="900,00", aliq_cofins="7,60",
+              vl_cofins="68,40"),
+     c170_pis("2", "ACUCAR1", "500,00", "500,00", "60,00")],
+    [c190("000", "1102", "12,00", "1500,00", "1500,00", "180,00")],
+    "1500,00", "1500,00", "180,00")
+# O C100 do fixture nasce com PIS/COFINS zerados; aqui ele recebe o total dos
+# itens, que é o que o arquivo real traz.
+_SPED_PC = "\r\n".join(
+    ("|".join(l.split("|")[:26] + ["14,85", "68,40"] + l.split("|")[28:])
+     if l.startswith("|C100|") else l)
+    for l in _SPED_PC.split("\r\n"))
+
+_GLOSA_PC = CorrecaoItem(
+    documento=CHAVE, num_item="1",
+    campos={"VL_PIS": Decimal("0"), "VL_COFINS": Decimal("0")},
+    motivo="CFOP/CST sem direito a crédito de PIS/COFINS",
+    aprovada_por="sandro@vm.com.br")
+
+doc_pc = ler_texto(_SPED_PC)
+res_pc = aplicar(doc_pc, Patch([_GLOSA_PC]))
+saida_pc = doc_pc.serializar()
+it1 = [l for l in por_reg(saida_pc, "C170") if l.startswith("|C170|1|")][0].split("|")
+it2 = [l for l in por_reg(saida_pc, "C170") if l.startswith("|C170|2|")][0].split("|")
+c100_pc = por_reg(saida_pc, "C100")[0].split("|")
+
+check("a cascata do Fiscal zera PIS e COFINS do item",
+      (it1[30], it1[36]) == ("0,00", "0,00"), (it1[30], it1[36]))
+check("com base e alíquota junto (o Guia manda os três em conjunto)",
+      (it1[26], it1[27], it1[32], it1[33]) == ("0,00", "0,00", "0,00", "0,00"),
+      (it1[26], it1[27], it1[32], it1[33]))
+check("e o CST vai a 70 nos dois tributos",
+      (it1[25], it1[31]) == ("70", "70"), (it1[25], it1[31]))
+check("o C100 totaliza o PIS/COFINS dos itens (campos 26 e 27)",
+      (c100_pc[26], c100_pc[27]) == ("0,00", "0,00"),
+      (c100_pc[26], c100_pc[27]))
+check("item sem PIS/COFINS no arquivo continua com os campos VAZIOS",
+      (it2[25], it2[26], it2[30], it2[31], it2[36]) == ("", "", "", "", ""),
+      (it2[25], it2[26], it2[30], it2[31], it2[36]))
+check("o ICMS do item glosado não foi tocado",
+      (it1[13], it1[14], it1[15]) == ("1000,00", "12,00", "120,00"),
+      (it1[13], it1[14], it1[15]))
+check("nem o valor do item — PIS/COFINS não vai para o custo como o IPI",
+      it1[7] == "1000,00", it1[7])
+check("nenhum C190 a mais: o CST de PIS/COFINS não entra na chave do grupo",
+      len(por_reg(saida_pc, "C190")) == 1, len(por_reg(saida_pc, "C190")))
+check("e nada foi escrito na apuração", not res_pc.recusas
+      and not any(a.registro == "E110" for a in res_pc.alteracoes),
+      [r.motivo for r in res_pc.recusas])
+
+# Correção que NÃO é de PIS/COFINS não pode arrastar esses campos junto. Sem a
+# guarda, o totalizador do C100 re-somaria campos vazios e zeraria o VL_PIS de
+# uma nota corrigida só no ICMS.
+doc_so_icms = ler_texto(_SPED_PC)
+aplicar(doc_so_icms, Patch([CorrecaoItem(
+    documento=CHAVE, num_item="1", campos={"VL_ICMS": Decimal("0")},
+    motivo="sem direito a crédito de ICMS", aprovada_por="sandro@vm.com.br")]))
+saida_icms = doc_so_icms.serializar()
+it1_icms = [l for l in por_reg(saida_icms, "C170")
+            if l.startswith("|C170|1|")][0].split("|")
+c100_icms = por_reg(saida_icms, "C100")[0].split("|")
+check("glosa de ICMS não mexe no CST nem no valor de PIS/COFINS do item",
+      (it1_icms[25], it1_icms[30], it1_icms[36]) == ("50", "14,85", "68,40"),
+      (it1_icms[25], it1_icms[30], it1_icms[36]))
+check("e o total de PIS/COFINS do C100 fica como estava",
+      (c100_icms[26], c100_icms[27]) == ("14,85", "68,40"),
+      (c100_icms[26], c100_icms[27]))
+
+# --- a ponte: no Fiscal só a GLOSA é oferecida
+from backend.app.services.sped_rewriter import montar_patch, propor  # noqa: E402
+
+_DADOS_PC = {"pis_cofins_issues": [
+    {"key": CHAVE, "num": "12345", "num_item": "1", "descr": "CAFE500",
+     "emit_name": "FORNECEDOR LTDA", "tipo": "PIS/COFINS", "acao": "glosar",
+     "reason": "CFOP/CST sem direito a crédito de PIS/COFINS",
+     "sped_val": 83.25, "xml_val": 0.00},
+    # A linha que o Fiscal produz aos milhares: base do SPED zerada contra a
+    # base calculada pela tese do STF. É esperada, foi medida e aceita — e não
+    # vira proposta de reescrita neste arquivo.
+    {"key": CHAVE, "num": "12345", "num_item": "2", "descr": "ACUCAR1",
+     "emit_name": "FORNECEDOR LTDA", "tipo": "PIS/COFINS", "acao": "ajustar",
+     "reason": "Base do SPED R$ 0,00 vs Base Calculada R$ 500,00",
+     "base_calculada": 500.00, "xml_aliq_pis": 1.65, "xml_aliq_cofins": 7.60,
+     "sped_val": 0.00, "xml_val": 41.25},
+]}
+props_pc = propor(_DADOS_PC, _SPED_PC)
+pc = [p for p in props_pc if p.opcao == "credito_pis_cofins"]
+check("a tela do Fiscal recebe UMA proposta de PIS/COFINS: a glosa",
+      [p.alvo for p in pc] == ["Item 1"], [p.alvo for p in pc])
+check("e ela é aplicável", pc and pc[0].aplicavel,
+      pc[0].impedimento if pc else "nenhuma proposta")
+check("o de -> para sai do arquivo",
+      ("VL_PIS", "14,85", "0,00") in pc[0].mudancas, pc[0].mudancas)
+check("a correção de BASE não é oferecida no Fiscal",
+      not [p for p in props_pc if p.alvo == "Item 2"],
+      [p.alvo for p in props_pc])
+
+doc_ponte = ler_texto(_SPED_PC)
+aplicar(doc_ponte, montar_patch(props_pc, [p.id for p in props_pc]))
+it1_ponte = [l for l in por_reg(doc_ponte.serializar(), "C170")
+             if l.startswith("|C170|1|")][0].split("|")
+check("da tela ao arquivo: o item sai zerado e com CST 70",
+      (it1_ponte[25], it1_ponte[30], it1_ponte[31], it1_ponte[36])
+      == ("70", "0,00", "70", "0,00"),
+      (it1_ponte[25], it1_ponte[30], it1_ponte[31], it1_ponte[36]))
 
 
 # ============================================================================

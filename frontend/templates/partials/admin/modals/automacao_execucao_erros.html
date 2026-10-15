@@ -1,0 +1,147 @@
+{# Detalhe de UMA rodada do informe de erros do sistema — o que foi no e-mail.
+   Os relatórios continuam abrindo pela rota da aba Erros do Sistema, que
+   confere o nome do arquivo antes de ler (ver services/erros_sistema.py). #}
+{% set tons = {
+    "ok": "bg-emerald-50 text-emerald-700 border-emerald-200",
+    "aviso": "bg-amber-50 text-amber-800 border-amber-200",
+    "erro": "bg-red-50 text-red-700 border-red-200",
+    "info": "bg-blue-50 text-blue-700 border-blue-200"} %}
+{% set cores_nivel = {
+    3: "bg-red-50 text-red-700 border-red-200",
+    2: "bg-amber-50 text-amber-800 border-amber-200",
+    1: "bg-slate-100 text-slate-600 border-slate-200",
+    0: "bg-slate-50 text-slate-500 border-slate-200"} %}
+{% set r = status_rotulo.get(e.status, (e.status, "aviso")) %}
+{% set t = dados.totais if (dados and dados.totais) else none %}
+<dialog class="modal modal-open">
+    <div class="modal-box bg-white text-slate-800 max-w-4xl p-0 overflow-hidden">
+        <div class="px-6 pt-5 pb-4 border-b border-slate-100 flex items-start justify-between gap-4">
+            <div class="min-w-0">
+                <h3 class="font-bold text-lg flex flex-wrap items-center gap-2">
+                    <i class="fa-solid fa-bug text-blue-600"></i>
+                    Erros do sistema · {{ e.inicio | hora_br }}
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-bold {{ tons[r[1]] }}">{{ r[0] }}</span>
+                </h3>
+                <p class="text-[13px] text-slate-500 mt-0.5">
+                    {{ nome }} · {{ "disparado à mão" if e.gatilho == "manual" else "pela agenda" }}
+                    {% if dados.periodo %}· período de {{ dados.periodo }}{% endif %}
+                    {% if dados.gravidade_rotulo %}· gravidade: {{ dados.gravidade_rotulo | lower }}{% endif %}
+                    {% if e.mensagem and e.status in ("falhou", "interrompida") %}<br><span class="text-slate-600">{{ e.mensagem }}</span>{% endif %}
+                </p>
+            </div>
+            <button type="button" class="btn btn-sm btn-ghost btn-square text-slate-400" title="Fechar"
+                    onclick="document.getElementById('modal-container').innerHTML = ''"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <div class="px-6 py-5 space-y-6 max-h-[72vh] overflow-y-auto">
+            {% if e.status == "rodando" %}
+            <p class="flex items-center gap-2 text-[13px] text-slate-500 bg-slate-50 rounded-xl px-4 py-3">
+                <span class="loading loading-spinner loading-sm text-blue-600"></span> Levantando os erros do período…
+            </p>
+            {% elif not t %}
+            <p class="text-[13px] text-slate-600 bg-slate-50 rounded-xl px-4 py-3">
+                Esta rodada não chegou a levantar os erros{% if e.mensagem %}: {{ e.mensagem }}{% else %}.{% endif %}
+            </p>
+            {% else %}
+
+            <div class="flex flex-wrap items-center gap-3">
+                <button type="button" class="btn btn-sm bg-white border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm"
+                        onclick="automacaoIrParaErros()">
+                    <i class="fa-solid fa-triangle-exclamation text-[11px] text-red-500"></i> Abrir a aba Erros do Sistema
+                </button>
+                <span class="flex-1"></span>
+                {% if e.email_status == "enviado" %}
+                <span class="inline-flex items-center gap-1.5 text-[12px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1">
+                    <i class="fa-solid fa-envelope-circle-check"></i> {{ e.email_detalhe }}
+                </span>
+                {% elif e.email_status == "falhou" %}
+                <span class="inline-flex items-center gap-1.5 text-[12px] text-red-700 bg-red-50 border border-red-200 rounded-full px-3 py-1">
+                    <i class="fa-solid fa-envelope"></i> Informativo não enviado: {{ e.email_detalhe }}
+                </span>
+                {% elif e.email_status == "pulado" %}
+                <span class="inline-flex items-center gap-1.5 text-[12px] text-slate-600 bg-slate-50 border border-slate-200 rounded-full px-3 py-1">
+                    <i class="fa-regular fa-bell-slash"></i> {{ e.email_detalhe }}
+                </span>
+                {% elif e.email_status == "sem_destinatario" %}
+                <span class="text-[12px] text-slate-400"><i class="fa-regular fa-envelope mr-1"></i>Sem destinatário: não foi enviado</span>
+                {% endif %}
+            </div>
+
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div class="rounded-xl border border-slate-200 p-3">
+                    <div class="text-[11px] font-bold uppercase text-slate-400">Diagnosticados</div>
+                    <div class="text-xl font-extrabold tabular-nums {{ 'text-red-600' if t.relatorios else 'text-slate-300' }}">{{ t.relatorios }}</div>
+                </div>
+                <div class="rounded-xl border border-slate-200 p-3">
+                    <div class="text-[11px] font-bold uppercase text-slate-400">Gravidade alta</div>
+                    <div class="text-xl font-extrabold tabular-nums {{ 'text-red-600' if t.altas else 'text-slate-300' }}">{{ t.altas }}</div>
+                </div>
+                <div class="rounded-xl border border-slate-200 p-3">
+                    <div class="text-[11px] font-bold uppercase text-slate-400">No log</div>
+                    <div class="text-xl font-extrabold tabular-nums {{ 'text-amber-700' if t.ocorrencias_log else 'text-slate-300' }}">{{ t.ocorrencias_log | num_br }}</div>
+                    <div class="text-[11px] text-slate-500">ocorrência{{ 's' if t.ocorrencias_log != 1 }}</div>
+                </div>
+                <div class="rounded-xl border border-slate-200 p-3">
+                    <div class="text-[11px] font-bold uppercase text-slate-400">Tipos no log</div>
+                    <div class="text-xl font-extrabold tabular-nums {{ 'text-amber-700' if t.tipos_log else 'text-slate-300' }}">{{ t.tipos_log }}</div>
+                </div>
+            </div>
+
+            {% if not t.relatorios and not t.ocorrencias_log %}
+            <p class="text-[13px] text-emerald-700 bg-emerald-50 rounded-xl px-4 py-3"><i class="fa-solid fa-circle-check mr-1"></i> Nenhum erro registrado no período.</p>
+            {% endif %}
+
+            {% if dados.relatorios %}
+            <section>
+                <h4 class="text-[13px] font-bold text-slate-800 mb-2"><i class="fa-solid fa-stethoscope text-blue-600 mr-1"></i> Erros diagnosticados <span class="font-normal text-slate-400">— clique para abrir o relatório</span></h4>
+                <div class="border border-slate-200 rounded-xl divide-y divide-slate-100">
+                    {% for x in dados.relatorios %}
+                    <button type="button" class="w-full text-left px-4 py-3 hover:bg-slate-50 flex flex-col gap-1"
+                            hx-get="/admin/erros/{{ x.arquivo | urlencode }}" hx-target="#modal-container" hx-swap="innerHTML">
+                        <span class="flex flex-wrap items-center gap-2 text-[12px]">
+                            <span class="tabular-nums text-slate-500">{{ x.quando }}</span>
+                            <span class="font-semibold text-slate-700">{{ x.origem }}</span>
+                            <code class="text-[11px] text-slate-500">{{ x.tipo }}</code>
+                            <span class="px-2 py-0.5 rounded-full border text-[10px] font-bold {{ cores_nivel.get(x.nivel, cores_nivel[0]) }}">{{ x.gravidade or "sem gravidade" }}</span>
+                        </span>
+                        <span class="text-[13px] text-slate-700">{{ x.resumo }}</span>
+                    </button>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
+
+            {% if dados.log %}
+            <section>
+                <h4 class="text-[13px] font-bold text-slate-800 mb-2"><i class="fa-solid fa-scroll text-amber-600 mr-1"></i> No log, agrupado <span class="font-normal text-slate-400">— a mesma falha repetida vira uma linha com a contagem</span></h4>
+                <div class="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table class="table table-sm w-full text-[12px]">
+                        <thead class="text-[11px] uppercase text-slate-500 bg-slate-50">
+                            <tr><th class="text-right">Vezes</th><th>Origem</th><th>Mensagem</th><th class="whitespace-nowrap">Última</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for g in dados.log %}
+                            <tr>
+                                <td class="text-right font-bold tabular-nums">{{ g.vezes }}×</td>
+                                <td class="font-mono text-[11px] text-slate-600 max-w-[220px] truncate" title="{{ g.origem }}">{{ g.origem }}</td>
+                                <td class="text-slate-700 break-words min-w-[240px]">{{ g.mensagem }}</td>
+                                <td class="tabular-nums whitespace-nowrap text-slate-500" title="Primeira: {{ g.primeira }}">{{ g.ultima }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            {% endif %}
+            {% endif %}
+        </div>
+    </div>
+    <div class="modal-backdrop bg-slate-900/40" onclick="document.getElementById('modal-container').innerHTML = ''"></div>
+</dialog>
+<script>
+    function automacaoIrParaErros() {
+        document.getElementById('modal-container').innerHTML = '';
+        var aba = document.querySelector('#admin-abas [hx-get="/admin/erros"]');
+        if (aba) aba.click();
+    }
+</script>

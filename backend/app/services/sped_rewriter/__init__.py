@@ -17,11 +17,12 @@ Uso típico:
 O original NUNCA é sobrescrito — `gravar` recebe outro caminho de propósito.
 """
 from .cascata import (Resultado, ajustar_cst_do_credito, aplicar,
-                      espelhar_d100, reconstruir_bloco_9, reconstruir_c190,
+                      aplicar_contribuicoes, espelhar_d100,
+                      reconstruir_bloco_9, reconstruir_c190,
                       reconstruir_totais_de_blocos)
 from .documento import (Documento, Registro, ler, ler_texto,
                         nome_sugerido, nova_linha)
-from .ponte import Proposta, montar_patch, propor
+from .ponte import Proposta, montar_patch, propor, propor_contribuicoes
 from .previa import Previa, prever
 from .previa import texto as texto_da_previa
 from .relatorio import Relatorio, linhas_para_planilha, montar, para_json, texto
@@ -30,10 +31,10 @@ from .patch import Alteracao, CorrecaoFrete, CorrecaoItem, Patch, Recusa
 __all__ = [
     "Alteracao", "CorrecaoFrete", "CorrecaoItem", "Documento", "Patch",
     "Recusa", "Registro", "Relatorio", "Resultado", "ajustar_cst_do_credito",
-    "aplicar", "espelhar_d100",
+    "aplicar", "aplicar_contribuicoes", "espelhar_d100",
     "ler", "ler_texto", "linhas_para_planilha", "montar", "para_json",
     "Previa", "Proposta", "montar_patch", "nome_sugerido", "nova_linha", "prever",
-    "propor", "reconstruir_bloco_9",
+    "propor", "propor_contribuicoes", "reconstruir_bloco_9",
     "reconstruir_c190", "texto_da_previa",
     "reconstruir_totais_de_blocos",
     "texto",

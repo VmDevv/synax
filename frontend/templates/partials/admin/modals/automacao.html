@@ -1,0 +1,370 @@
+{# Criar / editar automação: coleta de NFS-e ou informativo por e-mail.
+
+   Nenhum valor do formulário é interpolado em JavaScript: o estado inicial
+   (qual frequência, qual escopo) sai de `checked` e de `hidden` renderizados
+   pelo Jinja, e o script só lê o DOM. Assim um valor devolvido pela validação
+   nunca vira código.
+
+   O tipo vai num campo escondido só na CRIAÇÃO — na edição a rota usa o do
+   banco. Sem `d.tipo` (contexto de antes dos informativos), é coleta. #}
+{% set tipo = d.tipo | default("coleta_nfse", true) %}
+{% set coleta = tipo == "coleta_nfse" %}
+{% set info = tipos[tipo] if (tipos is defined and tipo in tipos) else none %}
+{% set conf = d.config if (d.config is defined and d.config) else {} %}
+{% set freq = d.frequencia if d.frequencia in ("diaria", "semanal", "mensal") else "diaria" %}
+{% set n_com_cert = empresas | selectattr("certificado") | list | length %}
+{% set cartao_opcao = "flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2 cursor-pointer has-[:checked]:border-blue-300 has-[:checked]:bg-blue-50" %}
+<dialog class="modal modal-open">
+    <div class="modal-box bg-white text-slate-800 max-w-2xl p-0 overflow-hidden">
+        <form id="form-automacao" hx-post="/admin/automacoes/salvar" hx-target="#admin-content" hx-swap="innerHTML"
+              {% if not d.id and not erro and tipo == "resumo_auditorias" %}data-sugerir="1"{% endif %}>
+            <input type="hidden" name="automacao_id" value="{{ d.id }}">
+            <input type="hidden" name="tipo" value="{{ tipo }}">
+
+            <div class="px-6 pt-5 pb-4 border-b border-slate-100">
+                <h3 class="font-bold text-lg flex flex-wrap items-center gap-2">
+                    <i class="fa-solid {{ info.icone if (info and not coleta) else 'fa-clock-rotate-left' }} text-blue-600"></i>
+                    {% if d.id %}Editar automação{% elif coleta %}Nova automação de coleta{% else %}Novo informativo por e-mail{% endif %}
+                    {% if info and not coleta %}
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-blue-50 text-blue-700 border border-blue-200">{{ info.rotulo }}</span>
+                    {% endif %}
+                </h3>
+                <p class="text-[13px] text-slate-500 mt-0.5">
+                    {% if tipo == "resumo_auditorias" %}
+                    Um e-mail com as auditorias do período — inconsistências e o valor em jogo (a
+                    estornar, a aproveitar, a recolher) —, empresa por empresa, com a planilha anexada.
+                    {% elif tipo == "erros_sistema" %}
+                    Um e-mail com o que a aba Erros do Sistema registrou no período: os erros
+                    diagnosticados e o log agrupado por tipo.
+                    {% elif tipo == "resumo_emails" %}
+                    O resumo da manhã: o que chegou na caixa do escritório, escrito por IA, e
+                    a lista dos XMLs que já ficaram prontos para auditar ou gerar o SPED.
+                    A caixa é lida logo antes de o resumo sair.
+                    {% else %}
+                    O sistema baixa as NFS-e do ADN no horário escolhido, empresa por empresa,
+                    e registra o resultado no histórico.
+                    {% endif %}
+                </p>
+            </div>
+
+            <div class="px-6 py-5 space-y-5 max-h-[65vh] overflow-y-auto">
+                {% if erro %}
+                <div class="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3" role="alert">
+                    <i class="fa-solid fa-circle-exclamation mt-0.5"></i><span>{{ erro }}</span>
+                </div>
+                {% endif %}
+
+                <div>
+                    <label for="aut-nome" class="block text-[13px] font-bold text-slate-700 mb-1.5">Nome</label>
+                    <input id="aut-nome" type="text" name="nome" value="{{ d.nome }}" maxlength="120"
+                           class="input input-bordered input-sm w-full bg-white"
+                           placeholder="{{ 'Ex.: Coleta diária de NFS-e' if coleta else 'Ex.: ' ~ (info.rotulo if info else 'Informativo') }}"
+                           oninput="this.dataset.tocado = '1'">
+                </div>
+
+                <!-- Quando -->
+                <div>
+                    <span class="block text-[13px] font-bold text-slate-700 mb-1.5">Quando</span>
+                    <div class="grid grid-cols-1 {{ 'sm:grid-cols-2' if coleta else 'sm:grid-cols-3' }} gap-2">
+                        <label class="{{ cartao_opcao }}">
+                            <input type="radio" name="frequencia" value="diaria" class="radio radio-sm radio-primary"
+                                   {% if freq == "diaria" %}checked{% endif %} onchange="automacaoAlternar()">
+                            <span class="text-[13px] font-semibold">Todo dia</span>
+                        </label>
+                        <label class="{{ cartao_opcao }}">
+                            <input type="radio" name="frequencia" value="semanal" class="radio radio-sm radio-primary"
+                                   {% if freq == "semanal" %}checked{% endif %} onchange="automacaoAlternar()">
+                            <span class="text-[13px] font-semibold">Dias da semana</span>
+                        </label>
+                        {% if not coleta %}
+                        <label class="{{ cartao_opcao }}">
+                            <input type="radio" name="frequencia" value="mensal" class="radio radio-sm radio-primary"
+                                   {% if freq == "mensal" %}checked{% endif %} onchange="automacaoAlternar()">
+                            <span class="text-[13px] font-semibold">Todo mês</span>
+                        </label>
+                        {% endif %}
+                    </div>
+
+                    <div id="aut-dias" class="mt-3 flex flex-wrap gap-1.5 {% if freq != 'semanal' %}hidden{% endif %}">
+                        {% for rotulo in dias_curtos %}
+                        <label class="cursor-pointer">
+                            <input type="checkbox" name="dias" value="{{ loop.index0 }}" class="peer sr-only"
+                                   {% if loop.index0 in d.dias %}checked{% endif %}>
+                            <span class="inline-block px-3 py-1.5 rounded-lg border border-slate-200 text-[12px] font-semibold text-slate-600
+                                         peer-checked:bg-blue-600 peer-checked:border-blue-600 peer-checked:text-white
+                                         peer-focus-visible:ring-2 peer-focus-visible:ring-blue-300">{{ rotulo }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+
+                    {% if not coleta %}
+                    <div id="aut-dia-mes" class="mt-3 flex flex-wrap items-center gap-2 {% if freq != 'mensal' %}hidden{% endif %}">
+                        <label for="aut-dia-mes-num" class="text-[13px] text-slate-600">No dia</label>
+                        <input id="aut-dia-mes-num" type="number" name="dia_mes" min="1" max="{{ dia_mes_maximo | default(28) }}"
+                               value="{{ d.dia_mes | default(1, true) }}"
+                               class="input input-bordered input-sm bg-white w-20 tabular-nums">
+                        <span class="text-[13px] text-slate-600">de cada mês</span>
+                        <span class="text-[11px] text-slate-400">(de 1 a {{ dia_mes_maximo | default(28) }}, para cair em todo mês)</span>
+                    </div>
+                    {% endif %}
+
+                    <div class="mt-3 flex items-center gap-3">
+                        <label for="aut-hora" class="text-[13px] text-slate-600">Horário</label>
+                        <input id="aut-hora" type="time" name="hora" value="{{ d.hora }}"
+                               class="input input-bordered input-sm bg-white w-32 tabular-nums">
+                        <span class="text-[11px] text-slate-400">horário de Brasília</span>
+                    </div>
+                    {% if coleta %}
+                    <p class="text-[11px] text-slate-400 mt-2">
+                        Uma vez por dia basta: o ADN recusa consultas repetidas em pouco
+                        tempo ("consumo indevido").
+                    </p>
+                    {% endif %}
+                </div>
+
+                {% if tipo == "resumo_auditorias" %}
+                <!-- O que o resumo cobre -->
+                <div class="space-y-3">
+                    <div>
+                        <label for="aut-periodo" class="block text-[13px] font-bold text-slate-700 mb-1.5">Período coberto</label>
+                        <select id="aut-periodo" name="periodo" class="select select-bordered select-sm w-full sm:w-72 bg-white"
+                                onchange="this.dataset.tocado = '1'">
+                            {% for chave, rotulo in periodos_resumo.items() %}
+                            <option value="{{ chave }}" {% if conf.periodo == chave %}selected{% endif %}>{{ rotulo }}</option>
+                            {% endfor %}
+                        </select>
+                        <p class="text-[11px] text-slate-500 mt-1">
+                            Conta a data em que a auditoria foi feita. "Desde a última rodada" não deixa
+                            buraco nem repete; "Mês anterior" combina com o envio no dia 1º.
+                        </p>
+                    </div>
+                    <label class="flex items-start gap-3 cursor-pointer">
+                        <input type="checkbox" name="ultima_por_competencia" value="1" class="checkbox checkbox-sm checkbox-primary mt-0.5"
+                               {% if conf.ultima_por_competencia %}checked{% endif %}>
+                        <span class="text-[13px]"><b>Só a auditoria mais recente de cada empresa e competência</b>
+                            <span class="block text-[11px] text-slate-500">Rodar a mesma competência de novo é rotina — somar todas faria a empresa que foi corrigida parecer a pior.</span></span>
+                    </label>
+                    <label class="flex items-start gap-3 cursor-pointer">
+                        <input type="checkbox" name="so_com_novidade" value="1" class="checkbox checkbox-sm checkbox-primary mt-0.5"
+                               {% if conf.so_com_novidade %}checked{% endif %}>
+                        <span class="text-[13px]"><b>Enviar só quando houver auditoria no período</b>
+                            <span class="block text-[11px] text-slate-500">Desmarcada, o período sem auditoria também vira e-mail — o que, para quem acompanha o fechamento, é informação.</span></span>
+                    </label>
+                </div>
+                {% elif tipo == "erros_sistema" %}
+                <!-- Que erros entram -->
+                <div class="space-y-3">
+                    <div class="grid sm:grid-cols-2 gap-3">
+                        <div>
+                            <label for="aut-periodo" class="block text-[13px] font-bold text-slate-700 mb-1.5">Período coberto</label>
+                            <select id="aut-periodo" name="periodo" class="select select-bordered select-sm w-full bg-white">
+                                {% for chave, rotulo in periodos_erros.items() %}
+                                <option value="{{ chave }}" {% if conf.periodo == chave %}selected{% endif %}>{{ rotulo }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label for="aut-gravidade" class="block text-[13px] font-bold text-slate-700 mb-1.5">Gravidade mínima</label>
+                            <select id="aut-gravidade" name="gravidade" class="select select-bordered select-sm w-full bg-white">
+                                {% for chave, rotulo in gravidades.items() %}
+                                <option value="{{ chave }}" {% if conf.gravidade == chave %}selected{% endif %}>{{ rotulo }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <p class="text-[11px] text-slate-500 -mt-1">
+                        A gravidade é a que o diagnóstico escreveu no relatório do erro; o que ele não
+                        classificou só entra em "Todas".
+                    </p>
+                    <label class="flex items-start gap-3 cursor-pointer">
+                        <input type="checkbox" name="incluir_log" value="1" class="checkbox checkbox-sm checkbox-primary mt-0.5"
+                               {% if conf.incluir_log %}checked{% endif %}>
+                        <span class="text-[13px]"><b>Incluir o log cru, agrupado por tipo</b>
+                            <span class="block text-[11px] text-slate-500">Nem todo erro vira diagnóstico (limite de um a cada 15 minutos, e nenhum sem a chave de IA) — sem o log, o e-mail diria "nenhum erro" justamente quando o diagnóstico estava desligado.</span></span>
+                    </label>
+                    <label class="flex items-start gap-3 cursor-pointer">
+                        <input type="checkbox" name="so_com_novidade" value="1" class="checkbox checkbox-sm checkbox-primary mt-0.5"
+                               {% if conf.so_com_novidade %}checked{% endif %}>
+                        <span class="text-[13px]"><b>Enviar só quando houver erro</b>
+                            <span class="block text-[11px] text-slate-500">E-mail diário dizendo "nada" vira ruído, e a pessoa para de ler justamente no dia em que houver erro.</span></span>
+                    </label>
+                </div>
+                {% elif tipo == "resumo_emails" %}
+                <!-- O que o resumo da manhã cobre -->
+                <div class="space-y-3">
+                    <div>
+                        <label for="aut-periodo" class="block text-[13px] font-bold text-slate-700 mb-1.5">Período coberto</label>
+                        <select id="aut-periodo" name="periodo" class="select select-bordered select-sm w-full sm:w-72 bg-white">
+                            {% for chave, rotulo in periodos_emails.items() %}
+                            <option value="{{ chave }}" {% if conf.periodo == chave %}selected{% endif %}>{{ rotulo }}</option>
+                            {% endfor %}
+                        </select>
+                        <p class="text-[11px] text-slate-500 mt-1">
+                            Conta a hora em que o SISTEMA leu o e-mail, não a data que o remetente
+                            escreveu. "Desde a última rodada" não deixa buraco nem repete.
+                        </p>
+                    </div>
+                    <label class="flex items-start gap-3 cursor-pointer">
+                        <input type="checkbox" name="usar_ia" value="1" class="checkbox checkbox-sm checkbox-primary mt-0.5"
+                               {% if conf.usar_ia %}checked{% endif %}>
+                        <span class="text-[13px]"><b>Resumir com IA</b>
+                            <span class="block text-[11px] text-slate-500">O assunto e o corpo dos e-mails do período vão para a OpenAI, que escreve o parágrafo. A lista de XMLs e de anexos recusados é do sistema e vai junto de qualquer jeito. Desmarcada, sai só a lista.</span></span>
+                    </label>
+                    <label class="flex items-start gap-3 cursor-pointer">
+                        <input type="checkbox" name="so_com_novidade" value="1" class="checkbox checkbox-sm checkbox-primary mt-0.5"
+                               {% if conf.so_com_novidade %}checked{% endif %}>
+                        <span class="text-[13px]"><b>Enviar só quando chegar e-mail</b>
+                            <span class="block text-[11px] text-slate-500">Desmarcada, o período sem e-mail nenhum também vira aviso — numa manhã útil, caixa vazia costuma ser sinal de que algo travou.</span></span>
+                    </label>
+                </div>
+                {% endif %}
+
+                {# Empresas: nem o informe de erros nem o resumo da caixa têm escopo
+                   por empresa — um é do servidor, o outro é da caixa inteira. #}
+                {% if tipo not in ("erros_sistema", "resumo_emails") %}
+                <!-- Empresas -->
+                <div>
+                    <span class="block text-[13px] font-bold text-slate-700 mb-1.5">Empresas</span>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <label class="{{ cartao_opcao }}">
+                            <input type="radio" name="escopo" value="todas" class="radio radio-sm radio-primary"
+                                   {% if d.escopo != "selecionadas" %}checked{% endif %} onchange="automacaoAlternar()">
+                            {% if coleta %}
+                            <span class="text-[13px] font-semibold">Todas com certificado <span class="text-slate-400 font-normal">({{ n_com_cert }})</span></span>
+                            {% else %}
+                            <span class="text-[13px] font-semibold">Todas as empresas</span>
+                            {% endif %}
+                        </label>
+                        <label class="{{ cartao_opcao }}">
+                            <input type="radio" name="escopo" value="selecionadas" class="radio radio-sm radio-primary"
+                                   {% if d.escopo == "selecionadas" %}checked{% endif %} onchange="automacaoAlternar()">
+                            <span class="text-[13px] font-semibold">Escolher empresas</span>
+                        </label>
+                    </div>
+
+                    <div id="aut-empresas" class="mt-3 border border-slate-200 rounded-xl overflow-hidden {% if d.escopo != 'selecionadas' %}hidden{% endif %}">
+                        <div class="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200">
+                            <i class="fa-solid fa-magnifying-glass text-slate-400 text-xs"></i>
+                            <input type="search" placeholder="Filtrar por nome ou CNPJ…" autocomplete="off"
+                                   class="flex-1 bg-transparent text-[13px] outline-none" oninput="automacaoFiltrar(this.value)">
+                            <span id="aut-contagem" class="text-[11px] text-slate-500 whitespace-nowrap"></span>
+                        </div>
+                        <div class="max-h-56 overflow-y-auto divide-y divide-slate-100" id="aut-lista">
+                            {% for e in empresas %}
+                            <label class="aut-empresa flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50"
+                                   data-busca="{{ e.nome }} {{ e.cnpj }}">
+                                <input type="checkbox" name="empresas" value="{{ e.id }}" class="checkbox checkbox-xs checkbox-primary"
+                                       {% if e.id in d.empresas %}checked{% endif %} onchange="automacaoContar()">
+                                <span class="flex-1 min-w-0 text-[13px] truncate">{{ e.nome }}</span>
+                                <span class="text-[11px] text-slate-400 tabular-nums">{{ e.cnpj }}</span>
+                                {% if coleta and not e.certificado %}
+                                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200" title="Sem certificado cadastrado: a coleta vai registrar falha para ela">sem certificado</span>
+                                {% endif %}
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Informativo -->
+                <div>
+                    <label for="aut-destinatarios" class="block text-[13px] font-bold text-slate-700 mb-1.5">
+                        {{ "Enviar o informativo por e-mail para" if coleta else "Enviar para" }}
+                    </label>
+                    <textarea id="aut-destinatarios" name="destinatarios" rows="2"
+                              class="textarea textarea-bordered textarea-sm w-full bg-white text-[13px] leading-snug"
+                              placeholder="fiscal@vmcontadores.com.br, sandro@vmcontadores.com.br">{{ d.destinatarios }}</textarea>
+                    <p class="text-[11px] text-slate-500 mt-1">
+                        {% if tipo == "resumo_auditorias" %}
+                        Separe por vírgula. O e-mail leva os totais do período, as empresas com mais
+                        valor em jogo e as auditorias que não concluíram, com a planilha completa anexada.
+                        {% elif tipo == "erros_sistema" %}
+                        Separe por vírgula. O e-mail leva os erros diagnosticados, com gravidade e
+                        resumo, e o log agrupado — o relatório inteiro fica na aba Erros do Sistema.
+                        {% elif tipo == "resumo_emails" %}
+                        Separe por vírgula. O e-mail leva o resumo do que chegou, os XMLs guardados
+                        por empresa e o que não foi aproveitado, com o motivo. O mesmo resumo
+                        aparece na tela E-mails.
+                        {% else %}
+                        Separe por vírgula. Em branco, a coleta roda e fica só no histórico.
+                        O e-mail leva as notas que chegaram, o que não foi consultado e os
+                        certificados vencendo em 30 dias, com a planilha anexada.
+                        {% endif %}
+                    </p>
+                    {% if not coleta %}
+                    <p class="text-[11px] text-slate-500 mt-1">
+                        <i class="fa-solid fa-play text-[9px] text-blue-600"></i>
+                        O botão "Rodar agora" envia sempre, mesmo sem novidade — é o jeito de ver como o e-mail chega.
+                    </p>
+                    {% endif %}
+                    {% if not smtp_configurado %}
+                    <p class="text-[11px] text-amber-700 mt-1">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        O servidor de e-mail ainda não está configurado (aba Configurações) — sem ele, o informativo não sai.
+                    </p>
+                    {% endif %}
+                </div>
+
+                <label class="flex items-center gap-3 cursor-pointer">
+                    <input type="checkbox" name="ativo" value="1" class="toggle toggle-sm toggle-primary" {% if d.ativo %}checked{% endif %}>
+                    <span class="text-[13px]"><b>Ativa</b> <span class="text-slate-500">— desmarcada, fica gravada mas não roda sozinha</span></span>
+                </label>
+            </div>
+
+            <div class="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+                <button type="button" class="btn btn-sm btn-ghost text-slate-600" onclick="document.getElementById('modal-container').innerHTML = ''">Cancelar</button>
+                <button type="submit" class="btn btn-sm btn-primary bg-blue-600 hover:bg-blue-700 border-none text-white">
+                    <i class="fa-solid fa-check"></i> Salvar
+                </button>
+            </div>
+        </form>
+    </div>
+    <div class="modal-backdrop bg-slate-900/40" onclick="document.getElementById('modal-container').innerHTML = ''"></div>
+</dialog>
+<script>
+    function automacaoAlternar() {
+        var form = document.getElementById('form-automacao');
+        if (!form) return;
+        var marcada = form.querySelector('[name="frequencia"]:checked');
+        var freq = marcada ? marcada.value : 'diaria';
+        var escopo = form.querySelector('[name="escopo"]:checked');
+        var dias = document.getElementById('aut-dias');
+        if (dias) dias.classList.toggle('hidden', freq !== 'semanal');
+        var mes = document.getElementById('aut-dia-mes');
+        if (mes) mes.classList.toggle('hidden', freq !== 'mensal');
+        var lista = document.getElementById('aut-empresas');
+        if (lista) lista.classList.toggle('hidden', !escopo || escopo.value !== 'selecionadas');
+        automacaoSugerir(form, freq);
+        automacaoContar();
+    }
+    // Resumo novo: enquanto a pessoa não mexeu no nome nem no período, os dois
+    // acompanham a frequência — "semanal" com "mês anterior" mandaria o mesmo
+    // mês quatro vezes.
+    function automacaoSugerir(form, freq) {
+        if (form.dataset.sugerir !== '1') return;
+        var periodos = { diaria: 'desde_ultima', semanal: '7d', mensal: 'mes_anterior' };
+        var nomes = { diaria: 'Resumo diário das auditorias', semanal: 'Resumo semanal das auditorias',
+                      mensal: 'Resumo mensal das auditorias' };
+        var periodo = document.getElementById('aut-periodo');
+        if (periodo && !periodo.dataset.tocado && periodos[freq]) periodo.value = periodos[freq];
+        var nome = document.getElementById('aut-nome');
+        if (nome && !nome.dataset.tocado && nomes[freq]) nome.value = nomes[freq];
+    }
+    function automacaoFiltrar(texto) {
+        var norm = function (s) { return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); };
+        var q = norm(texto).trim();
+        var dig = q.replace(/\D/g, '');
+        document.querySelectorAll('#aut-lista .aut-empresa').forEach(function (l) {
+            var alvo = norm(l.dataset.busca);
+            var casa = !q || alvo.indexOf(q) !== -1 || (dig.length >= 3 && alvo.replace(/\D/g, '').indexOf(dig) !== -1);
+            l.classList.toggle('hidden', !casa);
+        });
+    }
+    function automacaoContar() {
+        var marcadas = document.querySelectorAll('#aut-lista input:checked').length;
+        var el = document.getElementById('aut-contagem');
+        if (el) el.textContent = marcadas + ' marcada' + (marcadas === 1 ? '' : 's');
+    }
+    automacaoContar();
+</script>

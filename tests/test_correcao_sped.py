@@ -867,8 +867,15 @@ check("e a rotina que dobra abas vazias nao o esconde",
       TELA.split("var sempreVisiveis")[1][:120])
 check("a Visao Geral tem o atalho para corrigir",
       "Gerar SPED corrigido" in TELA)
-check("a lista carrega so quando a aba e clicada, nao no load da pagina",
-      "click once from:[data-tab='tab-correcao-sped']" in TELA)
+# Até 30/09/2026 o gatilho era "click once from:[data-tab=...]": o atalho verde
+# da Visão Geral trocava de painel SEM clicar na aba, e a pessoa ficava olhando
+# o "Conferindo…" girar para sempre — nenhum pedido chegava ao servidor.
+_painel = TELA.split('id="panel-tab-correcao-sped"')[1][:1500]
+check("a lista carrega quando o painel APARECE (qualquer caminho), nao no load",
+      'hx-trigger="intersect once"' in _painel and 'hx-trigger="load' not in _painel,
+      _painel[:200])
+check("e nao depende mais do clique na aba lateral",
+      "click once from:[data-tab='tab-correcao-sped']" not in TELA)
 
 OPCOES = io.open(os.path.join("frontend", "templates", "partials", "curation",
                               "_correcao_sped.html"), encoding="utf-8").read()

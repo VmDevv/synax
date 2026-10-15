@@ -405,12 +405,15 @@ check("a regra da Portaria 16 não aparece em autor nenhum",
 
 
 # ============================================================================
-print("\n=== 8. As sete tabelas de regra estão cobertas ===")
+print("\n=== 8. As nove tabelas de regra estão cobertas ===")
 
+# As duas do gerador de SPED (09/10/2026) são separadas das da auditoria, mas
+# passam pela mesma fila de aprovação — pendência ali segura um arquivo.
 nomes_tabelas = {m.__tablename__ for m, _ in pa.TABELAS_DE_REGRA}
 esperadas = {"cfop_classifications", "cte_cfop_classifications", "cfop_credit_rules",
              "ipi_credit_rules", "pis_cofins_credit_rules",
-             "icms_anticipation_rules", "item_match_rules"}
+             "icms_anticipation_rules", "item_match_rules",
+             "gerador_cfop_regras", "gerador_cte_cfop_regras"}
 check("todas as tabelas de maker-checker entram na conta",
       nomes_tabelas == esperadas, nomes_tabelas ^ esperadas)
 check("cada uma tem rótulo legível na tela",
@@ -462,7 +465,9 @@ print("\n=== 9. Colunas novas, índices e a rota ===")
 from backend.app.infrastructure.database.schema_upgrades import COLUNAS_NOVAS  # noqa: E402
 check("as colunas novas estão registradas no schema_upgrades",
       {c for c, _ in COLUNAS_NOVAS.get("audit_tasks", [])}
-      == {"notas_processadas", "inconsistencias", "competencia"},
+      == {"notas_processadas", "inconsistencias", "competencia",
+          # 25/09/2026: o valor em jogo, para o resumo das auditorias por e-mail.
+          "vl_estornar", "vl_aproveitar", "vl_recolher", "vl_conferir"},
       COLUNAS_NOVAS.get("audit_tasks"))
 check("sem DEFAULT, para que nulo continue significando 'nunca medido'",
       all("DEFAULT" not in ddl.upper() for _, ddl in COLUNAS_NOVAS["audit_tasks"]),

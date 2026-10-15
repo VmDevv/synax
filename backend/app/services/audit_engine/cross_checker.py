@@ -32,6 +32,15 @@ RE_DIGITS = re.compile(r"\D")
 # antes de mexer.
 CFOPS_REVENDA_ST = ("1102", "2102", "1403", "2403", "1910", "2910")
 
+# CFOPs de ENTRADA que geram diferencial de alíquota (DIFAL) — relatório
+# informativo, não divergência. O laço consulta o CFOP escriturado E o mapeado;
+# por isso a lista é UMA constante (literal repetido na mão divergia). 2552
+# (transferência de bem do ativo imobilizado, interestadual) entrou a pedido do
+# escritório em 08/10/2026, junto de 2551/2556. Acrescentar CFOP aqui faz notas
+# novas aparecerem na aba — confira o efeito antes de mexer.
+CFOPS_DIFAL_INTERNO = ("1556", "1551", "1910")
+CFOPS_DIFAL_INTERESTADUAL = ("2556", "2910", "2551", "2949", "2552")
+
 # CSTs de PIS/COFINS que, por definição do próprio CST, não geram crédito.
 # Independem de regra cadastrada: o CST já diz que a operação não é creditável.
 CSTS_PIS_COFINS_SEM_CREDITO = {
@@ -50,6 +59,28 @@ ALIQ_PIS = 1.65
 ALIQ_COFINS = 7.6
 
 
+def sem_direito_a_credito(cst_pis: str, allow_pis, allow_cofins) -> bool:
+    """O item pode tomar crédito de PIS/COFINS? A decisão que NÃO depende do XML.
+
+    Olha só o CST escriturado e a regra cadastrada para (CFOP de referência,
+    CST). Existe como função porque roda em DOIS lugares: no laço normal, com
+    o item casado ao XML, e na nota que não tem XML nenhum — e as duas
+    respostas têm de ser a mesma.
+
+    Até 18/09/2026 esta pergunta só era feita dentro do ramo que exige XML
+    lido e item casado. Nota sem XML saía da apuração inteira, no `continue`
+    de "XMLs Faltantes", e a glosa nunca acontecia. Na MEGA de agosto isso
+    escondeu 132 itens em 16 notas de transferência entre filiais, R$ 2.026,78
+    de crédito que a regra manda glosar — e transferência entre filiais NUNCA
+    tem XML no pacote de entradas, porque a nota é da própria empresa.
+
+    `None` da regra não bloqueia, como sempre foi em PIS/COFINS: sem regra e
+    com CST de crédito o item segue elegível.
+    """
+    return (cst_pis in CSTS_PIS_COFINS_SEM_CREDITO
+            or allow_pis is False or allow_cofins is False)
+
+
 def pis_cofins_da_base(base: float) -> tuple[float, float]:
     """(PIS, COFINS) devidos sobre uma base, pelas alíquotas não-cumulativas."""
     b = _num(base)
@@ -59,7 +90,7 @@ logger = logging.getLogger(__name__)
 
 from ...domain.models.integrations import MissingInvoiceLog
 
-from .sped_parser import parse_sped
+from .sped_parser import ler_sped
 from .xml_parser import parse_nfe_xml, parse_cte_xml
 from ...infrastructure.repositories.rules_repository import RulesRepository
 from ..integrations.cest_mva_service import get_cest_mva_rule, get_mva_for_aliquota
@@ -246,7 +277,8 @@ def aplicar_pares_conhecidos(sped_items: list, xml_items: list, pares: dict,
 
 def levantar_nao_conferidos(sped_path: str, xml_dir: str,
                             ignore_saidas: bool = True,
-                            pares_conhecidos: dict | None = None) -> list[dict]:
+                            pares_conhecidos: dict | None = None,
+                            sped_contribuicoes: bool = False) -> list[dict]:
     """Itens que o motor NÃO conseguiu parear, com os candidatos ainda livres.
 
     Roda ANTES da auditoria, só para montar o que vai ser oferecido à IA. Usa o
@@ -265,7 +297,7 @@ def levantar_nao_conferidos(sped_path: str, xml_dir: str,
     Devolve uma lista de notas no formato que `ia_matcher.casar_nao_conferidos`
     espera.
     """
-    sped_data = parse_sped(sped_path)
+    sped_data = ler_sped(sped_path, sped_contribuicoes)
     produtos = sped_data.get("products", {})
 
     xmls_map = {}
@@ -707,7 +739,7 @@ def conferir_cnpj_do_emitente(tipo: str, key: str, entrada: dict,
     )
 
 
-def execute_audit(task_id: str, tenant_id: str, sped_path: str, xml_dir: str, db_session: Session, sped_only_mode: bool = False, ignore_saidas: bool = True, considerar_icms_mono: bool = False, pares_ia: dict | None = None):
+def execute_audit(task_id: str, tenant_id: str, sped_path: str, xml_dir: str, db_session: Session, sped_only_mode: bool = False, ignore_saidas: bool = True, considerar_icms_mono: bool = False, pares_ia: dict | None = None, sped_contribuicoes: bool = False):
     """
     Função síncrona projetada para rodar em ThreadPool via BackgroundTasks.
     Faz o cruzamento pesado SPED x XML sem bloquear o GIL/Event Loop.
@@ -725,7 +757,10 @@ def execute_audit(task_id: str, tenant_id: str, sped_path: str, xml_dir: str, db
         task.status = "processando"
         db_session.commit()
         
-        sped_data = parse_sped(sped_path)
+        # O leiaute é escolhido na tela: EFD ICMS/IPI (o de sempre) ou EFD
+        # Contribuições. `ler_sped` recusa o arquivo trocado em vez de ler o
+        # cabeçalho fora de posição — ver sped_parser.LeiauteInesperado.
+        sped_data = ler_sped(sped_path, sped_contribuicoes)
         company_cnpj = sped_data["cnpj"]
         participants = sped_data["participants"]
         
@@ -794,7 +829,12 @@ def execute_audit(task_id: str, tenant_id: str, sped_path: str, xml_dir: str, db
             "resumo": {
                 "notas_processadas": 0,
                 "inconsistencias": 0,
-                "informativos": 0
+                "informativos": 0,
+                # Qual arquivo foi auditado. Duas auditorias da mesma empresa
+                # e do mesmo mês, uma de cada leiaute, são legítimas e ficam
+                # idênticas na tela sem esta linha.
+                "leiaute": sped_data.get("leiaute", ""),
+                "leiaute_rotulo": sped_data.get("leiaute_rotulo", ""),
             },
             "company_cnpj": company_cnpj,
             "company_name": sped_data["name"],
@@ -881,6 +921,48 @@ def execute_audit(task_id: str, tenant_id: str, sped_path: str, xml_dir: str, db
                         "tipo_operacao": tipo_operacao,
                         "cfops": cfops_sped
                     })
+
+                    # A glosa de PIS/COFINS não precisa do XML: ela pergunta ao
+                    # CST do próprio SPED e à regra cadastrada. Sem isto aqui, a
+                    # nota saía no `continue` abaixo e a regra nunca era
+                    # consultada — ver `sem_direito_a_credito`. O confronto de
+                    # BASE continua exigindo o XML, porque a base calculada vem
+                    # dele; o que roda aqui é só o crédito indevido.
+                    #
+                    # Sem XML não há CFOP do fornecedor, então não há regra de
+                    # classificação a consultar e o CFOP de referência é o
+                    # escriturado. É o mesmo que `cfop_de_referencia` devolve
+                    # quando não existe mapeamento.
+                    for _item in c100.get("items") or []:
+                        _cfop = str(_item.get("cfop") or "").strip()
+                        _cst_pis = str(_item.get("cst_pis", ""))
+                        _cst_cofins = str(_item.get("cst_cofins", ""))
+                        _pis = _num(_item.get("vl_pis"))
+                        _cofins = _num(_item.get("vl_cofins"))
+                        if not sem_direito_a_credito(
+                                _cst_pis,
+                                pis_cofins_rules_map.get((_cfop, _cst_pis)),
+                                pis_cofins_rules_map.get((_cfop, _cst_cofins))):
+                            continue
+                        if _pis <= 0.01 and _cofins <= 0.01:
+                            continue
+                        results["pis_cofins_issues"].append({
+                            "key": key, "num": c100["num"],
+                            "emit_name": nome_participante(participants, c100["emit"]),
+                            "num_item": _item["num_item"],
+                            "descr": sped_data["products"].get(_item["cod_item"], ""),
+                            "tipo": "PIS/COFINS",
+                            "cfop": _cfop, "cst": _cst_pis or _cst_cofins,
+                            "reason": (f"CFOP/CST sem direito a crédito de PIS/COFINS, "
+                                       f"mas o SPED creditou R$ {_pis + _cofins:.2f}. "
+                                       "Conferido só pelo SPED: esta nota não tem XML "
+                                       "no pacote."),
+                            "sped_val": _pis + _cofins, "xml_val": 0.00,
+                            "acao": "glosar",
+                            "sped_pis": _pis, "sped_cofins": _cofins,
+                            "sem_xml": True,
+                            "diagnostic": ""
+                        })
                     continue
                     
                 xml_data = parse_nfe_xml(xml_path)
@@ -1353,7 +1435,7 @@ def execute_audit(task_id: str, tenant_id: str, sped_path: str, xml_dir: str, db
                             })
 
                 # -- Sprint 1: DIFAL Interno --
-                if sped_cfop in ["1556", "1551", "1910"] or mapped_cfop in ["1556", "1551", "1910"]:
+                if sped_cfop in CFOPS_DIFAL_INTERNO or mapped_cfop in CFOPS_DIFAL_INTERNO:
                     total_item_difal = xml_item.get("total_item_difal", xml_item.get("vl_item", 0.0))
                     eff_pct = (xml_icms / total_item_difal * 100) if total_item_difal > 0 else 0.0
                     results["difal_interno"].append({
@@ -1373,7 +1455,7 @@ def execute_audit(task_id: str, tenant_id: str, sped_path: str, xml_dir: str, db
                     })
                     
                 # -- Sprint 1: DIFAL Interestadual --
-                elif sped_cfop in ["2556", "2910", "2551", "2949"] or mapped_cfop in ["2556", "2910", "2551", "2949"]:
+                elif sped_cfop in CFOPS_DIFAL_INTERESTADUAL or mapped_cfop in CFOPS_DIFAL_INTERESTADUAL:
                     results["difal_interestadual"].append({
                         "emit_cnpj": supplier_cnpj,
                         "emit_uf": xml_data.get("emit_uf", ""),
@@ -1539,10 +1621,8 @@ def execute_audit(task_id: str, tenant_id: str, sped_path: str, xml_dir: str, db
                 
                 # -- Verificação de Elegibilidade a Crédito PIS/COFINS --
                 # PIS/COFINS não deve ser bloqueado por CFOPs de ICMS como 1407/1556 se o CST for de crédito (ex: 50 a 66).
-                is_non_credit_cst = sped_pis_cst in CSTS_PIS_COFINS_SEM_CREDITO
-                is_elegivel_credito = True
-                if is_non_credit_cst or allow_pis is False or allow_cofins is False:
-                    is_elegivel_credito = False
+                is_elegivel_credito = not sem_direito_a_credito(
+                    sped_pis_cst, allow_pis, allow_cofins)
 
                 # -- Unificação PIS/COFINS (Uma única linha de divergência pela Base Calculada STF) --
                 if not is_elegivel_credito:
@@ -1556,6 +1636,10 @@ def execute_audit(task_id: str, tenant_id: str, sped_path: str, xml_dir: str, db
                             "reason": (f"CFOP/CST sem direito a crédito de PIS/COFINS, mas o SPED "
                                        f"creditou R$ {sped_pis + sped_cofins:.2f}{origem_cfop}"),
                             "sped_val": sped_pis + sped_cofins, "xml_val": 0.00,
+                            # Mesma marca que ICMS e IPI usam: é o que a ponte
+                            # lê para saber que a correção é ZERAR, não gravar.
+                            "acao": "glosar",
+                            "sped_pis": sped_pis, "sped_cofins": sped_cofins,
                             "diagnostic": ""
                         })
                 else:
@@ -1597,6 +1681,13 @@ def execute_audit(task_id: str, tenant_id: str, sped_path: str, xml_dir: str, db
                             "base_calculada": xml_bc_pis,
                             "base_sped": sped_bc_pis,
                             "sped_pis": sped_pis, "sped_cofins": sped_cofins,
+                            # As alíquotas que o FORNECEDOR destacou, só como
+                            # informação. A correção do SPED NÃO as usa desde
+                            # 23/09/2026: grava 1,65/7,60 fixos, porque o
+                            # crédito é de quem compra (ver ALIQ_PIS_
+                            # CONTRIBUICOES em sped_rewriter/ponte.py).
+                            "xml_aliq_pis": xml_item.get("p_pis", 0.0),
+                            "xml_aliq_cofins": xml_item.get("p_cofins", 0.0),
                             "diagnostic": diagnose_val_diff(sped_bc_pis, xml_bc_pis, xml_item)
                         })
 
@@ -2173,6 +2264,17 @@ def execute_audit(task_id: str, tenant_id: str, sped_path: str, xml_dir: str, db
         # upload não responde: reprocessar abril em setembro é rotina. Fica
         # NULA quando o SPED não trouxe o período; ver core/competencia.py.
         task.competencia = competencia.de_data(results.get("periodo_inicio"))
+
+        # E o valor em jogo — a mesma conta da Visão Geral —, para o resumo das
+        # auditorias por e-mail somar colunas em vez de abrir result_data.
+        # Falhar aqui não pode derrubar a auditoria: a coluna fica NULA, e o
+        # resumo a preenche lendo o relatório.
+        try:
+            from .resumo_financeiro import valores_para_colunas
+            for _coluna, _valor in valores_para_colunas(results).items():
+                setattr(task, _coluna, _valor)
+        except Exception:
+            logger.exception("Não foi possível calcular o valor em jogo task_id=%s", task_id)
         db_session.commit()
         
     except Exception:

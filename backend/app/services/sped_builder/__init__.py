@@ -15,17 +15,28 @@ não é limitação de implementação, é o que os XMLs contêm:
 - **Não há inventário, ativo, produção nem energia** (Blocos H, G, K e os C500).
   Nenhum deles nasce de nota fiscal de terceiro.
 - **O CFOP de entrada não existe no XML.** O documento traz o CFOP do
-  FORNECEDOR (5xxx/6xxx). O de entrada sai da regra aprovada da empresa quando
-  ela existe; na falta, da conversão mecânica do primeiro dígito (5→1, 6→2,
-  7→3), que é o ponto de partida que todo escritório usa — e que sai MARCADO no
-  relatório, item por item.
+  FORNECEDOR (5xxx/6xxx) e o do TRANSPORTADOR no CT-e. O de entrada sai das
+  regras do PRÓPRIO gerador (`GeradorCfopRegra` para o item, `GeradorCteCfopRegra`
+  para o frete) — separadas das da auditoria, com o mesmo maker-checker. Desde
+  09/10/2026 as rotas geram com `exigir_regra`: sem regra aprovada para cada
+  item e cada frete, o arquivo não sai. A conversão do primeiro dígito (5→1,
+  6→2, 7→3) virou só a sugestão que pré-preenche a tela de mapeamento — e
+  só quando o espelho existe na tabela oficial de CFOP: 5405 não vira 1405.
+  Para algumas saídas sem espelho, um mapa curto sugere a equivalência (5405 →
+  1403), também como presunção e também exigindo aprovação.
 
 Tudo que o gerador preencheu sem ter no XML vira uma `Presuncao` e aparece no
 relatório. É a regra da casa: o que a máquina supôs tem de estar visível antes
 de alguém assinar embaixo.
 """
 from .gerador import (Cadastro, Presuncao, Resultado, cfop_de_entrada,
-                      gerar, gerar_de_pasta)
+                      cfop_de_entrada_valido, chave_frete, chave_item,
+                      deduzir_cfop, empresa_industrial, gerar,
+                      gerar_de_pasta, id_documento, levantar_combinacoes,
+                      levantar_combinacoes_da_pasta, rotulo_mes)
 
-__all__ = ["Cadastro", "Presuncao", "Resultado", "cfop_de_entrada", "gerar",
-           "gerar_de_pasta"]
+__all__ = ["Cadastro", "Presuncao", "Resultado", "cfop_de_entrada",
+           "cfop_de_entrada_valido", "chave_frete", "chave_item",
+           "deduzir_cfop", "empresa_industrial", "gerar",
+           "gerar_de_pasta", "id_documento", "levantar_combinacoes",
+           "levantar_combinacoes_da_pasta", "rotulo_mes"]

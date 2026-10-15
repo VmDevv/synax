@@ -406,11 +406,16 @@ check("timeout de leitura curto", adn_client.TEMPO_LIMITE.read <= 45,
       str(adn_client.TEMPO_LIMITE.read))
 check("existe teto por empresa", adn_client.LIMITE_EMPRESA_SEG <= 120,
       str(adn_client.LIMITE_EMPRESA_SEG))
-check("existe orcamento para o lote inteiro", rota_nfse.ORCAMENTO_LOTE_SEG <= 600,
-      str(rota_nfse.ORCAMENTO_LOTE_SEG))
-check("o lote respeita o orcamento", "prazo" in inspect.getsource(rota_nfse.consultar_lote))
-check("empresas nao consultadas sao informadas",
-      "nao_consultadas" in inspect.getsource(rota_nfse.consultar_lote))
+# O lote NAO tem mais orcamento de relogio: ele rodava dentro do clique com
+# 240 s para todas as empresas e "parava do nada" depois de 5 ou 6 (relato do
+# Sandro em 01/10/2026). Agora o clique so o comeca; o teto e POR EMPRESA.
+from backend.app.services.nfse import lote as lote_nfse
+src_rota_lote = inspect.getsource(rota_nfse.consultar_lote)
+check("o lote nao tem mais orcamento global", not hasattr(rota_nfse, "ORCAMENTO_LOTE_SEG")
+      and "prazo" not in src_rota_lote)
+check("o clique so comeca o lote em segundo plano", "lote_nfse.iniciar" in src_rota_lote)
+check("o lote usa o teto por empresa da coleta automatica",
+      "TETO_EMPRESA_SEG" in inspect.getsource(lote_nfse._rodar))
 
 # o teto de tempo interrompe de verdade a paginacao
 class _RespLote:
@@ -448,10 +453,17 @@ finally:
 
 print("\n=== 6. NSU vai no caminho da URL ===")
 
-check("URL do NSU 0", adn_client._url_do_nsu(0).endswith("/DFe/0"), adn_client._url_do_nsu(0))
-check("URL do NSU 4321", adn_client._url_do_nsu(4321).endswith("/DFe/4321"))
+# Desde 01/10/2026 a URL leva também `?lote=true&cnpjConsulta=`: sem o CNPJ
+# de consulta o ADN entrega os documentos do DONO do certificado, e a filial
+# consultada com o certificado da matriz recebia as notas da matriz.
+check("URL do NSU 0", "/DFe/0?lote=true" in adn_client._url_do_nsu(0), adn_client._url_do_nsu(0))
+check("URL do NSU 4321", "/DFe/4321?" in adn_client._url_do_nsu(4321))
+check("URL leva o CNPJ consultado",
+      adn_client._url_do_nsu(0, "05.911.108/0018-06").endswith("&cnpjConsulta=05911108001806"),
+      adn_client._url_do_nsu(0, "05911108001806"))
 _, fake = rodar(_Resp(404, ""))
-check("chamada real usa o NSU no caminho", fake.urls and fake.urls[0].endswith("/0"),
+check("chamada real usa o NSU no caminho e o CNPJ consultado",
+      fake.urls and "/DFe/0?" in fake.urls[0] and "cnpjConsulta=11000000000000" in fake.urls[0],
       str(fake.urls))
 src_lote = inspect.getsource(adn_client.baixar_lote)
 check("nao passa mais NSU em query string", 'params={"NSU"' not in src_lote)
@@ -460,11 +472,10 @@ adn_client._material_mtls = _mtls_real
 
 print("\n=== 7. Resumo por empresa chega na tela ===")
 
-tpl = open("frontend/templates/partials/nfse/tabela.html", encoding="utf-8").read()
-check("tabela renderiza os resumos do lote", "{% if resumos %}" in tpl)
-check("tabela mostra o erro de cada empresa", "r.erro" in tpl)
-src_lote_rota = inspect.getsource(rota_nfse.consultar_lote)
-check("rota do lote envia os resumos ao template", '"resumos"' in src_lote_rota)
+tpl = open("frontend/templates/partials/nfse/lote_painel.html", encoding="utf-8").read()
+check("painel do lote tem a tabela por empresa", "ln.status" in tpl and "ln.qtd" in tpl)
+check("painel do lote mostra o motivo de cada empresa", "ln.destino" in tpl)
+check("painel do lote tem o log com horario", "lote.log" in tpl and "hora_br" in tpl)
 src_uma = inspect.getsource(rota_nfse._buscar_uma_empresa)
 check("resposta inesperada do ADN vira mensagem apresentavel",
       "RespostaInesperada" in src_uma)

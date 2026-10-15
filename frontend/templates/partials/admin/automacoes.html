@@ -1,0 +1,278 @@
+{# Aba "Automações" da Administração. Só admin chega aqui (o roteador é
+   montado com require_admin em main.py).
+
+   Três tipos convivem na mesma lista: a coleta de NFS-e e os dois
+   informativos (resumo das auditorias, erros do sistema). Linha antiga, sem
+   `tipo`, é coleta — e o modelo não depende de nada que só o código novo
+   manda: sem `tipos` no contexto, a tela sai como era. #}
+{% set tons = {
+    "ok": "bg-emerald-50 text-emerald-700 border-emerald-200",
+    "aviso": "bg-amber-50 text-amber-800 border-amber-200",
+    "erro": "bg-red-50 text-red-700 border-red-200",
+    "info": "bg-blue-50 text-blue-700 border-blue-200"} %}
+{% set _tipos = tipos if tipos is defined else {} %}
+
+{% macro situacao(status) -%}
+{%- set r = status_rotulo.get(status, (status, "aviso")) -%}
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-bold whitespace-nowrap {{ tons[r[1]] }}">
+    {%- if status == "rodando" %}<span class="loading loading-spinner loading-xs"></span>{% endif %}
+    {{ r[0] }}
+</span>
+{%- endmacro %}
+
+<div class="space-y-5">
+
+    {# Enquanto uma coleta anda, a aba se atualiza sozinha. O ui.js não acende a
+       barra de carregamento para gatilho "every", então isso não pisca. #}
+    {% if rodando %}
+    <div hx-get="/admin/automacoes" hx-trigger="every 4s" hx-target="#admin-content" hx-swap="innerHTML" class="hidden"></div>
+    {% endif %}
+
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div>
+            <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <i class="fa-solid fa-clock-rotate-left text-blue-600"></i> Automações
+            </h3>
+            <p class="text-sm text-slate-500">
+                {% if _tipos %}Coleta de NFS-e e informativos por e-mail, no horário que você definir.
+                {% else %}Coleta automática das NFS-e no ADN, no horário que você definir.{% endif %}
+                Horários de Brasília.
+            </p>
+        </div>
+        {% if _tipos %}
+        <details class="syn-menu relative self-start md:self-auto">
+            <summary class="btn btn-sm btn-primary bg-blue-600 hover:bg-blue-700 border-none text-white shadow-sm">
+                <i class="fa-solid fa-plus"></i> Nova automação
+                <i class="fa-solid fa-chevron-down syn-menu-seta text-[9px]"></i>
+            </summary>
+            <div class="syn-menu-painel left-0 md:left-auto md:right-0 w-80">
+                {% for chave, t in _tipos.items() %}
+                <button type="button" class="syn-menu-item w-full text-left"
+                        hx-get="/admin/automacoes/nova?tipo={{ chave }}" hx-target="#modal-container" hx-swap="innerHTML"
+                        onclick="this.closest('details').removeAttribute('open')">
+                    <span class="syn-menu-icone"><i class="fa-solid {{ t.icone }}"></i></span>
+                    <span>
+                        <span class="block font-semibold text-slate-800">{{ t.rotulo }}</span>
+                        <span class="block text-[12px] text-slate-500 leading-snug">{{ t.descricao }}</span>
+                    </span>
+                </button>
+                {% endfor %}
+            </div>
+        </details>
+        {% else %}
+        <button class="btn btn-sm btn-primary bg-blue-600 hover:bg-blue-700 border-none text-white shadow-sm"
+                hx-get="/admin/automacoes/nova" hx-target="#modal-container" hx-swap="innerHTML">
+            <i class="fa-solid fa-plus"></i> Nova automação
+        </button>
+        {% endif %}
+    </div>
+
+    {% if not agendador_ligado %}
+    <div class="flex items-start gap-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl px-4 py-3 text-[13px]">
+        <i class="fa-solid fa-triangle-exclamation text-amber-600 mt-0.5"></i>
+        <span><b>O agendador não está ligado neste servidor.</b> As automações ficam
+        gravadas, mas só rodam sozinhas no servidor iniciado normalmente — com
+        <code class="text-[12px]">SYNAX_AGENDADOR=0</code> ele fica desligado. O botão
+        "Rodar agora" funciona mesmo assim.</span>
+    </div>
+    {% endif %}
+
+    {% if not smtp_configurado and cartoes | selectattr("destinatarios") | list %}
+    <div class="flex items-start gap-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl px-4 py-3 text-[13px]">
+        <i class="fa-solid fa-envelope-circle-check text-amber-600 mt-0.5"></i>
+        <span><b>O servidor de e-mail não está configurado.</b> Há automação com destinatário,
+        mas o informativo não vai sair até você preencher o servidor (MCO2) na aba
+        <b>Configurações</b>. As coletas rodam normalmente e ficam no histórico.</span>
+    </div>
+    {% endif %}
+
+    <!-- Automações configuradas -->
+    {% if cartoes %}
+    <div class="grid gap-3">
+        {% for c in cartoes %}{% set a = c.a %}{% set coleta = (c.tipo or "coleta_nfse") == "coleta_nfse" %}
+        <div class="syn-card p-4 flex flex-col xl:flex-row xl:items-center gap-4 {% if not a.ativo %}opacity-75{% endif %}">
+            <div class="flex items-start gap-3 min-w-0 flex-1">
+                <span class="w-10 h-10 rounded-xl grid place-items-center shrink-0 {% if a.ativo %}bg-blue-50 text-blue-600{% else %}bg-slate-100 text-slate-400{% endif %}"
+                      {% if c.info %}title="{{ c.info.rotulo }}"{% endif %}>
+                    <i class="fa-solid {{ c.info.icone if c.info else 'fa-file-invoice' }}"></i>
+                </span>
+                <div class="min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="font-bold text-slate-800">{{ a.nome }}</span>
+                        {% if c.info %}
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-slate-50 text-slate-500 border border-slate-200">{{ c.info.rotulo }}</span>
+                        {% endif %}
+                        {% if a.ativo %}
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-200">Ativa</span>
+                        {% else %}
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-slate-100 text-slate-500 border border-slate-200">Pausada</span>
+                        {% endif %}
+                    </div>
+                    <div class="text-[13px] text-slate-600 mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                        <span><i class="fa-regular fa-clock text-slate-400 mr-1"></i>{{ c.agenda }}</span>
+                        {% if c.escopo %}<span><i class="fa-solid fa-building text-slate-400 mr-1"></i>{{ c.escopo }}</span>{% endif %}
+                        {% if c.destinatarios %}
+                        <span title="{{ c.destinatarios | join(', ') }}"><i class="fa-regular fa-envelope text-slate-400 mr-1"></i>Informativo para {{ c.destinatarios | length }} pessoa{{ 's' if c.destinatarios | length != 1 }}</span>
+                        {% elif coleta %}
+                        <span class="text-slate-400"><i class="fa-regular fa-envelope mr-1"></i>Sem informativo por e-mail</span>
+                        {% else %}
+                        <span class="text-amber-700"><i class="fa-regular fa-envelope mr-1"></i>Sem destinatário: não envia</span>
+                        {% endif %}
+                    </div>
+                    {% if c.descricao %}
+                    <div class="text-[12px] text-slate-500 mt-1"><i class="fa-solid fa-sliders text-slate-400 mr-1"></i>{{ c.descricao }}</div>
+                    {% endif %}
+                    <div class="text-[12px] text-slate-500 mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1">
+                        <span>{{ "Próxima coleta" if coleta else "Próximo envio" }}:
+                            <b class="text-slate-700">{% if a.ativo and a.proxima_execucao %}{{ a.proxima_execucao | hora_br }}{% else %}—{% endif %}</b>
+                        </span>
+                        {% if c.ultima %}
+                        <span class="inline-flex items-center gap-1.5">Última: {{ situacao(c.ultima.status) }}
+                            <span class="text-slate-400">{{ c.ultima.inicio | hora_br }}</span>
+                        </span>
+                        {% else %}
+                        <span class="text-slate-400">Ainda não rodou.</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 shrink-0">
+                <button class="btn btn-sm bg-white border-slate-300 text-slate-700 hover:bg-slate-50 shadow-sm"
+                        hx-post="/admin/automacoes/{{ a.id }}/rodar" hx-target="#admin-content" hx-swap="innerHTML"
+                        title="{{ 'Roda a coleta agora, fora do horário' if coleta else 'Monta e envia o informativo agora — mesmo sem novidade no período' }}">
+                    <i class="fa-solid fa-play text-[11px] text-blue-600"></i> Rodar agora
+                </button>
+                <button class="btn btn-sm btn-ghost text-slate-600"
+                        hx-get="/admin/automacoes/{{ a.id }}/editar" hx-target="#modal-container" hx-swap="innerHTML">
+                    <i class="fa-solid fa-pen text-[11px]"></i> Editar
+                </button>
+                <button class="btn btn-sm btn-ghost text-slate-600"
+                        hx-post="/admin/automacoes/{{ a.id }}/ativo" hx-target="#admin-content" hx-swap="innerHTML">
+                    {% if a.ativo %}<i class="fa-solid fa-pause text-[11px]"></i> Pausar{% else %}<i class="fa-solid fa-play text-[11px]"></i> Reativar{% endif %}
+                </button>
+                <button class="btn btn-sm btn-ghost text-red-600 hover:bg-red-50"
+                        hx-post="/admin/automacoes/{{ a.id }}/excluir" hx-target="#admin-content" hx-swap="innerHTML"
+                        hx-confirm="Excluir a automação &quot;{{ a.nome }}&quot;? O histórico das execuções é mantido."
+                        title="Excluir">
+                    <i class="fa-solid fa-trash-can text-[11px]"></i>
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% elif _tipos %}
+    {# Sem automação nenhuma: a tela vazia já é a escolha do que automatizar. #}
+    <div class="syn-card px-6 py-10">
+        <div class="flex flex-col items-center text-center">
+            <span class="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 grid place-items-center mb-3">
+                <i class="fa-solid fa-clock-rotate-left text-xl"></i>
+            </span>
+            <p class="font-bold text-slate-800">Nenhuma automação configurada</p>
+            <p class="text-sm text-slate-500 mt-1 max-w-md">
+                Escolha o que o sistema vai fazer sozinho, todo dia, nos dias da semana ou no
+                dia do mês que você definir.
+            </p>
+        </div>
+        <div class="grid sm:grid-cols-3 gap-3 mt-6 max-w-3xl mx-auto">
+            {% for chave, t in _tipos.items() %}
+            <button type="button"
+                    class="text-left border border-slate-200 rounded-xl p-4 bg-white hover:border-blue-300 hover:bg-blue-50/40 transition-colors"
+                    hx-get="/admin/automacoes/nova?tipo={{ chave }}" hx-target="#modal-container" hx-swap="innerHTML">
+                <span class="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 grid place-items-center mb-2.5"><i class="fa-solid {{ t.icone }}"></i></span>
+                <span class="block font-bold text-slate-800 text-[14px]">{{ t.rotulo }}</span>
+                <span class="block text-[12px] text-slate-500 mt-0.5 leading-snug">{{ t.descricao }}</span>
+            </button>
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}
+    <div class="syn-card flex flex-col items-center text-center px-6 py-12">
+        <span class="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 grid place-items-center mb-3">
+            <i class="fa-solid fa-clock-rotate-left text-xl"></i>
+        </span>
+        <p class="font-bold text-slate-800">Nenhuma automação configurada</p>
+        <p class="text-sm text-slate-500 mt-1 max-w-md">
+            Crie uma para o sistema baixar sozinho as notas de serviço das empresas com
+            certificado, todo dia ou nos dias da semana que você escolher.
+        </p>
+        <button class="btn btn-sm btn-primary bg-blue-600 hover:bg-blue-700 border-none text-white mt-4"
+                hx-get="/admin/automacoes/nova" hx-target="#modal-container" hx-swap="innerHTML">
+            <i class="fa-solid fa-plus"></i> Criar a primeira
+        </button>
+    </div>
+    {% endif %}
+
+    <!-- Histórico -->
+    <div class="syn-card overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-200 flex items-center justify-between bg-slate-50/60">
+            <h4 class="font-bold text-sm text-slate-800"><i class="fa-solid fa-list-check text-blue-600 mr-1"></i> Histórico de coletas e informativos</h4>
+            <span class="text-[11px] text-slate-400">últimas 20 · clique numa linha para ver o detalhe</span>
+        </div>
+        {% if historico %}
+        <div class="overflow-x-auto">
+            <table class="table table-sm w-full text-[13px]">
+                <thead class="text-slate-500 text-[11px] uppercase">
+                    <tr>
+                        <th class="pl-5">Início</th>
+                        <th>Automação</th>
+                        <th>Origem</th>
+                        <th>Duração</th>
+                        <th>Resultado</th>
+                        <th class="text-center">E-mail</th>
+                        <th>Situação</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for h in historico %}{% set ht = h.tipo or "coleta_nfse" %}{% set ti = _tipos.get(ht) %}
+                    <tr class="hover:bg-slate-50 cursor-pointer"
+                        hx-get="/admin/automacoes/execucao/{{ h.id }}" hx-target="#modal-container" hx-swap="innerHTML">
+                        <td class="pl-5 whitespace-nowrap tabular-nums">{{ h.inicio | hora_br }}</td>
+                        <td class="max-w-[240px]">
+                            <span class="flex items-center gap-1.5 min-w-0">
+                                <i class="fa-solid {{ ti.icone if ti else 'fa-file-invoice' }} text-[11px] text-slate-400 shrink-0" {% if ti %}title="{{ ti.rotulo }}"{% endif %}></i>
+                                <span class="truncate">{{ nomes.get(h.automacao_id, "(automação excluída)") }}</span>
+                            </span>
+                        </td>
+                        <td>
+                            {% if h.gatilho == "manual" %}<span class="text-slate-500"><i class="fa-solid fa-hand-pointer text-[11px] mr-1"></i>Manual</span>
+                            {% else %}<span class="text-slate-500"><i class="fa-regular fa-clock text-[11px] mr-1"></i>Agenda</span>{% endif %}
+                        </td>
+                        <td class="tabular-nums whitespace-nowrap">
+                            {% if h.fim %}{% set s = (h.fim - h.inicio).total_seconds() | int %}{{ s // 60 }}min {{ "%02d" | format(s % 60) }}s{% else %}—{% endif %}
+                        </td>
+                        <td>
+                            {% if ht == "coleta_nfse" %}
+                                {% if h.status == "rodando" %}
+                                <span class="tabular-nums whitespace-nowrap">{{ h.empresas_ok + h.empresas_falha + h.empresas_adiadas }} de {{ h.empresas_total }} empresas</span>
+                                {% else %}
+                                <span class="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                    <span class="tabular-nums whitespace-nowrap"><b>{{ h.notas_novas }}</b> nota{{ 's' if h.notas_novas != 1 }} nova{{ 's' if h.notas_novas != 1 }}</span>
+                                    <span class="text-slate-400 tabular-nums whitespace-nowrap">· {{ h.empresas_ok }} de {{ h.empresas_total }} empresas</span>
+                                    {% if h.empresas_falha %}<span class="text-red-600 font-semibold whitespace-nowrap">· {{ h.empresas_falha }} falha{{ 's' if h.empresas_falha > 1 }}</span>{% endif %}
+                                    {% if h.empresas_adiadas %}<span class="text-amber-700 font-semibold whitespace-nowrap">· {{ h.empresas_adiadas }} adiada{{ 's' if h.empresas_adiadas > 1 }}</span>{% endif %}
+                                    {% if h.certificados_vencendo %}<span class="text-amber-700 font-semibold whitespace-nowrap" title="Certificados vencendo em até 30 dias"><i class="fa-solid fa-certificate text-[10px] mr-0.5"></i>{{ h.certificados_vencendo }}</span>{% endif %}
+                                </span>
+                                {% endif %}
+                            {% elif h.status == "rodando" %}
+                                <span class="text-slate-400">Montando o informativo…</span>
+                            {% else %}
+                                <span class="block max-w-[380px] truncate" title="{{ h.mensagem or '' }}">{{ h.mensagem or "—" }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if h.email_status == "enviado" %}<i class="fa-solid fa-envelope-circle-check text-emerald-600" title="Informativo enviado"></i>
+                            {% elif h.email_status == "falhou" %}<i class="fa-solid fa-envelope text-red-600" title="O informativo não saiu — abra a linha para ver o motivo"></i>
+                            {% elif h.email_status == "pulado" %}<i class="fa-regular fa-bell-slash text-slate-400" title="Não enviado: nada a informar no período (esta automação envia só quando há novidade)"></i>
+                            {% else %}<span class="text-slate-300" title="Sem destinatário">—</span>{% endif %}
+                        </td>
+                        <td>{{ situacao(h.status) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="px-5 py-8 text-center text-sm text-slate-400">Nenhuma execução registrada ainda.</p>
+        {% endif %}
+    </div>
+</div>

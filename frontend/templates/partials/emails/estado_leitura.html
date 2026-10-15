@@ -1,0 +1,42 @@
+{# Cartão do estado da leitura da caixa. Enquanto uma leitura anda, ele se
+   busca de novo a cada 3s — sem isso o "Ler agora" pareceria não ter feito
+   nada. #}
+{% set e = leitura_estado %}
+<section class="syn-card px-5 py-4 flex flex-wrap items-center gap-x-6 gap-y-3"
+         {% if acompanhar is defined and acompanhar %}hx-get="/emails/estado" hx-trigger="load delay:3s" hx-target="#estado-leitura" hx-swap="innerHTML"{% endif %}>
+    <div class="min-w-0 flex-1">
+        <div class="flex flex-wrap items-center gap-2">
+            <span class="font-bold text-sm text-slate-800"><i class="fa-solid fa-satellite-dish text-syn-600 mr-1"></i> Leitura da caixa</span>
+            {% if not e.configurado %}
+            <span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">Não configurada</span>
+            {% elif not e.ligado %}
+            <span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">Desligada</span>
+            {% elif e.em_andamento %}
+            <span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200"><span class="loading loading-spinner loading-xs align-middle"></span> Lendo…</span>
+            {% elif e.status == "falhou" %}
+            <span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">Última leitura falhou</span>
+            {% else %}
+            <span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">De hora em hora</span>
+            {% endif %}
+        </div>
+        <p class="text-[12px] text-slate-500 mt-1">
+            {% if not e.configurado %}
+            Preencha o servidor IMAP em Administração → Configurações → Caixa de entrada.
+            {% else %}
+            {% if e.caixas and e.caixas | length > 1 %}Caixas <b>{{ e.caixas | join(", ") }}</b>{% else %}Pasta <b>{{ e.pasta }}</b>{% endif %}
+            {% if e.ultima %}· última leitura {{ e.ultima }}{% if e.mensagem %}: <span class="{{ 'text-red-700' if e.status == 'falhou' else 'text-slate-700' }}">{{ e.mensagem }}</span>{% endif %}{% else %}· nunca lida{% endif %}
+            {% if e.proxima %}· próxima {{ e.proxima }}{% elif not e.ligado %}· ligue em Administração → Configurações para ler sozinho{% endif %}
+            {% endif %}
+        </p>
+        {% if aviso is defined and aviso %}
+        <p class="text-[12px] mt-1 {{ 'text-emerald-700' if aviso_ok else 'text-red-700' }}">{{ aviso }}</p>
+        {% endif %}
+    </div>
+    {% if e.configurado %}
+    <button type="button" hx-post="/emails/ler-agora" hx-target="#estado-leitura" hx-swap="innerHTML"
+            class="btn btn-sm bg-white border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg"
+            {% if e.em_andamento %}disabled{% endif %}>
+        <i class="fa-solid fa-rotate text-[11px]"></i> Ler agora
+    </button>
+    {% endif %}
+</section>

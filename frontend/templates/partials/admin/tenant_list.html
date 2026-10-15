@@ -18,6 +18,20 @@
         </div>
     </div>
 
+    {# Filtro no navegador: a lista vem INTEIRA do servidor (sem paginação),
+       então esconder linha aqui não esconde empresa de ninguém — são as 170
+       na tela, e achar uma era rolar. Casa nome sem acento e CNPJ com ou sem
+       pontuação. #}
+    <div class="flex flex-wrap items-center gap-3 mb-3">
+        <div class="relative w-full sm:w-80">
+            <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+            <input type="search" id="filtro-empresas" placeholder="Filtrar por nome ou CNPJ…" autocomplete="off"
+                   oninput="filtrarEmpresas(this.value)"
+                   class="w-full h-9 pl-8 pr-3 text-sm rounded-lg border border-slate-200 bg-white shadow-sm focus:outline-none focus:border-syn-700 focus:ring-2 focus:ring-syn-100/50">
+        </div>
+        <span id="filtro-empresas-conta" class="text-xs text-slate-500">{{ tenants | length }} empresa{{ '' if tenants | length == 1 else 's' }}</span>
+    </div>
+
     <!-- Table of Tenants using DaisyUI -->
     <div class="overflow-x-auto bg-white border border-slate-200 rounded-xl shadow-sm">
         <table class="table w-full text-sm table-pin-rows [&_th]:py-3.5 [&_th]:px-4 [&_td]:py-3 [&_td]:px-4">
@@ -39,7 +53,7 @@
             </thead>
             <tbody>
                 {% for t in tenants %}
-                <tr class="hover:bg-slate-50 transition-colors {% if not t.ativo %}opacity-60{% endif %}">
+                <tr class="syn-linha-empresa hover:bg-slate-50 transition-colors {% if not t.ativo %}opacity-60{% endif %}" data-busca="{{ t.name }} {{ t.cnpj }}">
                     <td class="font-semibold text-slate-700">
                         {# O nome abre a ficha: o estado da empresa (auditoria,
                            curadoria, certificado) não cabe numa linha de tabela. #}
@@ -184,6 +198,26 @@
                 {% endfor %}
             </tbody>
         </table>
+        <p id="filtro-empresas-vazio" class="hidden py-10 text-center text-sm text-slate-400">Nenhuma empresa com esse nome ou CNPJ.</p>
+        <script>
+        function filtrarEmpresas(texto) {
+            var norm = function (s) { return (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); };
+            var q = norm(texto).trim();
+            var dig = q.replace(/\D/g, "");
+            var linhas = document.querySelectorAll(".syn-linha-empresa");
+            var n = 0;
+            linhas.forEach(function (tr) {
+                var alvo = norm(tr.dataset.busca);
+                var casa = !q || alvo.indexOf(q) !== -1 || (dig.length >= 3 && alvo.replace(/\D/g, "").indexOf(dig) !== -1);
+                tr.classList.toggle("hidden", !casa);
+                if (casa) n++;
+            });
+            var conta = document.getElementById("filtro-empresas-conta");
+            if (conta) conta.textContent = q ? (n + " de " + linhas.length + " empresas") : (linhas.length + " empresas");
+            var vazio = document.getElementById("filtro-empresas-vazio");
+            if (vazio) vazio.classList.toggle("hidden", n > 0 || !linhas.length);
+        }
+        </script>
     </div>
 
     {# Usuários sem empresa primária (tipicamente administradores). Sem esta
