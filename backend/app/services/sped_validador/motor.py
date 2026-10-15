@@ -160,6 +160,12 @@ JA_COBERTAS = frozenset({
 GRAVIDADE = {
     "REGRA_VL_DOC_GRANDE": ADVERTENCIA,
     "REGRA_CODIFICACAO": ADVERTENCIA,
+    # Confirmado no gabarito do PVA (LIESA, jul/2026): "Total de Advertências".
+    "REGRA_CST_ICMS_RED_BC": ADVERTENCIA,
+    "REGRA_CST_ICMS_RED_BC_COM_COD_SIT_C190": ADVERTENCIA,
+    "REGRA_CST_ICMS_RED_BC_COM_COD_SIT_C590": ADVERTENCIA,
+    "REGRA_CST_ICMS_RED_BC_COM_COD_SIT_D190": ADVERTENCIA,
+    "REGRA_CST_ICMS_RED_BC_COM_COD_SIT_D590": ADVERTENCIA,
 }
 
 
@@ -1105,6 +1111,42 @@ def _r_ini_ate_fin(v_, no, regra):
                   v_.msg("MSG_DATA_MENOR_IGUAL_DT_FIN"), valor=v)
 
 
+def _r_antes_do_fim(v_, no, regra):
+    """Data ESTRITAMENTE anterior à DT_FIN do 0000 (0205: fim do uso do
+    código anterior do item — se terminou, terminou antes do período fechar).
+
+    Achado no gabarito: um 0205 com 01/01/3000 nos dois campos.
+    """
+    alvo = _campo_da_regra(no, regra)
+    if not alvo or not v_.dt_fin:
+        return
+    c, v = alvo
+    d = cp.data(v)
+    if d and d >= v_.dt_fin:
+        v_.acusar(no.r.linha, no.r.reg, c.id, regra.id,
+                  f"{v_.msg('MSG_DATA_MENOR_DT_FIN_0000')} "
+                  f"({cp.br(v_.dt_fin)})", valor=v)
+
+
+def _r_reducao_de_base(v_, no, regra):
+    """CST terminado em 20 (redução de base) ou 70 (redução com ST) pede
+    VL_RED_BC maior que zero. As variantes `_COM_COD_SIT_` ficam de fora no
+    documento complementar (06/07), que pode só completar o imposto."""
+    if "_COM_COD_SIT_" in regra.id and no.sit in ("06", "07"):
+        return
+    cst = no.valor("CST_ICMS").strip()
+    if cst[-2:] not in ("20", "70"):
+        return
+    texto = no.valor("VL_RED_BC").strip()
+    valor = cp.numero(texto) if texto else None
+    if valor is None and texto:
+        return                      # formato já acusado
+    if not valor:
+        v_.acusar(no.r.linha, no.r.reg, "VL_RED_BC", regra.id,
+                  f"{v_.msg('MSG_CST_ICMS_RED_BC')} CST {cst}.",
+                  valor=texto)
+
+
 def _r_data_minima(v_, no, regra):
     alvo = _campo_da_regra(no, regra)
     if alvo and (cp.data(alvo[1]) or "99999999") < "20090101":
@@ -1138,6 +1180,13 @@ REGRAS_DE_REGISTRO = {
     "REGRA_DATA_ENTRE_DT_INI_DT_FIN_0000_DT_INI": _r_dentro_do_periodo,
     "REGRA_DATA_ENTRE_DT_INI_DT_FIN_0000_DT_FIN": _r_dentro_do_periodo,
     "REGRA_DATA_MENOR_IGUAL_DT_FIN_DT_INI_DT_FIN": _r_ini_ate_fin,
+    "REGRA_DATA_MENOR_IGUAL_DT_FIN_DT_INI_DT_FIM": _r_ini_ate_fin,
+    "REGRA_DATA_MENOR_DT_FIN_0000": _r_antes_do_fim,
+    "REGRA_CST_ICMS_RED_BC": _r_reducao_de_base,
+    "REGRA_CST_ICMS_RED_BC_COM_COD_SIT_C190": _r_reducao_de_base,
+    "REGRA_CST_ICMS_RED_BC_COM_COD_SIT_C590": _r_reducao_de_base,
+    "REGRA_CST_ICMS_RED_BC_COM_COD_SIT_D190": _r_reducao_de_base,
+    "REGRA_CST_ICMS_RED_BC_COM_COD_SIT_D590": _r_reducao_de_base,
     "REGRA_DATA_MENOR_IGUAL_DT_FIN": _r_ini_ate_fin,
     "REGRA_DATA_MINIMA": _r_data_minima,
     "REGRA_MES_ESCRITURACAO": _r_mes_escrituracao,

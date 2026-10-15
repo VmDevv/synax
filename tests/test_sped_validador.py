@@ -810,6 +810,67 @@ check("com dois E110 (apuração por período), o total por CFOP não é conferi
 
 
 # ============================================================================
+print("\n=== 12c. Gabarito do PVA (LIESA, jul/2026): o que faltava ===")
+# O PVA apontou 5 erros e 1 advertência no arquivo real; o Synax pegava 3. Os
+# três casos abaixo são os que faltavam, reproduzidos em fixture sintética.
+
+
+def com_0205(dt_ini, dt_fim):
+    b = blocos_base()
+    b["0"].insert(6, f"|0205|PRODUTO ANTIGO|{dt_ini}|{dt_fim}|P000|")
+    return validar(b)
+
+
+res = com_0205("01013000", "01013000")
+check("0205 com fim de uso em 3000 (o do gabarito)",
+      achar(res, "REGRA_DATA_MENOR_DT_FIN_0000", "0205", "DT_FIM"))
+res = com_0205("01032026", "30042026")
+check("fim de uso NO último dia do período também não (é 'menor que')",
+      achar(res, "REGRA_DATA_MENOR_DT_FIN_0000", "0205", "DT_FIM"))
+res = com_0205("01032026", "31032026")
+check("fim de uso antes do período fechar: aceito",
+      not achar(res, "REGRA_DATA_MENOR_DT_FIN_0000"), regras(res))
+res = com_0205("31032026", "01032026")
+check("0205 com início depois do fim",
+      achar(res, "REGRA_DATA_MENOR_IGUAL_DT_FIN_DT_INI_DT_FIM", "0205", "DT_INI"))
+
+INDUSTRIAL = R0000[:-3] + "|0|"
+assert INDUSTRIAL.endswith("|A|0|") and R0000.endswith("|A|1|")
+E500 = ["|E500|0|01042026|30042026|",
+        "|E520|0,00|0,00|0,00|0,00|0,00|0,00|0,00|"]
+res = validar(com("0", 0, INDUSTRIAL))
+item = achar(res, "REGRA_EXISTE_APURACAO_IPI", "0000", "IND_ATIV")
+check("industrial (IND_ATIV 0) sem E500: erro, como no gabarito",
+      item and item[0].gravidade == "erro")
+b = com("0", 0, INDUSTRIAL)
+b["E"] += E500
+res = validar(b)
+check("industrial com E500: aceito", not achar(res, "REGRA_EXISTE_APURACAO_IPI"))
+b = blocos_base()
+b["E"] += E500
+res = validar(b)
+check("não industrial (IND_ATIV 1) com E500",
+      achar(res, "REGRA_NAO_EXISTE_APURACAO_IPI", "0000"))
+
+C170_020 = trocar_campo(C170, 10, "020")
+C190_020 = trocar_campo(trocar_campo(C190, 2, "020"), 10, "0,00")
+res = validar({**blocos_base(), "C": ["|C001|0|", C100, C170_020, C190_020]})
+item = achar(res, "REGRA_CST_ICMS_RED_BC_COM_COD_SIT_C190", "C190", "VL_RED_BC")
+check("CST 020 sem redução de base: ADVERTÊNCIA (gravidade confirmada no PVA)",
+      item and item[0].gravidade == ADVERTENCIA, item)
+check("e advertência não conta como erro",
+      res.erros == 0, [(i.regra, i.registro) for i in res.inconsistencias])
+res = validar({**blocos_base(), "C": ["|C001|0|", C100, C170_020,
+                                      trocar_campo(C190_020, 10, "150,00")]})
+check("CST 020 com redução informada: nada",
+      not achar(res, "REGRA_CST_ICMS_RED_BC_COM_COD_SIT_C190"))
+res = validar({**blocos_base(), "C": ["|C001|0|", trocar_campo(C100, 6, "06"),
+                                      C170_020, C190_020]})
+check("nota complementar (COD_SIT 06) com CST 020 sem redução: não acusa",
+      not achar(res, "REGRA_CST_ICMS_RED_BC_COM_COD_SIT_C190"), regras(res))
+
+
+# ============================================================================
 print("\n=== 13. A aba: empresa, papel e download ===")
 
 import json  # noqa: E402

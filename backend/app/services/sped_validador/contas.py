@@ -310,7 +310,30 @@ def _total_por_cfop(debito: bool, chave_msg: str, campo_id: str):
     return verificar
 
 
+# --------------------------------------------- existência ligada ao 0000
+
+def _apuracao_ipi(deve_existir: bool, chave_msg: str):
+    """IND_ATIV do 0000 decide o Bloco E500: industrial ou equiparado (0) é
+    contribuinte do IPI e apresenta a apuração; os demais (1), não.
+
+    Achado no gabarito (LIESA, jul/2026): IND_ATIV 0 sem E500 nenhum.
+    """
+    def verificar(v_, no, regra):
+        ind = no.valor("IND_ATIV").strip()
+        if ind != ("0" if deve_existir else "1"):
+            return
+        tem = any(n.d.reg == "E500" for n in v_.nos)
+        if tem != deve_existir:
+            v_.acusar(no.r.linha, "0000", "IND_ATIV", regra.id,
+                      f"{v_.msg(chave_msg)} IND_ATIV = {ind}.", valor=ind)
+    return verificar
+
+
 REGRAS_DE_CONTA = {
+    "REGRA_EXISTE_APURACAO_IPI":
+        _apuracao_ipi(True, "MSG_EXISTE_APURACAO_IPI"),
+    "REGRA_NAO_EXISTE_APURACAO_IPI":
+        _apuracao_ipi(False, "MSG_NAO_EXISTE_APURACAO_IPI"),
     "REGRA_VL_BC_ICMS_NO_REGISTRO_ITEM":
         _analitico_x_itens("VL_BC_ICMS", "MSG_VL_BC_ICMS_NO_REGISTRO_ITEM"),
     "REGRA_VL_ICMS_NO_REGISTRO_ITEM":
