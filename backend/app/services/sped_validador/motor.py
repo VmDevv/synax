@@ -29,6 +29,7 @@ from dataclasses import asdict, dataclass, field
 from ..sped_rewriter.documento import BOMS, ler_texto
 from . import campos as cp
 from . import dados
+from .contas import REGRAS_DE_CONTA
 
 ERRO = "erro"
 ADVERTENCIA = "advertencia"
@@ -286,7 +287,7 @@ def _escolher_leiaute(cod_ver: str, dt_fin: str) -> dados.Leiaute:
 class _No:
     """Um registro do arquivo já posicionado na árvore do leiaute."""
 
-    __slots__ = ("r", "d", "pai", "filhos", "doc", "uf", "sit")
+    __slots__ = ("r", "d", "pai", "filhos", "doc", "uf", "sit", "campos_ok")
 
     def __init__(self, r, d, pai):
         self.r = r
@@ -301,6 +302,7 @@ class _No:
             self.doc = pai.doc if pai else None
         self.uf = None
         self.sit = None
+        self.campos_ok = False
 
     def valor(self, campo_id: str) -> str:
         c = self.d.indice_campo.get(campo_id)
@@ -394,6 +396,7 @@ class _Validacao:
         self._filhos_obrigatorios()
         self._existencia_por_modelo()
         self._cadastros()
+        self._contas()
         self._totalizadores(doc)
         self._movimento_dos_blocos()
 
@@ -539,6 +542,7 @@ class _Validacao:
                                 f"{pai.r.linha}.")
 
             campos_ok = self._campos(no)
+            no.campos_ok = campos_ok
             if campos_ok:
                 self._duplicidade(no, chaves_vistas)
                 self._regras_do_registro(no)
@@ -754,7 +758,8 @@ class _Validacao:
 
     def _regras_do_registro(self, no: _No) -> None:
         for regra in no.d.regras:
-            if regra.id in CADASTRO_DA_REGRA or regra.id in JA_COBERTAS:
+            if (regra.id in CADASTRO_DA_REGRA or regra.id in JA_COBERTAS
+                    or regra.id in REGRAS_DE_CONTA):
                 continue
             verificar = REGRAS_DE_REGISTRO.get(regra.id)
             if verificar is not None:
@@ -869,6 +874,20 @@ class _Validacao:
                                 f"{self.msg(p.get('codMsg', ''), 'Código inexistente.')} "
                                 f"O código {v} não está em nenhum {registro}.",
                                 valor=v)
+
+    def _contas(self) -> None:
+        """Regras de conta (`contas.py`), com o arquivo inteiro já em árvore.
+
+        Registro com campo inválido fica de fora: somar um valor que nem
+        número é acusaria a mesma coisa duas vezes.
+        """
+        for no in self.nos:
+            if not no.campos_ok:
+                continue
+            for regra in no.d.regras:
+                verificar = REGRAS_DE_CONTA.get(regra.id)
+                if verificar is not None:
+                    verificar(self, no, regra)
 
     def _totalizadores(self, doc) -> None:
         """x990, 9900, 9990 e 9999 contra o que o arquivo de fato tem."""
@@ -1127,7 +1146,7 @@ REGRAS_DE_REGISTRO = {
 
 # Regras implementadas, para o relatório de cobertura.
 IMPLEMENTADAS = frozenset(REGRAS_DE_CAMPO) | frozenset(REGRAS_DE_REGISTRO) \
-    | frozenset(CADASTRO_DA_REGRA) | JA_COBERTAS
+    | frozenset(CADASTRO_DA_REGRA) | JA_COBERTAS | frozenset(REGRAS_DE_CONTA)
 
 
 # -------------------------------------------------------------- entradas

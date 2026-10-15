@@ -221,11 +221,12 @@ check("empresa lida do 0000",
       and base.empresa["dt_fin"] == "20260430")
 check("as regras específicas que ficaram de fora são CONTADAS",
       sum(base.nao_conferidas.values()) > 0
-      and "REGRA_VL_ICMS_NO_REGISTRO_ITEM" in base.nao_conferidas,
+      and "REGRA_CFOP_C100" in base.nao_conferidas,
       base.nao_conferidas.most_common(3))
 check("e regra implementada não entra na conta de não conferidas",
       "REGRA_MAIOR_ZERO" not in base.nao_conferidas
-      and "REGRA_QTD_LIN_BLOCOC" not in base.nao_conferidas)
+      and "REGRA_QTD_LIN_BLOCOC" not in base.nao_conferidas
+      and "REGRA_VL_ICMS_NO_REGISTRO_ITEM" not in base.nao_conferidas)
 check("LF em vez de CRLF também valida limpo",
       validar(texto=montar(blocos_base(), fim="\n")).total == 0)
 d = base.como_dict()
@@ -466,6 +467,12 @@ check("C197 com código de ajuste de MG num arquivo do ES",
 t = dados.tabelas()
 check("UF sem tabela para o tipo: 'sem_tabela', e o motor não acusa",
       t.consultar("COD_ITEM_IPM", "X1", "CE", "20260430") == "sem_tabela")
+# Achado em SPED real: E316 com DIFAL para a BA e receita GNRE 100102, que
+# está na GENERICA SEM o prefixo "UF" — e era acusada como inexistente.
+check("código nacional da GENERICA (receita GNRE 100102) vale para qualquer UF",
+      t.consultar("REC_REF_OBRIGACAO", "100102", "BA", "20260930") == "vigente")
+check("'UF' literal no arquivo não é código de estado nenhum",
+      t.consultar("AJ_APUR_DED", "UF009999", "ES", "20260430") == "inexistente")
 
 
 # ============================================================================
@@ -533,9 +540,16 @@ D100 = linha("D100", {2: "0", 3: "1", 4: "F001", 5: "57", 6: "00", 7: "1",
 D190 = "|D190|000|1352|12,00|100,00|100,00|12,00|0,00||"
 
 
-def com_frete(d100=D100):
+# Com o CT-e, o crédito do período passa a 170 + 12 = 182 (E110 campo 06).
+E110_COM_FRETE = ("|E110|0,00|0,00|0,00|0,00|182,00|0,00|0,00|0,00|0,00|0,00|"
+                  "0,00|0,00|182,00|0,00|")
+assert E110_COM_FRETE != E110 and E110_COM_FRETE.count("|") == E110.count("|")
+
+
+def com_frete(d100=D100, d190=D190):
     b = blocos_base()
-    b["D"] = ["|D001|0|", d100, D190]
+    b["D"] = ["|D001|0|", d100, d190]
+    b["E"][2] = E110_COM_FRETE
     return validar(b)
 
 
@@ -663,6 +677,136 @@ res = validar_texto(certo.replace("|C001|0|", "|C001|0|\r\n|C999|\r\n|C998|"), l
 check("com limite 1 e duas inconsistências: lista com uma, total dois",
       len(res.inconsistencias) == 1 and res.total >= 2 and res.truncado,
       (len(res.inconsistencias), res.total))
+
+
+# ============================================================================
+print("\n=== 12b. Regras de conta: itens, documento e apuração ===")
+
+
+def e110(**campos):
+    """E110 com os campos pelo nome; o que não vier é 0,00."""
+    nomes = ("VL_TOT_DEBITOS", "VL_AJ_DEBITOS", "VL_TOT_AJ_DEBITOS",
+             "VL_ESTORNOS_CRED", "VL_TOT_CREDITOS", "VL_AJ_CREDITOS",
+             "VL_TOT_AJ_CREDITOS", "VL_ESTORNOS_DEB", "VL_SLD_CREDOR_ANT",
+             "VL_SLD_APURADO", "VL_TOT_DED", "VL_ICMS_RECOLHER",
+             "VL_SLD_CREDOR_TRANSPORTAR", "DEB_ESP")
+    return "|E110|" + "|".join(campos.get(n, "0,00") for n in nomes) + "|"
+
+
+check("o E110 montado pelo helper é o da fixture",
+      e110(VL_TOT_CREDITOS="170,00", VL_SLD_CREDOR_TRANSPORTAR="170,00") == E110)
+
+res = validar(com("C", 3, trocar_campo(C190, 7, "171,00")))
+item = achar(res, "REGRA_VL_ICMS_NO_REGISTRO_ITEM", "C190", "VL_ICMS")
+check("C190 com ICMS diferente da soma dos C170", bool(item))
+check("a mensagem traz os dois valores",
+      item and "171,00" in item[0].mensagem and "170,00" in item[0].mensagem)
+check("e o C100 contra os C190 também diverge",
+      achar(res, "REGRA_VL_ICMS_ANALIT", "C100", "VL_ICMS"))
+res = validar(com("C", 3, trocar_campo(C190, 6, "900,00")))
+check("C190 com base diferente da soma dos C170",
+      achar(res, "REGRA_VL_BC_ICMS_NO_REGISTRO_ITEM", "C190", "VL_BC_ICMS"))
+res = validar(com("C", 3, trocar_campo(C190, 9, "5,00")))
+check("C190 com ICMS ST sem ST nos itens",
+      achar(res, "REGRA_VL_ICMS_ST_NO_REGISTRO_ITEM", "C190", "VL_ICMS_ST"))
+check("C100 com ICMS ST diferente da soma dos C190",
+      achar(res, "REGRA_VL_ICMS_ST_ANALIT", "C100", "VL_ICMS_ST"))
+res = validar(com("C", 1, trocar_campo(C100, 25, "10,00")))
+check("C100 com IPI que os C190 não somam",
+      achar(res, "REGRA_VL_IPI_C190", "C100", "VL_IPI"))
+
+b = blocos_base()
+b["C"].append("|C190|000|1403|0,00|0,00|0,00|0,00|0,00|0,00|0,00|0,00||")
+res = validar(b)
+check("C190 com combinação que nenhum C170 tem",
+      achar(res, "REGRA_CHAVE_EXISTE_NO_REGISTRO_ITEM_A8E1V1", "C190"))
+
+b = blocos_base()
+b["C"] = ["|C001|0|", C100, trocar_campo(C190, 7, "999,00")]
+res = validar(b)
+check("nota SEM C170 (NF-e própria dispensa): o C190 não é somado contra itens",
+      not achar(res, "REGRA_VL_ICMS_NO_REGISTRO_ITEM"), regras(res))
+
+res = com_frete(d190=trocar_campo(D190, 7, "13,00"))
+check("D100 com ICMS diferente da soma dos D190",
+      achar(res, "REGRA_VL_ICMS_ANALIT", "D100", "VL_ICMS"))
+
+b = blocos_base()
+b["E"][2] = e110(VL_TOT_CREDITOS="170,00", VL_SLD_CREDOR_TRANSPORTAR="100,00")
+res = validar(b)
+check("saldo credor que não fecha com a fórmula do Guia",
+      achar(res, "REGRA_SLD_CREDOR_E110", "E110", "VL_SLD_CREDOR_TRANSPORTAR"))
+
+# Ajuste de débito de 500 (campo 03, sem regra nesta versão): 500 - 170 = 330.
+DEVE = dict(VL_AJ_DEBITOS="500,00", VL_TOT_CREDITOS="170,00",
+            VL_SLD_APURADO="330,00", VL_ICMS_RECOLHER="330,00")
+E116 = "|E116|000|330,00|10052026|100013|||||042026|"
+
+
+def apuracao(e110_linha, *filhos):
+    b = blocos_base()
+    b["E"] = ["|E001|0|", "|E100|01042026|30042026|", e110_linha, *filhos]
+    return validar(b)
+
+
+res = apuracao(e110(**DEVE), E116)
+check("apuração com saldo devedor e guia que fecha: sem acusação de conta",
+      not [i for i in res.inconsistencias if i.registro == "E110"], regras(res))
+res = apuracao(e110(**DEVE))
+check("ICMS a recolher sem nenhum E116",
+      achar(res, "REGRA_ICMS_REC_E116", "E110"))
+res = apuracao(e110(**{**DEVE, "VL_SLD_APURADO": "300,00", "VL_ICMS_RECOLHER": "300,00"}),
+               E116.replace("330,00", "300,00"))
+check("saldo devedor que não fecha com a fórmula",
+      achar(res, "REGRA_SLD_DEVEDOR_E110", "E110", "VL_SLD_APURADO"))
+res = apuracao(e110(**{**DEVE, "VL_ICMS_RECOLHER": "320,00"}), E116)
+check("ICMS a recolher diferente de saldo - deduções",
+      achar(res, "REGRA_ICMS_RECOLHER", "E110", "VL_ICMS_RECOLHER"))
+res = apuracao(e110(**{**DEVE, "VL_TOT_DED": "400,00", "VL_ICMS_RECOLHER": "0,00"}))
+check("deduções maiores que o saldo devedor",
+      achar(res, "REGRA_VALIDA_VL_TOT_DED_E110", "E110", "VL_TOT_DED"))
+
+res = apuracao(e110(**DEVE), "|E111|ES000001||10,00|", E116)
+check("E111 de outros débitos (3º 0, 4º 0) sem o E110 campo 04",
+      achar(res, "REGRA_VL_TOT_AJ_DEBITOS_E110", "E110", "VL_TOT_AJ_DEBITOS"))
+res = apuracao(e110(**{**DEVE, "VL_TOT_AJ_DEBITOS": "10,00",
+                       "VL_SLD_APURADO": "340,00", "VL_ICMS_RECOLHER": "340,00"}),
+               "|E111|ES000001||10,00|", E116.replace("330,00", "340,00"))
+check("com o campo 04 somando o E111, a apuração fecha",
+      not [i for i in res.inconsistencias if i.registro == "E110"], regras(res))
+
+res = apuracao(e110(VL_TOT_CREDITOS="100,00", VL_SLD_CREDOR_TRANSPORTAR="100,00"))
+item = achar(res, "REGRA_VL_TOT_CREDITOS_E110_17002_V1", "E110", "VL_TOT_CREDITOS")
+check("crédito do E110 diferente da soma dos analíticos de entrada", bool(item))
+check("dizendo a soma certa", item and "170,00" in item[0].mensagem)
+
+extemporanea = linha("C100", {2: "1", 3: "0", 4: "F001", 5: "55", 6: "01", 7: "1",
+                              8: "130", 9: chave("000000130", EMPRESA),
+                              10: "05032026", 12: "100,00", 13: "0", 17: "9",
+                              21: "100,00", 22: "50,00"}, 29)
+b = blocos_base()
+b["C"] += [extemporanea, "|C190|000|5102|50,00|100,00|100,00|50,00|0,00|0,00|0,00|0,00||"]
+res = validar(b)
+check("saída EXTEMPORÂNEA fica fora do total de débitos (vai para o DEB_ESP)",
+      not achar(res, "REGRA_VL_TOT_DEBITOS_E110_17002_V1"), regras(res))
+
+cancelada_com_valor = linha("C100", {2: "1", 3: "0", 5: "55", 6: "02", 7: "1",
+                                     8: "131", 9: chave("000000131", EMPRESA),
+                                     22: "99,00"}, 29)
+b = blocos_base()
+b["C"].append(cancelada_com_valor)
+res = validar(b)
+check("documento cancelado não é somado contra analíticos",
+      not achar(res, "REGRA_VL_ICMS_ANALIT"), regras(res))
+
+b = blocos_base()
+b["E"] = ["|E001|0|", "|E100|01042026|15042026|", E110,
+          "|E100|16042026|30042026|", E110]
+res = validar(b)
+check("com dois E110 (apuração por período), o total por CFOP não é conferido",
+      not achar(res, "REGRA_VL_TOT_CREDITOS_E110_17002_V1")
+      and res.nao_conferidas["REGRA_VL_TOT_CREDITOS_E110_17002_V1"] == 2,
+      res.nao_conferidas["REGRA_VL_TOT_CREDITOS_E110_17002_V1"])
 
 
 # ============================================================================

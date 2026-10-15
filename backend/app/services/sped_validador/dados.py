@@ -253,18 +253,21 @@ class Tabelas:
             return "sem_tabela"
         achou = False
         for codigos, coringa in candidatos:
-            chave = codigo
-            if coringa:
-                if not uf or not codigo.startswith(uf):
-                    continue
-                chave = coringa + codigo[len(uf):]
+            # Na GENERICA convivem dois jeitos: o código com "UF" no lugar da
+            # sigla (ajustes, UF009999) e o código nacional sem prefixo
+            # nenhum (receita GNRE, 100102). Os dois são tentados.
+            # O "UF" literal no arquivo não é código de nenhum estado.
+            chaves = [] if coringa and codigo.startswith(coringa) else [codigo]
+            if coringa and uf and codigo.startswith(uf):
+                chaves.append(coringa + codigo[len(uf):])
             if numerico:
                 codigos = self._por_valor(codigos)
-                chave = chave.lstrip("0") or "0"
-            for ini, fim in codigos.get(chave, ()):
-                achou = True
-                if (not ini or ini <= data) and (not fim or data <= fim):
-                    return "vigente"
+                chaves = [c.lstrip("0") or "0" for c in chaves]
+            for chave in chaves:
+                for ini, fim in codigos.get(chave, ()):
+                    achou = True
+                    if (not ini or ini <= data) and (not fim or data <= fim):
+                        return "vigente"
         return "fora_de_vigencia" if achou else "inexistente"
 
 
