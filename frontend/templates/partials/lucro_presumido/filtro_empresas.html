@@ -1,0 +1,15 @@
+{# Trocar o filtro ou atualizar a lista refaz o formulário da própria aba. O
+   `closest section` é o cartão que carregou este formulário. #}
+<span class="flex flex-wrap items-center gap-3 text-[12px] text-slate-600">
+    <label class="flex items-center gap-1.5 cursor-pointer">
+        <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" {% if todas %}checked{% endif %}
+               hx-get="/api/lucro-presumido/empresas?para={{ para }}&todas={{ 0 if todas else 1 }}"
+               hx-target="closest section" hx-swap="innerHTML">
+        Mostrar também as que não são presumidas
+    </label>
+    <button type="button" class="font-semibold text-syn-700 hover:underline"
+            hx-get="/api/lucro-presumido/empresas?para={{ para }}&todas={{ 1 if todas else 0 }}&atualizar=1"
+            hx-target="closest section" hx-swap="innerHTML">
+        <i class="fa-solid fa-rotate mr-0.5"></i> Atualizar a lista
+    </button>
+</span>

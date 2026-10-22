@@ -15,7 +15,7 @@ import os
 import shutil
 from datetime import datetime
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from ...domain.models.email_recebido import EmailXml
 from . import armazenamento
@@ -94,10 +94,21 @@ def por_competencia(db, tenant_id: str) -> list[dict]:
     return sorted(meses.values(), key=lambda m: m["competencia"], reverse=True)
 
 
-def por_empresa(db, tenant_ids: list[str] | None) -> list[dict]:
+def _so_do_email():
+    """XML que chegou por e-mail. O baixado do SIEG pertence a um SPED, e na
+    tela E-mails ele aparece no SPED dele — contado também na tabela por
+    empresa, cada XML aparecia em dois lugares, e era o que mais poluía a
+    tela (14/10/2026). NULO é anterior à coluna `origem`, quando só havia
+    e-mail."""
+    return or_(EmailXml.origem.is_(None), EmailXml.origem != "sieg")
+
+
+def por_empresa(db, tenant_ids: list[str] | None, so_email: bool = False) -> list[dict]:
     """Resumo para a página: por empresa e competência. `tenant_ids=None` = todas."""
     consulta = db.query(EmailXml.tenant_id, EmailXml.competencia, EmailXml.modelo,
                         func.count(EmailXml.id), func.max(EmailXml.created_at))
+    if so_email:
+        consulta = consulta.filter(_so_do_email())
     if tenant_ids is not None:
         if not tenant_ids:
             return []
@@ -132,9 +143,11 @@ def caminho_do_sped(sped) -> str | None:
     return alvo if alvo and os.path.isfile(alvo) else None
 
 
-def arquivos_para_zip(db, tenant_id: str, sped=None, competencia: str | None = None) -> list:
+def arquivos_para_zip(db, tenant_id: str, sped=None, competencia: str | None = None,
+                      so_email: bool = False) -> list:
     """[(caminho em disco, nome no ZIP)]. Com SPED: os XMLs das notas dele
-    (pela chave) e o próprio SPED; sem: os recebidos da empresa no mês."""
+    (pela chave) e o próprio SPED; sem: os recebidos da empresa no mês
+    (`so_email`: só os que chegaram por e-mail, como a linha da tela conta)."""
     from ..email_recebimento.sieg_download import chaves_de_entrada
     if sped is not None:
         caminho = caminho_do_sped(sped)
@@ -150,6 +163,8 @@ def arquivos_para_zip(db, tenant_id: str, sped=None, competencia: str | None = N
             EmailXml.tenant_id == str(tenant_id))
         consulta = (consulta.filter(EmailXml.competencia == competencia) if competencia
                     else consulta.filter(EmailXml.competencia.is_(None)))
+        if so_email:
+            consulta = consulta.filter(_so_do_email())
         linhas, saida = consulta.all(), []
     for arquivo, chave in linhas:
         origem = armazenamento.absoluto(arquivo)
@@ -169,11 +184,68 @@ def speds_recebidos(db, tenant_ids: list[str] | None) -> list:
     return consulta.order_by(EmailSped.created_at.desc()).limit(100).all()
 
 
-def excluir_sped(db, sped) -> int:
+# Download do SIEG ainda por fazer: o SPED não tem XML porque não deu tempo,
+# não porque eles saíram.
+SIEG_ANDANDO = ("pendente", "baixando")
+
+# {sped.id: (sha256, chaves de entrada)}. O arquivo de um SPED recebido nunca
+# muda (o nome em disco é o próprio hash), então as chaves são lidas uma vez
+# por processo: os 70 SPEDs de 14/10/2026 somavam 86 MB e meio segundo de
+# leitura, que a tela pagaria a cada abertura.
+_CHAVES_DOS_SPEDS: dict = {}
+
+
+def _chaves_de(sped) -> frozenset:
+    from ..email_recebimento.sieg_download import chaves_de_entrada
+    guardado = _CHAVES_DOS_SPEDS.get(sped.id)
+    if guardado is not None and guardado[0] == sped.sha256:
+        return guardado[1]
+    caminho = caminho_do_sped(sped)
+    try:
+        chaves = frozenset(chaves_de_entrada(caminho)) if caminho else frozenset()
+    except OSError:
+        chaves = frozenset()
+    _CHAVES_DOS_SPEDS[sped.id] = (sped.sha256, chaves)
+    return chaves
+
+
+def xmls_dos_speds(db, speds: list) -> dict:
+    """{sped.id: (XMLs guardados, notas de entrada no SPED)}.
+
+    Conta pela CHAVE, venha o XML do e-mail ou do SIEG — é o que a auditoria
+    usaria. Os contadores do próprio SPED (`ja_tinha`, `baixados`) contam o
+    que o download fez, e não mudam quando um XML é excluído depois: em
+    14/10/2026, com os XMLs apagados, os 70 SPEDs seguiam dizendo "412 de 412".
+    Uma consulta só para todas as empresas da lista; a interseção é aqui.
+    """
+    if not speds:
+        return {}
+    guardadas: dict = {}
+    for tenant_id, chave in (db.query(EmailXml.tenant_id, EmailXml.chave)
+                             .filter(EmailXml.tenant_id.in_(sorted({s.tenant_id for s in speds})))
+                             .all()):
+        guardadas.setdefault(tenant_id, set()).add(chave)
+    saida = {}
+    for s in speds:
+        chaves = _chaves_de(s)
+        saida[s.id] = (len(chaves & guardadas.get(s.tenant_id, set())), len(chaves))
+    return saida
+
+
+def speds_sem_xml(db, tenant_ids: list[str] | None) -> list:
+    """Os SPEDs que não têm NENHUM XML guardado e não estão baixando — o que o
+    botão de limpeza da tela E-mails leva."""
+    speds = [s for s in speds_recebidos(db, tenant_ids) if s.sieg_status not in SIEG_ANDANDO]
+    contagem = xmls_dos_speds(db, speds)
+    return [s for s in speds if contagem[s.id][0] == 0]
+
+
+def excluir_sped(db, sped, commit: bool = True) -> int:
     """Apaga o SPED recebido e os XMLs que o SIEG baixou PARA ELE. Devolve
     quantos XMLs saíram. O que chegou por e-mail fica — é de outra origem e
     pode servir a outra auditoria. O e-mail original e o SIEG não são tocados:
-    é só a cópia do Synax."""
+    é só a cópia do Synax. `commit=False` é para a limpeza em lote fechar
+    tudo numa transação só."""
     xmls = (db.query(EmailXml).filter(EmailXml.origem == "sieg",
                                       EmailXml.mensagem_id == sped.id).all())
     for x in xmls:
@@ -181,16 +253,21 @@ def excluir_sped(db, sped) -> int:
         db.delete(x)
     armazenamento.apagar(sped.arquivo)
     db.delete(sped)
-    db.commit()
+    _CHAVES_DOS_SPEDS.pop(sped.id, None)
+    if commit:
+        db.commit()
     return len(xmls)
 
 
-def excluir_xmls(db, tenant_id: str, competencia: str | None) -> int:
-    """Apaga os XMLs guardados da empresa naquele mês (de e-mail E do SIEG).
-    Devolve quantos."""
+def excluir_xmls(db, tenant_id: str, competencia: str | None, so_email: bool = False) -> int:
+    """Apaga os XMLs guardados da empresa naquele mês — de e-mail E do SIEG,
+    ou só os de e-mail (`so_email`, o que a linha da tela E-mails mostra: os do
+    SIEG saem com o SPED deles). Devolve quantos."""
     consulta = db.query(EmailXml).filter(EmailXml.tenant_id == str(tenant_id))
     consulta = (consulta.filter(EmailXml.competencia == competencia) if competencia
                 else consulta.filter(EmailXml.competencia.is_(None)))
+    if so_email:
+        consulta = consulta.filter(_so_do_email())
     xmls = consulta.all()
     for x in xmls:
         armazenamento.apagar(x.arquivo)

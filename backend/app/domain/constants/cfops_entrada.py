@@ -26,6 +26,7 @@ CFOPS_ENTRADA: dict[str, str] = {
     "1152": "Transferência para comercialização",
     "2152": "Transferência para comercialização (interestadual)",
     "1154": "Transferência para utilização na prestação de serviço",
+    "2154": "Transferência para utilização na prestação de serviço (interestadual)",
 
     # --- Devoluções ---
     "1201": "Devolução de venda de produção do estabelecimento",

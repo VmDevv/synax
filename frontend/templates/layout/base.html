@@ -517,7 +517,7 @@
                    com HTMX próprio e download (ver CLAUDE.md). #}
                 {% if user_profile and user_profile.role in ['admin', 'operador'] %}
                 <details class="syn-menu relative">
-                    <summary title="Ferramentas de SPED" class="{{ nav_base }} {% if path.startswith('/gerar-sped') or path.startswith('/ajuste-sped') %}syn-nav-on{% endif %}">
+                    <summary title="Ferramentas de SPED" class="{{ nav_base }} {% if path.startswith('/gerar-sped') or path.startswith('/ajuste-sped') or path.startswith('/lucro-presumido') or path.startswith('/dominio') %}syn-nav-on{% endif %}">
                         <i class="fa-solid fa-toolbox text-xs"></i> <span class="hidden lg:inline">Ferramentas SPED</span>
                         <i class="fa-solid fa-chevron-down syn-menu-seta text-[9px]"></i>
                     </summary>
@@ -534,6 +534,33 @@
                             <span>
                                 <span class="block font-semibold text-slate-800">Ajuste de sub-apuração</span>
                                 <span class="block text-[12px] text-slate-500 leading-snug">Insere C195/C197 nos C190 de CFOP 5106/6106 de um SPED pronto.</span>
+                            </span>
+                        </a>
+                        {# A EFD-Contribuições do Presumido, gerada pelo programa SPED PIS/COFINS
+                           (chamado pela linha de comando; ver services/efd_contribuicoes). #}
+                        <a href="/lucro-presumido" class="syn-menu-item">
+                            <span class="syn-menu-icone"><i class="fa-solid fa-scale-balanced"></i></span>
+                            <span>
+                                <span class="block font-semibold text-slate-800">Lucro Presumido · EFD-Contribuições</span>
+                                <span class="block text-[12px] text-slate-500 leading-snug">Gerada do Domínio, validada e conferida com a apuração; uma empresa ou o lote.</span>
+                            </span>
+                        </a>
+                        <a href="/dominio" class="syn-menu-item">
+                            <span class="syn-menu-icone"><i class="fa-solid fa-database"></i></span>
+                            <span>
+                                <span class="block font-semibold text-slate-800">Domínio · somente leitura</span>
+                                <span class="block text-[12px] text-slate-500 leading-snug">Regime e apuração de uma empresa, notas do mês por CFOP e a lista de empresas.</span>
+                            </span>
+                        </a>
+                        {# O resto do programa (Conferência do Lucro Real, Automações,
+                           Configurações) ainda mora lá: Streamlit na mesma máquina, porta 8782 do
+                           .streamlit/config.toml de lá. O host é o que a pessoa usou para abrir o
+                           Synax: localhost aqui, o IP da rede nos outros PCs. #}
+                        <a href="http://{{ request.url.hostname }}:8782/" target="_blank" rel="noopener" hx-boost="false" class="syn-menu-item">
+                            <span class="syn-menu-icone"><i class="fa-solid fa-arrow-up-right-from-square"></i></span>
+                            <span>
+                                <span class="block font-semibold text-slate-800">SPED PIS/COFINS (programa completo) <i class="fa-solid fa-arrow-up-right-from-square text-[10px] text-slate-400"></i></span>
+                                <span class="block text-[12px] text-slate-500 leading-snug">Conferência do Lucro Real, automações e configurações. Abre em outra aba.</span>
                             </span>
                         </a>
                     </div>

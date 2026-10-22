@@ -1537,6 +1537,119 @@ imap.uids_novos, imap.tamanho, imap.baixar = _uids, _tam, _baixar
 
 
 # ============================================================================
+print("\n=== 12. Tela E-mails limpa: cada XML num lugar, abas, SPED sem XML ===")
+# Pedido do Sandro em 14/10/2026 ("tá muito poluída"), depois de excluir os
+# 17.091 XMLs guardados: a tabela por empresa contava também o que o SIEG
+# baixou para cada SPED (o mesmo XML em dois lugares), os 70 SPEDs seguiam
+# dizendo "412 de 412" sem XML nenhum, e excluí-los era um por um.
+import hashlib  # noqa: E402
+import zipfile as _zip  # noqa: E402
+
+TENANT_LIMPA = str(uuid.uuid4())
+db.add(Tenant(id=uuid.UUID(TENANT_LIMPA), name="EMPRESA DA LIMPEZA", cnpj="11222333000181",
+              uf="ES", ativo=True))
+db.add(UserTenant(user_id=uuid.UUID(OPE), tenant_id=uuid.UUID(TENANT_LIMPA)))
+db.commit()
+CH_SIEG, CH_EMAIL, CH_SOLTA = f"{9001:044d}", f"{9002:044d}", f"{9003:044d}"
+
+
+def _sped_txt(chaves):
+    linhas = ["|0000|020|0|01092026|30092026|EMPRESA DA LIMPEZA|11222333000181|"]
+    for i, ch in enumerate(chaves, 1):
+        linhas.append(f"|C100|0|1|P{i}|55|00|1|{i}|{ch}|01092026|01092026|10,00|")
+    return ("\r\n".join(linhas) + "\r\n").encode("latin-1")
+
+
+def _novo_sped(tenant, chaves, status="concluido"):
+    dados = _sped_txt(chaves)
+    sha = hashlib.sha256(dados).hexdigest()
+    rel = armazenamento.relativo_sped(tenant, "2026-09", sha)
+    armazenamento.gravar(rel, dados)
+    novo = EmailSped(id=str(uuid.uuid4()), tenant_id=tenant, competencia="2026-09",
+                     leiaute="fiscal", arquivo=rel, sha256=sha, sieg_status=status,
+                     chaves_total=len(chaves), ja_tinha=0, baixados=len(chaves))
+    db.add(novo)
+    db.commit()
+    return novo
+
+
+def _novo_xml(tenant, chave, origem, sped_id=None):
+    rel = armazenamento.relativo(tenant, "2026-09", chave)
+    armazenamento.gravar(rel, b"<nfeProc/>")
+    db.add(EmailXml(id=str(uuid.uuid4()), tenant_id=tenant, chave=chave, modelo="NF-e",
+                    competencia="2026-09", arquivo=rel, origem=origem, mensagem_id=sped_id))
+    db.commit()
+
+
+sped_cheio = _novo_sped(TENANT_LIMPA, [CH_SIEG, CH_EMAIL])
+_novo_xml(TENANT_LIMPA, CH_SIEG, "sieg", sped_cheio.id)
+_novo_xml(TENANT_LIMPA, CH_EMAIL, "email")      # nota do SPED que chegou por e-mail
+_novo_xml(TENANT_LIMPA, CH_SOLTA, "email")      # XML solto, de nenhum SPED
+sped_vazio = _novo_sped(TENANT_LIMPA, [f"{9004:044d}"])
+sped_baixando = _novo_sped(TENANT_LIMPA, [f"{9005:044d}"], status="baixando")
+sped_alheio = _novo_sped(TENANT_INATIVA, [f"{9006:044d}"])
+IDS = ID_CHEIO, ID_VAZIO, ID_BAIXANDO, ID_ALHEIO = (
+    sped_cheio.id, sped_vazio.id, sped_baixando.id, sped_alheio.id)
+
+contagem = recebidos.xmls_dos_speds(db, [sped_cheio, sped_vazio])
+check("o SPED conta os XMLs guardados PELA CHAVE, venham do SIEG ou do e-mail",
+      contagem == {sped_cheio.id: (2, 2), sped_vazio.id: (0, 1)}, contagem)
+_grupos = {g["tenant_id"]: g for g in recebidos.por_empresa(db, [TENANT_LIMPA], so_email=True)}
+check("a tabela por empresa conta SO o que chegou por e-mail (os do SIEG ficam no SPED)",
+      _grupos[TENANT_LIMPA]["nfe"] == 2
+      and {g["tenant_id"]: g for g in recebidos.por_empresa(db, [TENANT_LIMPA])}[TENANT_LIMPA]["nfe"] == 3,
+      _grupos)
+
+esperado_sem_xml = len(recebidos.speds_sem_xml(db, None))
+r = as_("adm").get("/emails")
+check("a tela abre em abas, com 'Recebidos' primeiro e o resto escondido",
+      'data-aba="recebidos"' in r.text and 'data-painel="atencao" hidden' in r.text
+      and 'data-painel="caixa" hidden' in r.text and 'data-painel="remetentes" hidden' in r.text)
+check("o SPED mostra o que ESTA guardado, e o vazio sai como 'sem XML'",
+      "2 de 2 XMLs" in r.text and "sem XML" in r.text)
+check("o download em andamento continua aparecendo como tal",
+      "SIEG baixando" in r.text)
+check("com o botao de excluir os sem XML de uma vez, com a contagem certa",
+      f"Excluir os {esperado_sem_xml} sem XML" in r.text
+      and "/emails/speds/excluir-sem-xml" in r.text, esperado_sem_xml)
+check("as chaves do SPED ficam em cache (o arquivo nunca muda: o nome e o hash)",
+      recebidos._CHAVES_DOS_SPEDS.get(sped_cheio.id, ("",))[0] == sped_cheio.sha256)
+r_ope = as_("ope").get("/emails")
+check("o operador nao ganha abas — so ve os Recebidos",
+      'data-aba=' not in r_ope.text and "SPEDs recebidos por e-mail" in r_ope.text)
+
+r = as_("ope").get(f"/emails/zip?tenant_id={TENANT_LIMPA}&competencia=2026-09")
+_nomes = set(_zip.ZipFile(io.BytesIO(r.content)).namelist()) if r.status_code == 200 else set()
+check("o ZIP da linha leva o que a linha conta: so os de e-mail",
+      _nomes == {f"xmls/{CH_EMAIL}.xml", f"xmls/{CH_SOLTA}.xml"}, _nomes)
+r = as_("ope").get(f"/emails/zip?sped={sped_cheio.id}")
+_nomes = set(_zip.ZipFile(io.BytesIO(r.content)).namelist()) if r.status_code == 200 else set()
+check("o ZIP do SPED leva as notas dele, de qualquer origem, e o proprio SPED",
+      {f"xmls/{CH_SIEG}.xml", f"xmls/{CH_EMAIL}.xml"} <= _nomes
+      and f"xmls/{CH_SOLTA}.xml" not in _nomes and any(n.startswith("SPED_") for n in _nomes),
+      _nomes)
+
+_arq_vazio = armazenamento.absoluto(sped_vazio.arquivo)
+r = as_("ope").post("/emails/speds/excluir-sem-xml")
+db.expire_all()
+_ficaram = {i for i in IDS if db.get(EmailSped, i) is not None}
+check("excluir os sem XML: sai o vazio, e a pagina recarrega",
+      r.headers.get("HX-Refresh") == "true" and ID_VAZIO not in _ficaram
+      and not os.path.exists(_arq_vazio))
+check("fica o que tem XML, o que ainda esta baixando e o de empresa que nao e do operador",
+      {ID_CHEIO, ID_BAIXANDO, ID_ALHEIO} <= _ficaram, _ficaram)
+
+r = as_("ope").post("/emails/xmls/excluir", data={"tenant_id": TENANT_LIMPA,
+                                                   "competencia": "2026-09"})
+db.expire_all()
+_restam = {x.chave: x.origem for x in db.query(EmailXml).filter(EmailXml.tenant_id == TENANT_LIMPA)}
+check("excluir a linha da tabela leva so os XMLs de e-mail; o do SIEG fica com o SPED",
+      _restam == {CH_SIEG: "sieg"}, _restam)
+check("e o SPED passa a mostrar 1 de 2",
+      recebidos.xmls_dos_speds(db, [db.get(EmailSped, ID_CHEIO)])[ID_CHEIO] == (1, 2))
+
+
+# ============================================================================
 m.app.dependency_overrides.clear()
 db.close()
 _eng.dispose()

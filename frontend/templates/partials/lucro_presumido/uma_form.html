@@ -1,0 +1,36 @@
+{# O formulário de "Uma empresa". A lista já vem filtrada pelo que este usuário
+   pode gerar; a rota confere de novo no POST. #}
+<form id="lp-form-uma" hx-post="/api/lucro-presumido/gerar" hx-target="#lp-resultado" hx-swap="innerHTML"
+      hx-include="#lp-competencia" hx-indicator="#lp-spinner-uma" hx-boost="false" class="p-5 space-y-4">
+    <div>
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <label class="text-[14px] font-bold text-slate-800">
+                <i class="fa-solid fa-building-user text-syn-600 text-sm mr-1"></i> Empresa
+            </label>
+            {% include "partials/lucro_presumido/filtro_empresas.html" %}
+        </div>
+        {% if empresas %}
+        <select name="codi_emp" required data-busca="lucro-presumido" data-busca-placeholder="Buscar por nome, código ou CNPJ…"
+                class="select select-bordered w-full font-medium text-sm rounded-lg">
+            <option value="" disabled {% if not selecionada %}selected{% endif %}>Escolha a empresa…</option>
+            {% for e in empresas %}
+            <option value="{{ e.codi_emp }}" {% if e.codi_emp == selecionada %}selected{% endif %}>{{ e.codi_emp }} — {{ e.nome }} ({{ e.cnpj_formatado }}){% if admin and not e.tenant %} · sem cadastro no Synax{% endif %}</option>
+            {% endfor %}
+        </select>
+        {% else %}
+        <p class="text-sm text-slate-600">Nenhuma empresa {{ 'do Domínio' if todas else 'presumida' }} na sua lista.
+            {% if not admin %}As empresas aparecem aqui pelo CNPJ da matriz, quando estão vinculadas ao seu usuário.{% endif %}</p>
+        {% endif %}
+    </div>
+    <div class="flex flex-wrap items-center gap-3">
+        <button type="submit" {% if not empresas %}disabled{% endif %}
+                class="btn bg-syn-700 hover:bg-syn-800 text-white font-bold px-6 shadow-sm">
+            <i class="fa-solid fa-gears mr-1"></i> Gerar arquivo
+        </button>
+        <span id="lp-spinner-uma" class="htmx-indicator text-sm text-slate-500">
+            <span class="loading loading-spinner loading-sm"></span>
+            Lendo o Domínio, montando e validando o arquivo…
+        </span>
+        <span class="text-[12px] text-slate-500">Depois de gerar: conferir o resultado, e então baixar ou salvar na pasta.</span>
+    </div>
+</form>

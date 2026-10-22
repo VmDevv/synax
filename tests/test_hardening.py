@@ -136,6 +136,71 @@ r = sem_seguir.post("/api/auth/login",
 check("login com senha errada nao propaga next malicioso",
       'name="next" value="/"' in r.text)
 
+print("\n=== 2c2. Depois do login, sempre uma TELA (21/10/2026) ===")
+# O Sandro "nao conseguia fazer login": a aba dele guardou
+# /login?next=/api/validar-sped/<id>/csv, e a cada login a senha era aceita, o
+# CSV baixava e a tela de login continuava na frente.
+for caminho in ("/api/validar-sped/4f91a4fb/csv", "/api/export/excel/x", "/static/js/ui.js"):
+    check(f"next para {caminho.split('/')[1]} vira a raiz", destino_seguro(caminho) == "/",
+          destino_seguro(caminho))
+r = sem_seguir.get("/login?next=/api/validar-sped/4f91a4fb/csv", headers=NAV)
+check("a aba guardada com next de download abre o login apontando para a raiz",
+      'name="next" value="/"' in r.text)
+
+# O HTMX de verdade manda Accept: */* — o teste de 2b mandava text/html e por
+# isso nunca viu a aba esquecida do .126 tomando 401 a cada minuto.
+r = sem_seguir.get("/admin/reinicio-pendente",
+                   headers={"HX-Request": "true", "Accept": "*/*",
+                            "HX-Current-URL": "http://testserver/admin?aba=erros"})
+destino = r.headers.get("HX-Redirect", "")
+check("consulta automatica do HTMX com sessao vencida vai para o login (nao 401 seco)",
+      r.status_code == 204 and destino.startswith("/login"), (r.status_code, destino))
+check("e volta para a PAGINA em que estava, nao para o pedaco que pediu",
+      destino == "/login?next=/admin?aba=erros", destino)
+r = sem_seguir.get("/admin/reinicio-pendente",
+                   headers={"HX-Request": "true", "Accept": "*/*",
+                            "HX-Current-URL": "http://evil.com/x"})
+check("HX-Current-URL de outro site nao vira destino",
+      r.headers.get("HX-Redirect", "") == "/login?next=/", r.headers.get("HX-Redirect"))
+r = sem_seguir.get("/admin", headers={"HX-Request": "true", "HX-Boosted": "true",
+                                      "Accept": "*/*",
+                                      "HX-Current-URL": "http://testserver/emails"})
+check("navegacao pelo menu (boost) volta para a tela que a pessoa abriu",
+      r.headers.get("HX-Redirect", "") == "/login?next=/admin", r.headers.get("HX-Redirect"))
+
+_ZIP = "/api/gerar-sped/4f91a4fb-289f-4a33-ad77-1b77455117a9/arquivo"
+r = sem_seguir.get(_ZIP, headers={**NAV, "Referer": "http://testserver/gerar-sped"})
+check("clique num download com sessao vencida: login e volta para a pagina de onde veio",
+      r.status_code == 302 and r.headers.get("location") == "/login?next=/gerar-sped",
+      (r.status_code, r.headers.get("location")))
+r = sem_seguir.get(_ZIP, headers=NAV)
+check("sem pagina de origem, volta para a raiz (nunca para o arquivo)",
+      r.headers.get("location") == "/login?next=/", r.headers.get("location"))
+r = sem_seguir.get("/admin/reinicio-pendente", headers={"Accept": "application/json"})
+check("chamada de API sem HTMX continua recebendo 401 em JSON",
+      r.status_code == 401 and "application/json" in r.headers.get("content-type", ""))
+
+print("\n=== 2c3. A conferencia do Painel Dev nao enche o log ===")
+r = c.get("/saude")
+check("/saude responde sem sessao e sem banco", r.status_code == 200 and r.text == "ok",
+      (r.status_code, r.text[:40]))
+import logging as _logging  # noqa: E402
+from backend.app.core.logging_config import SemConferencia  # noqa: E402
+
+
+def _linha(caminho):
+    return _logging.LogRecord("uvicorn.access", _logging.INFO, "", 0,
+                              '%s - "%s %s HTTP/%s" %d',
+                              ("127.0.0.1:5000", "GET", caminho, "1.1", 200), None)
+
+
+check("a linha da conferencia sai do registro de acesso",
+      SemConferencia().filter(_linha("/saude")) is False)
+check("o resto continua sendo registrado",
+      SemConferencia().filter(_linha("/login")) and SemConferencia().filter(_linha("/saude-x")))
+check("o filtro esta pendurado no log de acesso do uvicorn",
+      any(isinstance(f, SemConferencia) for f in _logging.getLogger("uvicorn.access").filters))
+
 print("\n=== 2d. Ruido no log ===")
 import inspect
 from backend.app.api.routes import auth as rota_auth

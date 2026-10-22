@@ -1,0 +1,31 @@
+{# Reinício pendente: código gravado depois que o servidor subiu.
+
+   O --reload não recarrega este servidor desde 13/10/2026: o arquivo novo fica
+   no disco e o processo continua com o antigo. Sem este aviso, a única forma
+   de saber era conferir a hora do processo no Windows. Só aparece quando há
+   algo pendente (a rota devolve vazio caso contrário).
+   As horas vêm do relógio do servidor, já em Brasília, e não do banco: por
+   isso `strftime` direto — o filtro `hora_br` descontaria 3 horas de novo. #}
+<div class="flex items-start gap-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl px-4 py-3 text-[13px] mb-4">
+    <i class="fa-solid fa-rotate text-amber-600 mt-0.5"></i>
+    <div class="flex-1">
+        <b>Reinício pendente.</b>
+        {{ pendentes | length }} arquivo{{ 's' if pendentes | length != 1 }} de código
+        mud{{ 'aram' if pendentes | length != 1 else 'ou' }} depois que o servidor subiu
+        ({{ subida.strftime('%d/%m às %H:%M') }}). O que foi gravado só passa a valer
+        depois de reiniciar o servidor.
+        <details class="mt-1.5">
+            <summary class="cursor-pointer text-amber-700 font-medium">Ver arquivos</summary>
+            <ul class="mt-1.5 space-y-0.5 font-mono text-[12px]">
+                {% for a in pendentes %}
+                <li>
+                    {{ a.caminho }}
+                    <span class="text-amber-700">
+                        — {{ a.situacao }}{% if a.quando %} em {{ a.quando.strftime('%d/%m %H:%M') }}{% endif %}
+                    </span>
+                </li>
+                {% endfor %}
+            </ul>
+        </details>
+    </div>
+</div>

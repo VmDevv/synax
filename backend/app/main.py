@@ -3,7 +3,7 @@ from html import escape as html_escape
 import logging
 import os
 from typing import List
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from fastapi import FastAPI, Request, Depends, Form, Response
 from fastapi.exception_handlers import http_exception_handler as http_exception_handler_padrao
@@ -22,7 +22,7 @@ configurar_logging()
 # Imports das rotas (as que já construímos)
 from .api.routes.uploads import router as uploads_router
 from .api.htmx_routes.audit_status import router as htmx_router
-from .api.routes.auth import router as auth_router
+from .api.routes.auth import destino_seguro, router as auth_router
 from .infrastructure.database.session import engine, get_db
 from .infrastructure.database import schema_upgrades
 from .domain.models.base import Base
@@ -169,6 +169,17 @@ app.include_router(ajuste_sped_router)
 from .api.routes.validar_sped import router as validar_sped_router  # noqa: E402
 app.include_router(validar_sped_router)
 
+# Lucro Presumido: a EFD-Contribuições gerada do Domínio pelo programa SPED
+# PIS/COFINS, chamado pela linha de comando. Ferramenta interna; cada rota
+# confere papel e empresa por dentro.
+from .api.routes.lucro_presumido import router as lucro_presumido_router  # noqa: E402
+app.include_router(lucro_presumido_router)
+
+# Domínio: o que o Synax lê do banco do Domínio, pelo mesmo programa e só
+# leitura. A consulta livre exige `pode_sql_dominio` (core/authz.py).
+from .api.routes.dominio import router as dominio_router  # noqa: E402
+app.include_router(dominio_router)
+
 # Novidades: a janela da tela principal depois do login. Qualquer papel logado;
 # o que cada um vê é filtrado no serviço.
 from .api.routes.novidades import router as novidades_router  # noqa: E402
@@ -202,6 +213,14 @@ async def favicon():
     """O navegador pede este arquivo em toda navegação; sem ele, cada página
     deixava um 404 no log, atrapalhando a leitura de erros de verdade."""
     return FileResponse("frontend/static/img/logo.svg", media_type="image/svg+xml")
+
+
+@app.get("/saude", include_in_schema=False)
+async def saude():
+    """Para o Painel Dev conferir se o Synax está no ar, sem sessão e sem banco.
+    Fica fora do registro de acesso (`logging_config.SEM_REGISTRO_DE_ACESSO`):
+    a conferência batia em /login e enchia o terminal (21/10/2026)."""
+    return Response(content="ok", media_type="text/plain")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -824,11 +843,32 @@ def _quer_html(request: Request) -> bool:
     return "text/html" in (request.headers.get("accept") or "")
 
 
-def _destino_seguro(caminho: str) -> str:
-    """Impede que o `next` do login vire redirecionamento para fora do sistema."""
-    if not caminho.startswith("/") or caminho.startswith("//") or "\\" in caminho:
+def _responde_tela(request: Request) -> bool:
+    """A rota pedida devolve HTML (uma tela), e não um arquivo ou JSON."""
+    classe = getattr(request.scope.get("route"), "response_class", None)
+    return isinstance(classe, type) and issubclass(classe, HTMLResponse)
+
+
+def _tela_de_volta(request: Request) -> str:
+    """Para onde o login devolve a pessoa — sempre uma TELA.
+
+    - chamada do HTMX de dentro da página (polling, botão): a página em que ela
+      estava (HX-Current-URL), não o pedaço que a tela pediu;
+    - navegação para uma tela (inclusive pelo boost do menu): a própria tela;
+    - clique num download: a página de onde veio (Referer), ou a raiz. Voltar
+      para o download deixava a pessoa olhando a tela de login enquanto o
+      arquivo baixava — parecia que o login não funcionava (21/10/2026).
+    """
+    if request.headers.get("HX-Request") and not request.headers.get("HX-Boosted"):
+        origem = request.headers.get("HX-Current-URL", "")
+    elif _responde_tela(request):
+        origem = str(request.url)
+    else:
+        origem = request.headers.get("referer", "")
+    partes = urlsplit(origem)
+    if partes.netloc and partes.netloc != request.url.netloc:
         return "/"
-    return caminho
+    return destino_seguro(partes.path + (f"?{partes.query}" if partes.query else ""))
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -838,10 +878,15 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     Antes, digitar /admin sem sessão devolvia {"detail": "Autenticação
     necessária."} na tela — e o usuário ficava preso, porque só a raiz "/"
     redirecionava para o login. Chamadas de API seguem recebendo JSON.
+
+    O HTMX conta como navegador mesmo sem pedir text/html (ele manda
+    `Accept: */*`): até 21/10/2026 a aba esquecida aberta com a sessão vencida
+    recebia 401 seco a cada consulta automática — a Administração pergunta o
+    "Reinício pendente" a cada minuto — e enchia o terminal do servidor sem que
+    ninguém na frente dela percebesse nada.
     """
-    if exc.status_code == 401 and _quer_html(request):
-        alvo = request.url.path + (f"?{request.url.query}" if request.url.query else "")
-        destino = f"/login?next={quote(_destino_seguro(alvo), safe='/?=&')}"
+    if exc.status_code == 401 and (request.headers.get("HX-Request") or _quer_html(request)):
+        destino = f"/login?next={quote(_tela_de_volta(request), safe='/?=&')}"
         if request.headers.get("HX-Request"):
             # O HTMX troca o pedaço da página e ignoraria um 302; este cabeçalho
             # manda o navegador navegar de verdade.

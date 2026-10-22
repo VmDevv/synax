@@ -1,0 +1,126 @@
+{% extends "layout/base.html" %}
+{% block title %}Lucro Presumido · EFD-Contribuições | Synax{% endblock %}
+
+{% block content %}
+{# A primeira página do programa SPED PIS/COFINS trazida para o Synax. O motor
+   continua lá (services/efd_contribuicoes/programa.py): esta tela só pede e
+   mostra. Cada aba carrega a lista de empresas depois da página, porque ler o
+   Domínio leva uns segundos. #}
+<main id="tela-presumido" class="w-full space-y-4">
+
+    <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 class="syn-h2 text-xl font-bold flex items-center gap-2.5">
+            <i class="fa-solid fa-scale-balanced text-base" style="color: var(--syn-700);"></i>
+            Lucro Presumido · EFD-Contribuições
+        </h2>
+        <p class="text-[13px] text-slate-500">Gerada do Domínio, validada e conferida com a apuração de PIS/COFINS do mês.</p>
+    </div>
+
+    <section class="syn-card syn-card-accent px-5 py-4 flex flex-wrap items-center gap-x-5 gap-y-2">
+        <label for="lp-competencia" class="text-[14px] font-bold text-slate-800">
+            <i class="fa-regular fa-calendar text-syn-600 text-sm mr-1"></i> Competência
+        </label>
+        <input id="lp-competencia" type="month" name="competencia" value="{{ competencia }}" required
+               class="input input-bordered input-sm w-48 text-sm rounded-lg">
+        <span class="text-[12px] text-slate-500">
+            Regime cumulativo, escrituração consolidada (F550; venda de imóvel no F200). Vale para as três abas.
+        </span>
+    </section>
+
+    <nav class="flex items-center gap-1 border-b border-slate-200 overflow-x-auto" role="tablist">
+        {% for chave, rotulo, icone in [
+            ('uma', 'Uma empresa', 'fa-building'),
+            ('lote', 'Várias empresas (lote)', 'fa-layer-group'),
+            ('historico', 'Histórico', 'fa-clock-rotate-left')] %}
+        <button type="button" role="tab" data-aba="{{ chave }}" aria-selected="{{ 'true' if loop.first else 'false' }}"
+                class="aba-presumido flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-t-lg border-b-2 border-transparent whitespace-nowrap text-slate-500 hover:text-slate-700 hover:bg-slate-50 transition-colors">
+            <i class="fa-solid {{ icone }} text-xs opacity-60"></i> {{ rotulo }}
+            {% if chave == 'lote' and lote_ativo %}<span class="loading loading-spinner loading-xs text-syn-600" title="Há um lote rodando"></span>{% endif %}
+        </button>
+        {% endfor %}
+    </nav>
+
+    {# ================================ Uma empresa ================================ #}
+    <div data-painel="uma" class="space-y-4">
+        <section class="syn-card overflow-hidden"
+                 hx-get="/api/lucro-presumido/empresas?para=uma{% if selecionada %}&selecionada={{ selecionada }}{% endif %}" hx-trigger="load" hx-swap="innerHTML">
+            {% include "partials/lucro_presumido/carregando.html" %}
+        </section>
+        <div id="lp-resultado"></div>
+    </div>
+
+    {# ================================ Lote ================================ #}
+    <div data-painel="lote" class="space-y-4" hidden>
+        <section class="syn-card overflow-hidden"
+                 hx-get="/api/lucro-presumido/empresas?para=lote" hx-trigger="intersect once" hx-swap="innerHTML">
+            {% include "partials/lucro_presumido/carregando.html" %}
+        </section>
+        <div id="lp-andamento" {% if lote_ativo %}hx-get="/api/lucro-presumido/lote/andamento" hx-trigger="load"{% endif %}></div>
+    </div>
+
+    {# ================================ Histórico ================================ #}
+    <div data-painel="historico" class="space-y-4" hidden>
+        <section class="syn-card overflow-hidden"
+                 hx-get="/api/lucro-presumido/historico" hx-trigger="intersect once" hx-swap="innerHTML">
+            <div class="px-5 py-6 text-sm text-slate-500 flex items-center gap-2">
+                <span class="loading loading-spinner loading-sm"></span> Lendo o histórico dos lotes…
+            </div>
+        </section>
+    </div>
+
+    <p class="text-[12px] text-slate-500">
+        <i class="fa-solid fa-circle-info mr-1"></i>
+        O motor é o do programa SPED PIS/COFINS: a mesma geração, a mesma validação e o mesmo histórico da tela de lá.
+        Conferência do Lucro Real, Automações e Configurações (conexão e pasta dos arquivos) continuam no
+        <a href="http://{{ request.url.hostname }}:8782/" target="_blank" rel="noopener" hx-boost="false"
+           class="font-semibold text-syn-700 hover:underline">programa completo</a>.
+    </p>
+</main>
+
+{# Estilo e script DENTRO do content: o boost do <body> descarta o <head> da
+   página nova (ver CLAUDE.md). #}
+<style>
+    #tela-presumido [hidden] { display: none !important; }
+    #tela-presumido .aba-presumido[aria-selected="true"] {
+        border-bottom-color: #037fb5; color: #026a9e; background: rgba(159, 219, 238, .15);
+    }
+    #tela-presumido summary::-webkit-details-marker { display: none; }
+</style>
+<script>
+    (function () {
+        const raiz = document.getElementById('tela-presumido');
+        if (!raiz) return;
+        const abas = Array.from(raiz.querySelectorAll('[data-aba]'));
+        const paineis = Array.from(raiz.querySelectorAll('[data-painel]'));
+        const nomes = paineis.map(function (p) { return p.dataset.painel; });
+
+        function mostrar(nome) {
+            if (nomes.indexOf(nome) < 0) nome = 'uma';
+            paineis.forEach(function (p) { p.hidden = p.dataset.painel !== nome; });
+            abas.forEach(function (a) {
+                a.setAttribute('aria-selected', a.dataset.aba === nome ? 'true' : 'false');
+            });
+        }
+        abas.forEach(function (a) {
+            a.addEventListener('click', function () {
+                // replaceState: trocar de aba não vira entrada no "voltar".
+                history.replaceState(null, '', '#' + a.dataset.aba);
+                mostrar(a.dataset.aba);
+            });
+        });
+        raiz.addEventListener('change', function (e) {
+            // Outra empresa ou outro mês: o resultado na tela era da escolha anterior, e o "Baixar" dele
+            // entregaria o arquivo da empresa errada.
+            if (e.target.matches('#lp-competencia, #lp-form-uma select[name="codi_emp"]')) {
+                const resultado = document.getElementById('lp-resultado');
+                if (resultado) resultado.innerHTML = '';
+                return;
+            }
+            // "Marcar todas" da lista do lote.
+            if (!e.target.matches('[data-marcar-todas]')) return;
+            raiz.querySelectorAll('input[name="codigos"]').forEach(function (c) { c.checked = e.target.checked; });
+        });
+        mostrar((location.hash || '').slice(1));
+    })();
+</script>
+{% endblock %}

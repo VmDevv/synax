@@ -36,6 +36,11 @@
         </div>
     </div>
 
+    {# Código gravado depois da subida do servidor (o --reload não recarrega):
+       vazio quando não há nada pendente; confere de novo a cada minuto. #}
+    <div id="reinicio-pendente" hx-get="/admin/reinicio-pendente"
+         hx-trigger="load, every 60s" hx-swap="innerHTML"></div>
+
     {# O estado ativo é marcado só nas abas DESTA barra. O `onclick` antigo
        varria `.tab` do documento inteiro e desligava também as abas de dentro
        do conteúdo carregado. #}

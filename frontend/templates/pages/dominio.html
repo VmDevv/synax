@@ -1,0 +1,190 @@
+{% extends "layout/base.html" %}
+{% block title %}Domínio · somente leitura | Synax{% endblock %}
+
+{% block content %}
+{# A página Domínio do programa SPED PIS/COFINS trazida para o Synax. Quem
+   lê o Domínio é o programa (services/efd_contribuicoes/programa.py); nada
+   aqui grava no Domínio. Empresa e mês no alto valem para as abas. #}
+<main id="tela-dominio" class="w-full space-y-4">
+
+    <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 class="syn-h2 text-xl font-bold flex items-center gap-2.5">
+            <i class="fa-solid fa-database text-base" style="color: var(--syn-700);"></i>
+            Domínio
+            <span class="text-[12px] font-semibold text-slate-500 px-2 py-0.5 rounded-full bg-slate-100">somente leitura</span>
+        </h2>
+        <p class="text-[13px] text-slate-500">A situação de uma empresa, as notas de um mês e a lista de empresas. Nada aqui grava no Domínio.</p>
+    </div>
+
+    <section id="dom-status" class="syn-card overflow-hidden"
+             hx-get="/api/dominio/status" hx-trigger="load" hx-swap="innerHTML">
+        <div class="px-5 py-4 text-sm text-slate-500 flex items-center gap-2">
+            <span class="loading loading-spinner loading-sm"></span> Conferindo a conexão com o Domínio…
+        </div>
+    </section>
+
+    {# Empresa e mês: mudar qualquer um dos dois recarrega a aba Empresa e
+       limpa as notas buscadas — resultado de outra empresa na tela é o tipo de
+       engano que ninguém percebe. #}
+    <section id="dom-filtros" class="syn-card syn-card-accent px-5 py-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-4 items-end">
+        <div>
+            <label class="block text-[14px] font-bold text-slate-800 mb-2">
+                <i class="fa-solid fa-building-user text-syn-600 text-sm mr-1"></i> Empresa
+            </label>
+            <div hx-get="/api/dominio/seletor" hx-trigger="load" hx-swap="innerHTML">
+                <div class="text-sm text-slate-500 flex items-center gap-2 py-2">
+                    <span class="loading loading-spinner loading-sm"></span> Lendo as empresas do Domínio…
+                </div>
+            </div>
+        </div>
+        <div>
+            <label for="dom-competencia" class="block text-[14px] font-bold text-slate-800 mb-2">
+                <i class="fa-regular fa-calendar text-syn-600 text-sm mr-1"></i> Competência
+            </label>
+            <input id="dom-competencia" type="month" name="competencia" value="{{ competencia }}" required
+                   class="input input-bordered input-sm w-48 text-sm rounded-lg">
+        </div>
+    </section>
+
+    <nav class="flex items-center gap-1 border-b border-slate-200 overflow-x-auto" role="tablist">
+        {% for chave, rotulo, icone in [
+            ('empresa', 'Empresa', 'fa-building'),
+            ('notas', 'Notas do mês', 'fa-file-invoice'),
+            ('lista', 'Todas as empresas', 'fa-list'),
+            ('sql', 'Consulta livre (SQL)', 'fa-terminal')] if chave != 'sql' or pode_sql %}
+        <button type="button" role="tab" data-aba="{{ chave }}" aria-selected="{{ 'true' if loop.first else 'false' }}"
+                class="aba-dominio flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-t-lg border-b-2 border-transparent whitespace-nowrap text-slate-500 hover:text-slate-700 hover:bg-slate-50 transition-colors">
+            <i class="fa-solid {{ icone }} text-xs opacity-60"></i> {{ rotulo }}
+        </button>
+        {% endfor %}
+    </nav>
+
+    {# ================================ Empresa ================================ #}
+    <div data-painel="empresa">
+        <section id="dom-empresa-painel" class="syn-card overflow-hidden"
+                 hx-get="/api/dominio/empresa" hx-trigger="change from:#dom-filtros" hx-swap="innerHTML"
+                 hx-include="#dom-empresa, #dom-competencia" hx-indicator="#dom-spinner-empresa">
+            <p class="px-5 py-6 text-sm text-slate-500">Escolha a empresa acima para ver o regime de PIS/COFINS do
+                cadastro e a apuração que o Domínio gravou no mês.</p>
+        </section>
+        <p id="dom-spinner-empresa" class="htmx-indicator text-sm text-slate-500 mt-2">
+            <span class="loading loading-spinner loading-xs"></span> Lendo o cadastro no Domínio…
+        </p>
+    </div>
+
+    {# ================================ Notas do mês ================================ #}
+    <div data-painel="notas" class="space-y-3" hidden>
+        <section class="syn-card px-5 py-4 flex flex-wrap items-center gap-3">
+            <button type="button" class="btn bg-syn-700 hover:bg-syn-800 text-white font-bold px-6 shadow-sm"
+                    hx-post="/api/dominio/notas" hx-include="#dom-empresa, #dom-competencia" hx-target="#dom-notas"
+                    hx-swap="innerHTML" hx-indicator="#dom-spinner-notas">
+                <i class="fa-solid fa-cloud-arrow-down mr-1"></i> Buscar as notas
+            </button>
+            <span id="dom-spinner-notas" class="htmx-indicator text-sm text-slate-500">
+                <span class="loading loading-spinner loading-sm"></span> Lendo as notas no Domínio…
+            </span>
+            <span class="text-[12px] text-slate-500">Saídas e entradas do mês com o ICMS, o PIS e a COFINS lançados no
+                Domínio, da empresa e do mês escolhidos acima.</span>
+        </section>
+        <div id="dom-notas"></div>
+    </div>
+
+    {# ================================ Todas as empresas ================================ #}
+    <div data-painel="lista" class="space-y-3" hidden>
+        <section class="syn-card overflow-hidden">
+            <form class="px-5 py-3 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center gap-3"
+                  hx-get="/api/dominio/lista" hx-target="#dom-lista" hx-swap="innerHTML"
+                  hx-trigger="intersect once, input changed delay:300ms from:#dom-busca, change from:#dom-so-presumidas"
+                  onsubmit="return false">
+                <input id="dom-busca" type="search" name="busca" placeholder="Procurar por nome, código ou CNPJ"
+                       class="input input-bordered input-sm w-80 max-w-full text-sm rounded-lg">
+                <label class="flex items-center gap-1.5 text-[13px] text-slate-600 cursor-pointer">
+                    <input id="dom-so-presumidas" type="checkbox" name="so_presumidas" value="1"
+                           class="checkbox checkbox-xs checkbox-primary"> Só presumidas
+                </label>
+            </form>
+            <div id="dom-lista">
+                <div class="px-5 py-6 text-sm text-slate-500 flex items-center gap-2">
+                    <span class="loading loading-spinner loading-sm"></span> Lendo as empresas do Domínio…
+                </div>
+            </div>
+        </section>
+    </div>
+
+    {# ================================ Consulta livre ================================ #}
+    {% if pode_sql %}
+    <div data-painel="sql" class="space-y-3" hidden>
+        <section class="syn-card overflow-hidden"
+                 hx-get="/api/dominio/sql" hx-trigger="intersect once" hx-swap="innerHTML">
+            <div class="px-5 py-6 text-sm text-slate-500 flex items-center gap-2">
+                <span class="loading loading-spinner loading-sm"></span> Carregando…
+            </div>
+        </section>
+    </div>
+    {% endif %}
+
+    <details class="syn-card px-5 py-3">
+        <summary class="cursor-pointer text-sm font-semibold text-slate-700 flex items-center gap-2">
+            <i class="fa-solid fa-chevron-right text-[10px] text-slate-400"></i> Como o Synax usa o Domínio
+        </summary>
+        <ul class="mt-2 space-y-1 text-[13px] text-slate-600 list-disc list-inside">
+            {% for titulo, texto in como_funciona %}<li><strong>{{ titulo }}</strong>: {{ texto }}</li>{% endfor %}
+        </ul>
+    </details>
+
+    <p class="text-[12px] text-slate-500">
+        <i class="fa-solid fa-circle-info mr-1"></i>
+        Quem lê o Domínio é o programa SPED PIS/COFINS, com a conexão configurada nele. Para trocar a conexão, use as
+        Configurações do
+        <a href="http://{{ request.url.hostname }}:8782/" target="_blank" rel="noopener" hx-boost="false"
+           class="font-semibold text-syn-700 hover:underline">programa completo</a>.
+    </p>
+</main>
+
+{# Estilo e script DENTRO do content: o boost do <body> descarta o <head> da
+   página nova (ver CLAUDE.md). #}
+<style>
+    #tela-dominio [hidden] { display: none !important; }
+    #tela-dominio .aba-dominio[aria-selected="true"] {
+        border-bottom-color: #037fb5; color: #026a9e; background: rgba(159, 219, 238, .15);
+    }
+    #tela-dominio summary::-webkit-details-marker { display: none; }
+</style>
+<script>
+    (function () {
+        const raiz = document.getElementById('tela-dominio');
+        if (!raiz) return;
+        const abas = Array.from(raiz.querySelectorAll('[data-aba]'));
+        const paineis = Array.from(raiz.querySelectorAll('[data-painel]'));
+        const nomes = paineis.map(function (p) { return p.dataset.painel; });
+
+        function mostrar(nome) {
+            if (nomes.indexOf(nome) < 0) nome = 'empresa';
+            paineis.forEach(function (p) { p.hidden = p.dataset.painel !== nome; });
+            abas.forEach(function (a) {
+                a.setAttribute('aria-selected', a.dataset.aba === nome ? 'true' : 'false');
+            });
+        }
+        abas.forEach(function (a) {
+            a.addEventListener('click', function () {
+                // replaceState: trocar de aba não vira entrada no "voltar".
+                history.replaceState(null, '', '#' + a.dataset.aba);
+                mostrar(a.dataset.aba);
+            });
+        });
+        raiz.addEventListener('change', function (e) {
+            // Outra empresa ou outro mês: as notas buscadas eram da escolha anterior.
+            if (e.target.closest('#dom-filtros')) {
+                const notas = document.getElementById('dom-notas');
+                if (notas) notas.innerHTML = '';
+                return;
+            }
+            // Consulta pronta escolhida vai para a caixa de texto (o texto continua editável).
+            if (!e.target.matches('#dom-sql-pronta')) return;
+            const opcao = e.target.selectedOptions[0];
+            if (opcao && opcao.dataset.sql !== undefined) document.getElementById('dom-sql').value = opcao.dataset.sql;
+        });
+        mostrar((location.hash || '').slice(1));
+    })();
+</script>
+{% endblock %}

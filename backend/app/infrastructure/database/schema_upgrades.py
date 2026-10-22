@@ -25,6 +25,9 @@ COLUNAS_NOVAS = {
         # Janela de novidades depois do login (15/10/2026). Sem default: NULO é
         # "nunca viu nenhuma", e aí aparecem só as do último mês.
         ("novidades_vistas_ate", "VARCHAR(10)"),
+        # Consulta livre do Domínio para o operador (22/10/2026). Ninguém ganha
+        # sem um admin marcar: o default é FALSE.
+        ("pode_sql_dominio", "BOOLEAN NOT NULL DEFAULT FALSE"),
     ],
     # Leitura da caixa de e-mail: a tabela nasceu em 28/09/2026 de manhã e esta
     # coluna à tarde (sugestão de silenciar remetente automático). Sem default:

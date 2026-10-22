@@ -1,0 +1,46 @@
+{# O lote em segundo plano. Enquanto roda, este pedaço se pede de novo a cada
+   2 s; quando termina, para de pedir e mostra o fim que o PROGRAMA escreveu
+   ("31 conferem · 5 diferentes · …") — nunca um "concluído" calado. #}
+{% if aviso %}
+{% with mensagem = aviso, tom = 'aviso' %}{% include "partials/lucro_presumido/aviso.html" %}{% endwith %}
+{% endif %}
+{% if lote %}
+<section class="syn-card overflow-hidden"
+         {% if lote.rodando %}hx-get="/api/lucro-presumido/lote/andamento" hx-trigger="every 2s" hx-target="#lp-andamento" hx-swap="innerHTML"{% endif %}>
+    <div class="px-5 py-3 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
+        <h3 class="font-bold text-[15px] text-slate-800">Lote do Presumido {{ rotulo_competencia(lote.competencia) }}</h3>
+        <span class="text-[12px] text-slate-500">pedido por {{ lote.pedido_por }} às {{ lote.inicio.strftime('%H:%M') }}</span>
+    </div>
+    <div class="p-5 space-y-4">
+        {% if lote.rodando %}
+        <div>
+            <div class="flex items-center justify-between text-[13px] text-slate-600 mb-1.5">
+                <span class="flex items-center gap-2"><span class="loading loading-spinner loading-xs text-syn-600"></span>
+                    {{ lote.atual or 'Começando…' }}</span>
+                <span class="tabular-nums font-semibold">{{ lote.feitos }} de {{ lote.total }}</span>
+            </div>
+            <progress class="progress progress-primary w-full" value="{{ lote.feitos }}" max="{{ lote.total or 1 }}"></progress>
+            <p class="text-[12px] text-slate-500 mt-1.5">Pode sair da página: o lote continua, e o resultado fica no Histórico.</p>
+        </div>
+        {% elif lote.erro %}
+        {% with mensagem = 'O lote não rodou: ' ~ lote.erro, tom = 'erro' %}{% include "partials/lucro_presumido/aviso.html" %}{% endwith %}
+        {% else %}
+        {% set ex = lote.execucao or {} %}
+        {% with mensagem = (status[0] ~ ': ' ~ (ex.mensagem or '')), tom = status[1] if status[1] in ('ok', 'aviso', 'erro') else 'aviso' %}
+        {% include "partials/lucro_presumido/aviso.html" %}
+        {% endwith %}
+        {% if linhas %}{% include "partials/lucro_presumido/tabela_lote.html" %}{% endif %}
+        {% if admin and ex.arquivos %}
+        <div class="flex flex-wrap items-center gap-2">
+            {% for a in ex.arquivos %}
+            <a href="/api/lucro-presumido/execucao/{{ ex.id }}/arquivo/{{ loop.index0 }}" hx-boost="false"
+               class="btn btn-sm bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 gap-1.5 rounded-lg">
+                <i class="fa-solid fa-file-arrow-down"></i> {{ a.replace('\\', '/').split('/') | last }}
+            </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endif %}
+    </div>
+</section>
+{% endif %}

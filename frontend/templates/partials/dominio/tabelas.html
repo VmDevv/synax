@@ -1,0 +1,14 @@
+{# As tabelas do catálogo ODBC. Clicar numa mostra as colunas logo abaixo. #}
+{% if not t.linhas %}
+<p class="text-sm text-slate-500">Nenhuma tabela com esse filtro.</p>
+{% else %}
+{% set i_tabela = t.colunas.index('tabela') if 'tabela' in t.colunas else 1 %}
+<div class="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto">
+    {% for linha in t.linhas %}
+    <button type="button" class="px-2 py-1 rounded-md border border-slate-200 bg-white hover:border-syn-500 hover:bg-slate-50 font-mono text-[12px] text-slate-700"
+            hx-get="/api/dominio/sql/colunas" hx-vals='{"tabela": {{ linha[i_tabela] | tojson }}, "esquema": {{ esquema | tojson }}}'
+            hx-target="#dom-colunas" hx-swap="innerHTML">{{ linha[i_tabela] }}</button>
+    {% endfor %}
+</div>
+<p class="text-[12px] text-slate-500 mt-1">{{ t.total | num_br }} tabela(s). Clique numa para ver as colunas.</p>
+{% endif %}

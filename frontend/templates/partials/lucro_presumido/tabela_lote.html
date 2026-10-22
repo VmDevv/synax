@@ -1,0 +1,34 @@
+{# As empresas de um lote, como o programa gravou no histórico. `linhas` já vem
+   filtrada pela rota: o operador só vê as empresas dele. Sem apuração no
+   Domínio o valor chega vazio ou NaN — `v != v` é o teste de NaN. #}
+{% macro valor(v) -%}{% if v is none or v != v %}—{% else %}{{ v | moeda_br }}{% endif %}{%- endmacro %}
+{% set tons = {'ok': 'text-emerald-700', 'aviso': 'text-amber-700', 'erro': 'text-red-700', 'neutro': 'text-slate-500', 'info': 'text-blue-700'} %}
+<div class="overflow-x-auto border border-slate-200 rounded-lg max-h-[28rem] overflow-y-auto">
+    <table class="w-full text-[12.5px]">
+        <thead class="text-[11px] uppercase tracking-wide text-slate-500 bg-slate-50 sticky top-0">
+            <tr>
+                <th class="text-left font-bold px-3 py-2">Empresa</th>
+                <th class="text-left font-bold px-3 py-2">Situação</th>
+                <th class="text-right font-bold px-3 py-2">PIS arquivo</th>
+                <th class="text-right font-bold px-3 py-2">PIS Domínio</th>
+                <th class="text-right font-bold px-3 py-2">COFINS arquivo</th>
+                <th class="text-right font-bold px-3 py-2">COFINS Domínio</th>
+                <th class="text-left font-bold px-3 py-2">Avisos</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            {% for l in linhas %}
+            {% set s = situacoes.get(l.situacao, (l.situacao, 'neutro')) %}
+            <tr class="align-top">
+                <td class="px-3 py-1.5"><span class="tabular-nums text-slate-400">{{ l.codigo }}</span> {{ l.empresa }}</td>
+                <td class="px-3 py-1.5 font-semibold whitespace-nowrap {{ tons.get(s[1], tons['neutro']) }}">{{ s[0] }}</td>
+                <td class="px-3 py-1.5 text-right tabular-nums">{{ valor(l.pis_arquivo) }}</td>
+                <td class="px-3 py-1.5 text-right tabular-nums">{{ valor(l.pis_dominio) }}</td>
+                <td class="px-3 py-1.5 text-right tabular-nums">{{ valor(l.cofins_arquivo) }}</td>
+                <td class="px-3 py-1.5 text-right tabular-nums">{{ valor(l.cofins_dominio) }}</td>
+                <td class="px-3 py-1.5 text-slate-600 text-[12px] whitespace-pre-line min-w-[16rem]">{{ l.avisos or '' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

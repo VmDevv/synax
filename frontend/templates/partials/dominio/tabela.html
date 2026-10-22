@@ -1,0 +1,46 @@
+{# Uma tabela como o programa devolve: {"colunas", "linhas", "total"}. As
+   colunas de `dinheiro` saem em reais; o resto sai como veio (numa consulta
+   livre, "243" é código de empresa, não R$ 243,00). Data vem do programa em
+   ISO (AAAA-MM-DD, com a hora quando há) e sai aqui como DD/MM/AAAA. `linhas`
+   pode vir cortada no limite — o total diz quanto há de verdade.
+   `rotulos` troca o nome técnico da coluna pelo legível (nas notas; a consulta
+   livre mostra o nome que a pessoa escreveu) e `ocultas` tira da TELA coluna
+   sem informação — a planilha continua levando todas. #}
+{% macro data_br(v) -%}{{ v[8:10] }}/{{ v[5:7] }}/{{ v[:4] }}{{ ' ' ~ v[11:16] if v | length > 10 else '' }}{%- endmacro %}
+{% set rotulos = rotulos or {} %}
+{% set ocultas = ocultas or [] %}
+{% if titulo %}<p class="text-sm font-bold text-slate-800 mb-1.5">{{ titulo }}</p>{% endif %}
+{% if not t.linhas %}
+<p class="text-sm text-slate-500">Nenhuma linha.</p>
+{% else %}
+<div class="overflow-auto border border-slate-200 rounded-lg max-h-[30rem]">
+    <table class="w-full text-[12.5px]">
+        <thead class="text-[11px] uppercase tracking-wide text-slate-500 bg-slate-50 sticky top-0">
+            <tr>{% for c in t.colunas if c not in ocultas %}<th class="text-left font-bold px-3 py-2 whitespace-nowrap">{{ rotulos.get(c, c) }}</th>{% endfor %}</tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+            {% for linha in t.linhas %}
+            <tr class="hover:bg-slate-50">
+                {% for v in linha %}
+                {% set c = t.colunas[loop.index0] %}
+                {% if c in ocultas %}
+                {% elif v is none %}<td class="px-3 py-1.5 text-slate-300">—</td>
+                {% elif c in dinheiro and v is number %}<td class="px-3 py-1.5 text-right tabular-nums whitespace-nowrap">{{ v | moeda_br }}</td>
+                {% elif v is float %}<td class="px-3 py-1.5 text-right tabular-nums">{{ v | string | replace('.', ',') }}</td>
+                {% elif v is number %}<td class="px-3 py-1.5 text-right tabular-nums">{{ v }}</td>
+                {% elif v is string and v | length in (10, 19) and v[4:5] == '-' and v[7:8] == '-' and v[:4].isdigit() %}<td class="px-3 py-1.5 tabular-nums whitespace-nowrap">{{ data_br(v) }}</td>
+                {% else %}<td class="px-3 py-1.5 max-w-[28rem] truncate" title="{{ v }}">{{ v }}</td>{% endif %}
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% if t.total > t.linhas | length or ocultas %}
+<p class="text-[12px] text-slate-500 mt-1">
+    {% if t.total > t.linhas | length %}Mostrando {{ t.linhas | length | num_br }} de {{ t.total | num_br }} linhas.{% endif %}
+    {% if ocultas %}Colunas sem informação ocultas na tela: {% for c in ocultas %}{{ rotulos.get(c, c) }}{{ ', ' if not loop.last else '.' }}{% endfor %}{% endif %}
+    A planilha leva tudo.
+</p>
+{% endif %}
+{% endif %}

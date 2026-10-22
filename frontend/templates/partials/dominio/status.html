@@ -1,0 +1,30 @@
+{# A conexão com o Domínio. "Testar a conexão agora" também esquece a lista de
+   empresas guardada, para a tela não mostrar a de antes do teste. #}
+<div class="px-5 py-4 grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-4 items-center">
+    <div>
+        <div class="text-[11px] uppercase tracking-wide font-bold text-slate-500 flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full {{ 'bg-emerald-500' if s.ok else 'bg-red-500' }}"></span> Conexão
+        </div>
+        <div class="text-lg font-extrabold {{ 'text-slate-800' if s.ok else 'text-red-700' }}">{{ 'Conectado' if s.ok else 'Sem conexão' }}</div>
+        <div class="text-[12px] text-slate-500 break-words">
+            {% if s.ok %}{{ s.ativas | num_br }} empresas ativas · {{ s.presumidas | num_br }} presumidas no cadastro{% if s.conexao %} · {{ s.conexao }}{% endif %}
+            {% else %}{{ s.erro }}{% endif %}
+        </div>
+    </div>
+    <div>
+        <div class="text-[11px] uppercase tracking-wide font-bold text-slate-500">Acesso</div>
+        <div class="text-lg font-extrabold text-slate-800">Só leitura</div>
+        <div class="text-[12px] text-slate-500">O programa só faz SELECT. A primeira barreira tem que ser o usuário do
+            Domínio sem permissão de gravar.</div>
+    </div>
+    <div class="flex flex-col items-start gap-2">
+        <button type="button" class="btn btn-sm bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 gap-1.5 rounded-lg"
+                hx-post="/api/dominio/testar" hx-target="#dom-teste" hx-swap="innerHTML" hx-indicator="#dom-spinner-teste">
+            <i class="fa-solid fa-rotate"></i> Testar a conexão agora
+        </button>
+        <span id="dom-spinner-teste" class="htmx-indicator text-[12px] text-slate-500">
+            <span class="loading loading-spinner loading-xs"></span> Testando…
+        </span>
+    </div>
+</div>
+<div id="dom-teste" class="px-5 pb-4 empty:hidden"></div>

@@ -1,0 +1,11 @@
+{# Mensagem para a tela, sempre com 200: o htmx não troca o alvo em 4xx, e o
+   motivo iria para o lixo (ver CLAUDE.md). #}
+{% set cores = {
+    'ok': 'bg-emerald-50 border-emerald-200 text-emerald-800',
+    'aviso': 'bg-amber-50 border-amber-200 text-amber-900',
+    'erro': 'bg-red-50 border-red-200 text-red-800'} %}
+{% set icones = {'ok': 'fa-circle-check', 'aviso': 'fa-triangle-exclamation', 'erro': 'fa-circle-exclamation'} %}
+<div class="border rounded-lg px-4 py-3 text-sm flex items-start gap-2.5 {{ cores.get(tom, cores['erro']) }}" role="status">
+    <i class="fa-solid {{ icones.get(tom, icones['erro']) }} mt-0.5"></i>
+    <span class="break-words min-w-0">{{ mensagem }}</span>
+</div>

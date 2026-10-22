@@ -1,0 +1,57 @@
+{# Consulta livre: para quem conhece as tabelas. Uma consulta por vez, só
+   SELECT/WITH — a trava é do programa. :empresa, :inicio e :fim vêm da
+   empresa e do mês escolhidos no alto. #}
+<div class="px-5 py-3 border-b border-slate-200 bg-amber-50 text-[12.5px] text-amber-900 flex items-start gap-2">
+    <i class="fa-solid fa-triangle-exclamation mt-0.5"></i>
+    <span>Só leitura, mas de <strong>qualquer tabela e qualquer empresa</strong> do Domínio. Cada consulta fica
+        registrada no log do Synax com quem a fez.</span>
+</div>
+<div class="p-5 space-y-4">
+    <details class="border border-slate-200 rounded-lg">
+        <summary class="px-4 py-2.5 cursor-pointer text-sm font-semibold text-slate-700 flex items-center gap-2">
+            <i class="fa-solid fa-chevron-right text-[10px] text-slate-400"></i> Explorador de tabelas
+        </summary>
+        <form class="p-4 border-t border-slate-200 space-y-3" hx-get="/api/dominio/sql/tabelas" hx-target="#dom-tabelas"
+              hx-swap="innerHTML" hx-indicator="#dom-spinner-tabelas">
+            <div class="flex flex-wrap items-end gap-3">
+                <label class="text-[12px] font-semibold text-slate-600">Esquema
+                    <input type="text" name="esquema" value="bethadba" class="input input-bordered input-sm w-36 text-sm rounded-lg block mt-1">
+                </label>
+                <label class="text-[12px] font-semibold text-slate-600">Filtrar tabelas por nome
+                    <input type="text" name="filtro" value="ef" class="input input-bordered input-sm w-56 text-sm rounded-lg block mt-1">
+                </label>
+                <button type="submit" class="btn btn-sm bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg">
+                    <i class="fa-solid fa-table-list mr-1"></i> Listar tabelas
+                </button>
+                <span id="dom-spinner-tabelas" class="htmx-indicator text-[12px] text-slate-500">
+                    <span class="loading loading-spinner loading-xs"></span></span>
+            </div>
+            <div id="dom-tabelas"></div>
+            <div id="dom-colunas"></div>
+        </form>
+    </details>
+
+    <form class="space-y-3" hx-post="/api/dominio/sql/executar" hx-target="#dom-sql-resultado" hx-swap="innerHTML"
+          hx-include="#dom-empresa, #dom-competencia" hx-indicator="#dom-spinner-sql" hx-boost="false">
+        <label class="block text-[13px] font-semibold text-slate-700">Partir de uma consulta pronta
+            <select id="dom-sql-pronta" class="select select-bordered select-sm w-full max-w-md text-sm rounded-lg block mt-1">
+                <option value="" data-sql="">— em branco —</option>
+                {% for c in prontas %}<option value="{{ c.nome }}" data-sql="{{ c.sql }}">{{ c.nome }}</option>{% endfor %}
+            </select>
+        </label>
+        <textarea id="dom-sql" name="sql" rows="12" maxlength="{{ limite }}" spellcheck="false"
+                  placeholder="SELECT codi_emp, nome_emp FROM bethadba.geempre WHERE codi_emp = :empresa"
+                  class="textarea textarea-bordered w-full font-mono text-[12.5px] leading-relaxed rounded-lg"></textarea>
+        <div class="flex flex-wrap items-center gap-3">
+            <button type="submit" class="btn bg-syn-700 hover:bg-syn-800 text-white font-bold px-6 shadow-sm">
+                <i class="fa-solid fa-play mr-1"></i> Executar consulta
+            </button>
+            <span id="dom-spinner-sql" class="htmx-indicator text-sm text-slate-500">
+                <span class="loading loading-spinner loading-sm"></span> Consultando o Domínio…
+            </span>
+            <span class="text-[12px] text-slate-500">Parâmetros: <code>:empresa</code>, <code>:inicio</code> e
+                <code>:fim</code> (a empresa e o mês do alto da página).</span>
+        </div>
+    </form>
+    <div id="dom-sql-resultado"></div>
+</div>

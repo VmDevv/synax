@@ -82,6 +82,14 @@ def assert_internal(profile: UserProfile) -> UserProfile:
     return profile
 
 
+def pode_sql_dominio(profile: UserProfile) -> bool:
+    """Consulta livre (SQL) e explorador de tabelas do Domínio: o admin sempre; o operador só com a marca que um
+    admin dá na edição do usuário. A consulta lê qualquer empresa do Domínio — por isso não vem junto com o papel."""
+    if profile.role == 'admin':
+        return True
+    return profile.role == 'operador' and bool(getattr(profile, 'pode_sql_dominio', False))
+
+
 def get_task_or_403(db: Session, profile: UserProfile, task_id: str):
     """Carrega uma AuditTask garantindo que ela pertence a um tenant do perfil.
 

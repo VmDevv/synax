@@ -1,0 +1,15 @@
+{# A empresa do alto da página. Já vem filtrada pelo que este usuário pode
+   ver; cada aba confere de novo no servidor. #}
+{% if empresas %}
+<select id="dom-empresa" name="codi_emp" data-busca="dominio" data-busca-placeholder="Buscar por nome, código ou CNPJ…"
+        class="select select-bordered w-full font-medium text-sm rounded-lg">
+    <option value="" selected>Escolha a empresa…</option>
+    {% for e in empresas %}
+    <option value="{{ e.codi_emp }}">{{ e.codi_emp }} — {{ e.nome }} ({{ e.cnpj_formatado }}){% if e.presumido %} · presumida{% endif %}{% if admin and not e.tenant %} · sem cadastro no Synax{% endif %}</option>
+    {% endfor %}
+</select>
+{% else %}
+<input type="hidden" id="dom-empresa" name="codi_emp" value="">
+<p class="text-sm text-slate-600">Nenhuma empresa do Domínio na sua lista.
+    {% if not admin %}As empresas aparecem aqui pelo CNPJ da matriz, quando estão vinculadas ao seu usuário.{% endif %}</p>
+{% endif %}

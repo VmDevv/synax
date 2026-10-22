@@ -23,9 +23,16 @@ def destino_seguro(caminho: str) -> str:
     """Só caminhos internos: um `next` absoluto viraria redirecionamento aberto —
     um link do nosso domínio que joga o usuário em outro site, prato feito para
     phishing. Volta para a raiz em qualquer caso duvidoso.
+
+    E só TELA: `/api/` e `/static/` não são para onde se volta depois de entrar.
+    Em 21/10/2026 o Sandro "não conseguia fazer login": a aba dele tinha
+    guardado `/login?next=/api/validar-sped/<id>/csv` (a sessão expirou no
+    clique do download), e a cada login a senha era aceita, o CSV baixava e a
+    tela de login continuava na frente.
     """
     if (not caminho or not caminho.startswith("/") or caminho.startswith("//")
-            or "\\" in caminho or caminho.startswith("/login")):
+            or "\\" in caminho or caminho.startswith("/login")
+            or caminho.startswith(("/api/", "/static/"))):
         return "/"
     return caminho
 

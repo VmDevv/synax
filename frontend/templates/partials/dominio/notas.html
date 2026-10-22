@@ -1,0 +1,35 @@
+{# As notas do mês: o resumo por CFOP e as notas (as primeiras 2.000 na tela; a
+   planilha leva todas). O "Baixar em Excel" fica no cabeçalho: no pé, depois
+   de uma tabela de centenas de linhas, ninguém o acha. #}
+<section class="syn-card overflow-hidden">
+    <div class="px-5 py-3 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
+        <h3 class="font-bold text-[15px] text-slate-800">{{ empresa.nome }} — {{ rotulo_competencia }}</h3>
+        <div class="flex flex-wrap items-center gap-1.5 text-[12px] font-semibold">
+            <span class="px-2 py-0.5 rounded-full border border-slate-200 bg-white text-slate-600">{{ r.saidas | num_br }} linha(s) de saída</span>
+            <span class="px-2 py-0.5 rounded-full border border-slate-200 bg-white text-slate-600">{{ r.entradas | num_br }} linha(s) de entrada</span>
+            {% if processo %}
+            <a href="/api/dominio/arquivo/{{ processo }}" hx-boost="false"
+               class="btn btn-sm bg-emerald-600 hover:bg-emerald-700 text-white border-none gap-1.5 shadow-2xs rounded-lg ml-1">
+                <i class="fa-solid fa-file-excel"></i> Baixar em Excel
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    <div class="p-5 space-y-4">
+        {% if not r.notas.total %}
+        <p class="text-sm text-slate-600">Nenhuma nota de entrada ou saída em {{ rotulo_competencia }} nesta empresa.</p>
+        {% else %}
+        {% with t = r.por_cfop, titulo = 'Por CFOP', ocultas = [] %}{% include "partials/dominio/tabela.html" %}{% endwith %}
+        <details class="border border-slate-200 rounded-lg">
+            <summary class="px-4 py-2.5 cursor-pointer text-sm font-semibold text-slate-700 flex items-center gap-2">
+                <i class="fa-solid fa-chevron-right text-[10px] text-slate-400"></i> Notas ({{ r.notas.total | num_br }} linhas)
+            </summary>
+            <div class="p-3 border-t border-slate-200">
+                {% with t = r.notas, titulo = '', ocultas = ocultas_notas %}{% include "partials/dominio/tabela.html" %}{% endwith %}
+            </div>
+        </details>
+        <p class="text-[12px] text-slate-500">Para recalcular o PIS/COFINS com estas notas: abra a Conferência do
+            programa completo com o SPED da empresa e, na aba Recálculo, use <strong>Buscar as notas no Domínio</strong>.</p>
+        {% endif %}
+    </div>
+</section>

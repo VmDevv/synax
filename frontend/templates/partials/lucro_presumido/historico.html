@@ -1,0 +1,47 @@
+{# Os últimos lotes do Presumido — o histórico do PROGRAMA, o mesmo da tela de
+   lá: daqui, de lá ou da automação mensal. A planilha e o .zip têm todas as
+   empresas do lote, então só o admin baixa. #}
+{% set tons = {'ok': 'text-emerald-700 bg-emerald-50', 'aviso': 'text-amber-800 bg-amber-50', 'erro': 'text-red-700 bg-red-50',
+               'info': 'text-blue-700 bg-blue-50', 'neutro': 'text-slate-600 bg-slate-100'} %}
+<div class="px-5 py-2.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-2">
+    <h3 class="font-bold text-sm text-slate-800 flex items-center gap-2">
+        <i class="fa-solid fa-clock-rotate-left text-syn-600"></i> Últimos lotes
+    </h3>
+    <button type="button" class="text-[12px] font-semibold text-syn-700 hover:underline"
+            hx-get="/api/lucro-presumido/historico" hx-target="closest section" hx-swap="innerHTML">
+        <i class="fa-solid fa-rotate mr-0.5"></i> Atualizar
+    </button>
+</div>
+{% if not itens %}
+<p class="px-5 py-6 text-sm text-slate-500">Nenhum lote ainda{% if not admin %} com empresas suas{% endif %}.</p>
+{% else %}
+<div class="divide-y divide-slate-100">
+    {% for item in itens %}
+    {% set ex = item.ex %}
+    <details class="group">
+        <summary class="px-5 py-2.5 cursor-pointer flex flex-wrap items-center gap-x-3 gap-y-1 hover:bg-slate-50">
+            <i class="fa-solid fa-chevron-right text-[10px] text-slate-400 group-open:rotate-90 transition-transform"></i>
+            <span class="font-semibold text-sm text-slate-800">{{ ex.titulo }}</span>
+            <span class="px-2 py-0.5 rounded-full text-[11px] font-bold {{ tons.get(item.status[1], tons['neutro']) }}">{{ item.status[0] }}</span>
+            <span class="text-[12px] text-slate-500">{{ (ex.inicio or '')[:16].replace('T', ' ') }} · {{ ex.origem }}</span>
+        </summary>
+        <div class="px-5 pb-4 pt-1 space-y-3">
+            {% if ex.mensagem %}<p class="text-[13px] text-slate-700">{{ ex.mensagem }}</p>{% endif %}
+            {% if item.linhas %}
+            {% with linhas = item.linhas %}{% include "partials/lucro_presumido/tabela_lote.html" %}{% endwith %}
+            {% endif %}
+            {% if item.arquivos %}
+            <div class="flex flex-wrap items-center gap-2">
+                {% for nome in item.arquivos %}
+                <a href="/api/lucro-presumido/execucao/{{ ex.id }}/arquivo/{{ loop.index0 }}" hx-boost="false"
+                   class="btn btn-xs bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 gap-1 rounded-lg">
+                    <i class="fa-solid fa-file-arrow-down"></i> {{ nome }}
+                </a>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </details>
+    {% endfor %}
+</div>
+{% endif %}

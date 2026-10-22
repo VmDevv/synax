@@ -44,7 +44,11 @@ class UserProfile(Base):
     # (`services/novidades.py`). No banco, não no navegador: o escritório usa
     # mais de um computador. NULO = nunca viu nenhuma.
     novidades_vistas_ate = Column(String(10), nullable=True)
-    
+    # Consulta livre (SQL) e explorador de tabelas na página Domínio. O admin sempre pode; o operador só com esta
+    # marca, dada por um admin na edição do usuário (pedido do Sandro em 22/10/2026). Não é detalhe: a consulta lê
+    # qualquer tabela do Domínio, de qualquer empresa, e passa por cima da separação por empresa do operador.
+    pode_sql_dominio = Column(Boolean, nullable=False, default=False, server_default="false")
+
     from sqlalchemy.orm import relationship
     # `lazy="joined"`: as empresas do operador vêm JUNTO com o perfil, numa
     # consulta só. Com o carregamento preguiçoso (o padrão), a segunda consulta

@@ -125,8 +125,11 @@ def _recentes(db: Session) -> list[dict]:
 
 
 def _recebidos(db: Session, profile) -> list[dict]:
+    """A tabela por empresa e mês — só o que chegou por E-MAIL. O que o SIEG
+    baixou aparece no SPED de cada um; contado aqui também, cada XML ficava em
+    dois lugares da tela (14/10/2026)."""
     permitidos = allowed_tenant_ids(profile)
-    grupos = recebidos.por_empresa(db, permitidos)
+    grupos = recebidos.por_empresa(db, permitidos, so_email=True)
     nomes = {str(t.id): t.name for t in db.query(Tenant.id, Tenant.name).all()}
     for g in grupos:
         g["empresa"] = nomes.get(str(g["tenant_id"]), "(empresa removida)")
@@ -141,11 +144,17 @@ def tela(request: Request, db: Session = Depends(get_db), profile=Depends(get_pr
     admin = profile.role == "admin"
     permitidos = allowed_tenant_ids(profile)
     nomes = {str(t.id): t.name for t in db.query(Tenant.id, Tenant.name).all()}
-    speds = [{"s": s, "empresa": nomes.get(s.tenant_id, "(empresa removida)")}
-             for s in recebidos.speds_recebidos(db, permitidos)]
+    lista = recebidos.speds_recebidos(db, permitidos)
+    contagem = recebidos.xmls_dos_speds(db, lista)
+    speds = [{"s": s, "empresa": nomes.get(s.tenant_id, "(empresa removida)"),
+              "guardados": contagem[s.id][0], "notas": contagem[s.id][1],
+              "andando": s.sieg_status in recebidos.SIEG_ANDANDO}
+             for s in lista]
     contexto = {"request": request, "user_profile": profile, "admin": admin,
                 "recebidos": _recebidos(db, profile), "rotulo_situacao": ROTULO_SITUACAO,
                 "speds": speds, "rotulo_mes": rotulo_mes,
+                "speds_sem_xml": sum(1 for x in speds
+                                     if not x["andando"] and x["guardados"] == 0),
                 "dias_retencao": leitura.armazenamento.DIAS_RETENCAO}
     if admin:
         contexto.update(leitura_estado=_estado_leitura(db), resumo=_ultimo_resumo(db),
@@ -459,15 +468,29 @@ def excluir_sped(sped_id: str, db: Session = Depends(get_db), profile=Depends(ge
     return _recarregar()
 
 
+@router.post("/emails/speds/excluir-sem-xml", response_class=HTMLResponse)
+def excluir_speds_sem_xml(db: Session = Depends(get_db), profile=Depends(get_profile)):
+    """Tira de uma vez os SPEDs que não têm nenhum XML guardado (pedido do
+    Sandro em 14/10/2026: depois da limpeza dos XMLs, 70 SPEDs sobraram vazios
+    e excluir um por um não fazia sentido). A lista é refeita aqui, no clique —
+    não vem da tela —, e SPED com download do SIEG andando não entra."""
+    assert_internal(profile)
+    for sped in recebidos.speds_sem_xml(db, allowed_tenant_ids(profile)):
+        recebidos.excluir_sped(db, sped, commit=False)
+    db.commit()
+    return _recarregar()
+
+
 @router.post("/emails/xmls/excluir", response_class=HTMLResponse)
 def excluir_xmls(tenant_id: str = Form(""), competencia: str = Form(""),
                  db: Session = Depends(get_db), profile=Depends(get_profile)):
-    """Tira os XMLs guardados de uma empresa num mês."""
+    """Tira os XMLs que chegaram por e-mail de uma empresa num mês — os que a
+    linha da tela conta. Os baixados do SIEG saem com o SPED deles."""
     assert_internal(profile)
     if not tenant_id:
         return _recarregar()
     tenant_id = assert_tenant_access(profile, tenant_id)
-    recebidos.excluir_xmls(db, tenant_id, competencia.strip() or None)
+    recebidos.excluir_xmls(db, tenant_id, competencia.strip() or None, so_email=True)
     return _recarregar()
 
 
@@ -494,7 +517,8 @@ def baixar_zip(sped: str = "", tenant_id: str = "", competencia: str = "",
         tenant_id, competencia = registro.tenant_id, registro.competencia or ""
     else:
         tenant_id = assert_tenant_access(profile, tenant_id)
-    arquivos = recebidos.arquivos_para_zip(db, tenant_id, registro, competencia or None)
+    arquivos = recebidos.arquivos_para_zip(db, tenant_id, registro, competencia or None,
+                                           so_email=registro is None)
     if not arquivos:
         raise HTTPException(status_code=404, detail="Nenhum arquivo guardado para este pacote.")
     empresa = db.query(Tenant.name).filter(Tenant.id == _uuid_ou(tenant_id)).first()

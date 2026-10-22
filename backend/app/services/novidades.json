@@ -16,6 +16,30 @@
       "link": "/gerar-sped",
       "rotulo_link": "Abrir Gerar SPED",
       "papeis": ["admin", "operador"]
+    },
+    {
+      "data": "2026-10-22",
+      "titulo": "Lucro Presumido no Synax",
+      "texto": "A EFD-Contribuições do Presumido agora sai pelo próprio Synax, em Ferramentas SPED → Lucro Presumido. Escolha a empresa e o mês: o arquivo vem do Domínio já validado e conferido com a apuração, pronto para baixar ou salvar na pasta. Dá para gerar várias empresas de uma vez na aba Lote.",
+      "link": "/lucro-presumido",
+      "rotulo_link": "Abrir Lucro Presumido",
+      "papeis": ["admin", "operador"]
+    },
+    {
+      "data": "2026-10-22",
+      "titulo": "Domínio no Synax",
+      "texto": "Em Ferramentas SPED → Domínio dá para ver, sem sair do Synax, o regime de PIS/COFINS e a apuração gravada de uma empresa, as notas do mês por CFOP (com Excel) e a lista de empresas. É só leitura: nada ali grava no Domínio.",
+      "link": "/dominio",
+      "rotulo_link": "Abrir Domínio",
+      "papeis": ["admin", "operador"]
+    },
+    {
+      "data": "2026-10-22",
+      "titulo": "Consulta SQL do Domínio por usuário",
+      "texto": "Na edição do usuário há uma caixa nova: Consulta livre (SQL) do Domínio. Marque só para o operador que precisa: a consulta lê qualquer empresa do Domínio. O admin sempre pode.",
+      "link": "/admin",
+      "rotulo_link": "Abrir Administração",
+      "papeis": ["admin"]
     }
   ]
 }

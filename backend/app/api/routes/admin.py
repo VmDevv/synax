@@ -17,6 +17,8 @@ from ...domain.models.rules import CfopCreditRule, CfopClassification, CteCfopCl
 from ...domain.models.audit import AuditTask
 from ...services import ficha_empresa as ficha_svc
 from ...services import erros_sistema
+# Importado no topo de propósito: o retrato do código é tirado na subida.
+from ...core import reinicio
 from ...infrastructure.auth.supabase_client import get_supabase_admin_client, get_supabase_client
 from ...core.rate_limit import limitar
 from ...api.dependencies.auth import get_current_user
@@ -376,6 +378,7 @@ def edit_user(
     role: str = Form("cliente"),
     email: str = Form(""),
     tenant_ids: List[str] = Form(default=[]),
+    pode_sql_dominio: str = Form(""),
     db: Session = Depends(get_db),
     admin_profile: UserProfile = Depends(require_admin),
 ):
@@ -432,6 +435,9 @@ def edit_user(
         profile.name = name
         profile.role = role
         profile.tenant_id = valid_tenants[0].id if valid_tenants else None
+        # Só o operador guarda a marca: o admin sempre pode (core/authz.py, pode_sql_dominio) e o cliente nunca —
+        # a marca esquecida num cliente promovido depois a operador não pode valer sozinha.
+        profile.pode_sql_dominio = role == 'operador' and pode_sql_dominio == '1'
 
         # Revínculo completo: apaga os antigos e grava a seleção atual.
         db.query(UserTenant).filter(UserTenant.user_id == uid).delete(synchronize_session=False)
@@ -1771,6 +1777,20 @@ def listar_erros(request: Request, db: Session = Depends(get_db)):
         "resumo": erros_sistema.resumo(),
         "erros": erros_sistema.listar(),
         "do_log": erros_sistema.erros_do_log(),
+    })
+
+
+@router.get("/reinicio-pendente", response_class=HTMLResponse)
+def reinicio_pendente(request: Request):
+    """Aviso no topo da Administração: código gravado depois que o servidor
+    subiu e que só vale com reinício. Vazio quando não há nada pendente."""
+    pendentes = reinicio.alterados()
+    if not pendentes:
+        return HTMLResponse("")
+    return templates.TemplateResponse(request, "partials/admin/reinicio_pendente.html", {
+        "request": request,
+        "pendentes": pendentes,
+        "subida": reinicio.subida(),
     })
 
 

@@ -1,0 +1,45 @@
+{# Regime de PIS/COFINS no cadastro e a apuração gravada no mês (efsdoimp).
+   Linha zerada é apuração ainda não calculada, não "apurou zero". #}
+{% macro gravado(tributo) -%}
+{% set a = cad.apuracao | selectattr('tributo', 'equalto', tributo) | list | first %}
+{% if not a %}sem apuração gravada
+{% elif a.a_recolher %}R$ {{ a.a_recolher | moeda_br }} a recolher
+{% elif a.saldo_credor %}saldo credor R$ {{ a.saldo_credor | moeda_br }}
+{% else %}zerado{% endif %}
+{%- endmacro %}
+{% if vazio %}
+<p class="px-5 py-6 text-sm text-slate-500">Escolha a empresa acima para ver o regime de PIS/COFINS do cadastro e a
+    apuração que o Domínio gravou no mês.</p>
+{% elif cad is none %}
+<div class="p-5">
+    {% with mensagem = 'O CNPJ desta empresa não foi encontrado no cadastro do Domínio.', tom = 'aviso' %}
+    {% include "partials/lucro_presumido/aviso.html" %}{% endwith %}
+</div>
+{% else %}
+<div class="px-5 py-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+    <div class="border border-slate-200 rounded-xl px-4 py-3">
+        <div class="text-[11px] uppercase tracking-wide font-bold text-slate-500">Cadastro</div>
+        <div class="text-lg font-extrabold text-slate-800">Empresa {{ cad.codi_emp }}</div>
+        <div class="text-[12px] text-slate-500">{{ cad.nome }} · PIS/COFINS no cadastro: <strong>{{ cad.regime }}</strong></div>
+    </div>
+    {% for tributo, nota in [('PIS', 'Apuração do Domínio (efsdoimp).'),
+                             ('COFINS', 'Linha zerada é apuração ainda não calculada, não "apurou zero".')] %}
+    <div class="border rounded-xl px-4 py-3 {{ 'border-slate-200' if cad.tem_apuracao else 'border-amber-200 bg-amber-50' }}">
+        <div class="text-[11px] uppercase tracking-wide font-bold text-slate-500">{{ tributo }} gravad{{ 'a' if tributo == 'COFINS' else 'o' }} · {{ rotulo_competencia }}</div>
+        <div class="text-lg font-extrabold text-slate-800">{{ gravado(tributo) }}</div>
+        <div class="text-[12px] text-slate-500">{{ nota }}</div>
+    </div>
+    {% endfor %}
+</div>
+<div class="px-5 pb-4 flex flex-wrap items-center gap-2 text-[13px]">
+    <span class="font-semibold text-slate-700">O que fazer com esta empresa:</span>
+    {# Vai já com a empresa e o mês escolhidos aqui. #}
+    <a href="/lucro-presumido?codi_emp={{ cad.codi_emp }}&competencia={{ competencia }}" class="btn btn-xs bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 gap-1 rounded-lg">
+        <i class="fa-solid fa-scale-balanced"></i> Gerar a EFD do Lucro Presumido
+    </a>
+    <a href="http://{{ request.url.hostname }}:8782/" target="_blank" rel="noopener" hx-boost="false"
+       class="btn btn-xs bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 gap-1 rounded-lg">
+        <i class="fa-solid fa-arrow-up-right-from-square"></i> Conferir um SPED do Lucro Real (programa completo)
+    </a>
+</div>
+{% endif %}

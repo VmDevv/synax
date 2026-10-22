@@ -1,0 +1,12 @@
+{# O resultado da consulta livre: as primeiras 500 linhas na tela; a planilha
+   leva todas e só baixa quem fez a consulta. #}
+<div class="space-y-3">
+    <p class="text-sm font-bold text-slate-800">{{ t.total | num_br }} linha(s)</p>
+    {% with dinheiro = [], titulo = '' %}{% include "partials/dominio/tabela.html" %}{% endwith %}
+    {% if processo %}
+    <a href="/api/dominio/arquivo/{{ processo }}" hx-boost="false"
+       class="btn btn-sm bg-emerald-600 hover:bg-emerald-700 text-white border-none gap-1.5 shadow-2xs rounded-lg">
+        <i class="fa-solid fa-file-excel"></i> Baixar em Excel
+    </a>
+    {% endif %}
+</div>

@@ -1,0 +1,58 @@
+{# O formulário do lote. "Todas" manda a lista que está na tela (já filtrada
+   pelo usuário); "Escolher" manda as marcadas — e a rota confere as duas. #}
+<form id="lp-form-lote" hx-post="/api/lucro-presumido/lote" hx-target="#lp-andamento" hx-swap="innerHTML"
+      hx-include="#lp-competencia" hx-boost="false" class="p-5 space-y-4">
+    <input type="hidden" name="todas" value="{{ '1' if todas else '' }}">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+        <div class="flex flex-wrap items-center gap-4 text-sm font-semibold text-slate-800">
+            <label class="flex items-center gap-1.5 cursor-pointer">
+                <input type="radio" name="quais" value="todas" checked class="radio radio-xs radio-primary"
+                       onchange="document.getElementById('lp-escolher').hidden = true">
+                Todas as {{ empresas | length }} da lista
+            </label>
+            <label class="flex items-center gap-1.5 cursor-pointer">
+                <input type="radio" name="quais" value="escolhidas" class="radio radio-xs radio-primary"
+                       onchange="document.getElementById('lp-escolher').hidden = false">
+                Escolher
+            </label>
+        </div>
+        {% include "partials/lucro_presumido/filtro_empresas.html" %}
+    </div>
+
+    <div id="lp-escolher" hidden class="max-h-72 overflow-y-auto border border-slate-200 rounded-lg">
+        <table class="w-full text-[13px]">
+            <thead class="text-[11px] uppercase tracking-wide text-slate-500 bg-slate-50 sticky top-0">
+                <tr>
+                    <th class="w-8 px-3 py-2"><input type="checkbox" data-marcar-todas title="Marcar todas"
+                               class="checkbox checkbox-xs checkbox-primary"></th>
+                    <th class="text-left font-bold px-2 py-2">Código</th>
+                    <th class="text-left font-bold px-2 py-2">Empresa</th>
+                    <th class="text-left font-bold px-2 py-2">CNPJ</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                {% for e in empresas %}
+                <tr class="hover:bg-slate-50">
+                    <td class="px-3 py-1.5"><input type="checkbox" name="codigos" value="{{ e.codi_emp }}"
+                               class="checkbox checkbox-xs checkbox-primary"></td>
+                    <td class="px-2 py-1.5 tabular-nums">{{ e.codi_emp }}</td>
+                    <td class="px-2 py-1.5">{{ e.nome }}{% if admin and not e.tenant %} <span class="text-[11px] text-slate-400">· sem cadastro no Synax</span>{% endif %}</td>
+                    <td class="px-2 py-1.5 tabular-nums text-slate-500">{{ e.cnpj_formatado }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-3">
+        <button type="submit" {% if not empresas %}disabled{% endif %}
+                class="btn bg-syn-700 hover:bg-syn-800 text-white font-bold px-6 shadow-sm">
+            <i class="fa-solid fa-play mr-1"></i> Gerar o lote
+        </button>
+        <span class="text-[12px] text-slate-500">
+            Roda em segundo plano: pode sair da página que ele continua. Os arquivos vão para a pasta configurada no
+            programa, em <code>AAAA-MM</code>, com a planilha de resumo; o que não passar na validação fica em
+            <code>_com_erro</code>.
+        </span>
+    </div>
+</form>
