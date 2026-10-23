@@ -48,6 +48,22 @@
       "link": "/validar-sped",
       "rotulo_link": "Abrir Validar SPED",
       "papeis": ["admin", "operador"]
+    },
+    {
+      "data": "2026-10-24",
+      "titulo": "Validar SPED assina com o e-CNPJ",
+      "texto": "Com \"Assinar com o e-CNPJ\" marcado na aba Validar SPED, o arquivo que o PVA aprovar já sai assinado com o certificado do escritório, pronto para baixar. O admin também pode criar a rotina \"Validar e assinar SPED\" em Automações: no dia e na hora escolhidos, ela valida e assina os arquivos de uma pasta e guarda a cópia assinada à parte, sem mexer no original. Transmitir continua no PVA ou no Receitanet.",
+      "link": "/validar-sped",
+      "rotulo_link": "Abrir Validar SPED",
+      "papeis": ["admin", "operador"]
+    },
+    {
+      "data": "2026-10-24",
+      "titulo": "Validar SPED: EFD-Contribuições e correção",
+      "texto": "A aba Validar SPED agora valida também a EFD-Contribuições, no PVA dela: envie o arquivo e o Synax reconhece o tipo sozinho; os botões no alto trocam a lista do mês entre EFD ICMS/IPI e EFD-Contribuições. Quando o PVA aponta espaço sobrando, quebra de linha ou contagem de registros errada, \"Ver o que dá para corrigir\" mostra o antes e o depois, e \"Aplicar e validar de novo no PVA\" confere a cópia corrigida. Os outros erros vêm com o que fazer; valor, apuração e cadastro nunca mudam sozinhos.",
+      "link": "/validar-sped",
+      "rotulo_link": "Abrir Validar SPED",
+      "papeis": ["admin", "operador"]
     }
   ]
 }
