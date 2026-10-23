@@ -253,6 +253,14 @@
                                     {% if h.certificados_vencendo %}<span class="text-amber-700 font-semibold whitespace-nowrap" title="Certificados vencendo em até 30 dias"><i class="fa-solid fa-certificate text-[10px] mr-0.5"></i>{{ h.certificados_vencendo }}</span>{% endif %}
                                 </span>
                                 {% endif %}
+                            {% elif ht == "validar_sped" %}
+                                {# Arquivo por arquivo: ok = aprovado/assinado, falha = reprovado ou sem resposta,
+                                   adiadas = pulado com motivo (EFD-Contribuições, empresa fora, já assinado). #}
+                                {% if h.status == "rodando" %}
+                                <span class="tabular-nums whitespace-nowrap">{{ h.empresas_ok + h.empresas_falha + h.empresas_adiadas }} de {{ h.empresas_total }} arquivos no PVA…</span>
+                                {% else %}
+                                <span class="block max-w-[380px] truncate" title="{{ h.mensagem or '' }}">{{ h.mensagem or "—" }}</span>
+                                {% endif %}
                             {% elif h.status == "rodando" %}
                                 <span class="text-slate-400">Montando o informativo…</span>
                             {% else %}

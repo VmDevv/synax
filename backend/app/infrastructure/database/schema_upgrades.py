@@ -104,6 +104,14 @@ COLUNAS_NOVAS = {
         ("concluida_em", "TIMESTAMP"),
         ("py_erros", "INTEGER"),
         ("py_advertencias", "INTEGER"),
+        # Mesmo dia, à tarde: assinar no PVA (aba e rotina automática). NULO = ninguém pediu assinatura.
+        ("assinar", "BOOLEAN"),
+        ("assinado", "BOOLEAN"),
+        ("assinatura_motivo", "VARCHAR(500)"),
+        ("assinatura_titular", "VARCHAR(255)"),
+        ("assinado_em", "TIMESTAMP"),
+        ("arquivo_assinado", "VARCHAR(500)"),
+        ("origem", "VARCHAR(10)"),
     ],
     "nfse_automacao_execucoes": [
         ("relatorio", "VARCHAR(500)"),

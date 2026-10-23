@@ -52,14 +52,47 @@
                     <input type="file" name="sped_file" accept=".txt" required
                            class="file-input file-input-bordered w-full">
                     <p class="text-[11px] text-slate-500 mt-1">
-                        O arquivo não é alterado e só fica no servidor até o PVA responder; fica o relatório, para baixar em CSV.
+                        O seu arquivo não é alterado e só fica no servidor até o PVA responder; ficam o relatório em CSV e, se assinado, a cópia assinada (7 dias).
                     </p>
                 </div>
             </div>
 
+            {# O que fazer com o arquivo. Validar é sempre; Assinar só com o e-CNPJ cadastrado e só se o PVA aprovar;
+               Transmitir fica desligado: o envio à Receita não tem volta e não está ligado no Synax. #}
+            <fieldset class="mb-5">
+                <legend class="text-[14px] font-bold text-slate-800 mb-2">
+                    <i class="fa-solid fa-list-ol text-syn-600 text-sm mr-1"></i> O que fazer com o arquivo
+                </legend>
+                <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+                    <label class="flex items-center gap-2 text-slate-700">
+                        <input type="checkbox" checked disabled class="checkbox checkbox-sm">
+                        Validar no PVA
+                    </label>
+                    <label class="flex items-center gap-2 {% if not certificado or certificado.vencido %}text-slate-400{% else %}text-slate-700{% endif %}">
+                        <input type="checkbox" name="assinar" value="1" class="checkbox checkbox-sm checkbox-primary"
+                               {% if not certificado or certificado.vencido %}disabled{% endif %}>
+                        Assinar com o e-CNPJ
+                    </label>
+                    <label class="flex items-center gap-2 text-slate-400" title="O envio à Receita não está ligado no Synax">
+                        <input type="checkbox" disabled class="checkbox checkbox-sm">
+                        Transmitir
+                    </label>
+                </div>
+                <p class="text-[11px] text-slate-500 mt-1.5">
+                    {% if certificado and not certificado.vencido %}
+                    Assina com o e-CNPJ de <strong>{{ certificado.titular }}</strong>{% if certificado.validade %} (válido até {{ certificado.validade.strftime('%d/%m/%Y') }}){% endif %}, só se o PVA aprovar o arquivo.
+                    {% elif certificado %}
+                    O certificado de assinatura cadastrado venceu: o administrador troca em Administração → Configurações.
+                    {% else %}
+                    Para assinar, o administrador cadastra o e-CNPJ do escritório em Administração → Configurações.
+                    {% endif %}
+                    Transmitir está desligado: o envio à Receita não está ligado no Synax — transmita pelo PVA ou pelo Receitanet.
+                </p>
+            </fieldset>
+
             <div class="flex items-center gap-3 flex-wrap">
                 <button type="submit" class="btn bg-syn-700 hover:bg-syn-800 text-white font-bold px-6 shadow-sm">
-                    <i class="fa-solid fa-magnifying-glass-chart mr-1"></i> Validar no PVA
+                    <i class="fa-solid fa-magnifying-glass-chart mr-1"></i> Enviar ao PVA
                 </button>
                 <span id="spinner-validar" class="htmx-indicator text-sm text-slate-500">
                     <span class="loading loading-spinner loading-sm"></span>
@@ -102,8 +135,10 @@
             servidor do escritório: o resultado, as mensagens, a linha, o campo e o valor esperado são os mesmos
             que a tela do PVA mostraria. O PVA valida um arquivo por vez — se outra pessoa estiver validando, o
             seu entra na fila e esta página acompanha sozinha (cada arquivo leva de 10 a 40 segundos).
-            <strong>EFD-Contribuições ainda não</strong>: o PVA dela não está instalado no servidor. Validar não
-            assina nem transmite.
+            <strong>EFD-Contribuições ainda não</strong>: o PVA dela não está instalado no servidor. Com
+            <strong>Assinar</strong> marcado, o PVA assina com o e-CNPJ do escritório só o arquivo que aprovar, e a
+            cópia assinada fica para baixar. Transmitir não está ligado no Synax. Para fazer isso sozinho todo mês,
+            há a rotina "Validar e assinar SPED" em Administração → Automações.
         </p>
     </section>
 

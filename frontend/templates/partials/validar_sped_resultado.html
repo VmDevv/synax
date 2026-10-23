@@ -18,7 +18,7 @@
         <strong>Na fila do PVA.</strong>
         {% if na_frente %}{{ na_frente }} arquivo(s) na frente deste — o PVA valida um por vez.{% else %}É o próximo.{% endif %}
         {% else %}
-        <strong>O PVA está validando o arquivo</strong> há {{ segundos }} s.
+        <strong>O PVA está {% if assinar %}validando e assinando{% else %}validando{% endif %} o arquivo</strong> há {{ segundos }} s.
         Arquivos assim levam de 10 a 40 segundos.
         {% endif %}
         <div class="text-[11px] text-slate-500 mt-0.5">
@@ -206,6 +206,33 @@
         </p>
         {% endif %}
 
+        {% if linha.assinar %}
+        {# Assinatura pedida: assinado (com o download) ou o motivo de não ter assinado — nunca silêncio. #}
+        {% if linha.assinado %}
+        <div class="flex items-center justify-between flex-wrap gap-3 text-sm bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-lg p-3">
+            <span>
+                <i class="fa-solid fa-file-signature mr-1 text-emerald-700"></i>
+                <strong>Assinado pelo PVA</strong>{% if linha.assinatura_titular %} com o e-CNPJ de {{ linha.assinatura_titular }}{% endif %}.
+                <span class="text-[11px] text-emerald-800">A cópia assinada fica aqui por 7 dias; o seu arquivo original não muda.</span>
+            </span>
+            {% if assinado_disponivel %}
+            {# Download: fora do boost, ou o htmx injeta o arquivo na página. #}
+            <a href="/api/validar-sped/{{ processo }}/assinado" hx-boost="false"
+               class="btn btn-sm bg-emerald-700 hover:bg-emerald-800 text-white border-none">
+                <i class="fa-solid fa-download mr-1"></i> Baixar SPED assinado
+            </a>
+            {% else %}
+            <span class="text-[11px]">A cópia assinada não está mais no servidor.</span>
+            {% endif %}
+        </div>
+        {% else %}
+        <p class="text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3">
+            <i class="fa-solid fa-file-circle-xmark mr-1"></i>
+            <strong>Não assinado:</strong> {{ linha.assinatura_motivo or "o PVA não assinou." }}
+        </p>
+        {% endif %}
+        {% endif %}
+
         {% if admin and linha.py_erros is not none %}
         {# Período em paralelo: o validador antigo roda junto só para comparar, até a decisão de apagá-lo. #}
         <p class="text-[11px] text-slate-500">
@@ -218,7 +245,7 @@
 
         <p class="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3">
             <i class="fa-solid fa-circle-info mr-1"></i>
-            {% if aprovado %}O PVA validou o arquivo sem erros{% if n_adv %} (as advertências não impedem a entrega, mas vale conferir){% endif %}. Validar não assina nem transmite: isso continua no PVA.
+            {% if aprovado %}O PVA validou o arquivo sem erros{% if n_adv %} (as advertências não impedem a entrega, mas vale conferir){% endif %}.{% if not linha.assinar %} Para assinar aqui, marque "Assinar com o e-CNPJ" e envie de novo.{% endif %} Transmitir não está ligado no Synax: isso continua no PVA ou no Receitanet.
             {% else %}Corrija os erros e valide de novo. As mensagens são as do próprio PVA.{% endif %}
         </p>
     </div>

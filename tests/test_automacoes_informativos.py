@@ -197,9 +197,10 @@ print("\n=== 3. Os tipos e o que cada um aceita ===")
 
 # O quarto tipo, "resumo_emails", nasceu em 28/09/2026 e é travado na suíte
 # própria (tests/test_email_recebimento.py). Aqui a conta segue completa: o
-# que esta lista protege é ninguém sumir com um tipo sem perceber.
-check("quatro tipos", set(tipos.TIPOS) == {"coleta_nfse", "resumo_auditorias",
-                                          "erros_sistema", "resumo_emails"},
+# que esta lista protege é ninguém sumir com um tipo sem perceber. O quinto, "validar_sped" (23/10/2026), é
+# travado em tests/test_validar_sped_pva.py.
+check("cinco tipos", set(tipos.TIPOS) == {"coleta_nfse", "resumo_auditorias",
+                                         "erros_sistema", "resumo_emails", "validar_sped"},
       sorted(tipos.TIPOS))
 check("coleta nao tem mensal; os informativos tem",
       "mensal" not in tipos.frequencias("coleta_nfse")

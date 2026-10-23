@@ -91,6 +91,82 @@
         </form>
     </div>
 
+    {# e-CNPJ do escritório para assinar o SPED no PVA (aba Validar SPED e rotina automática). O .pfx e a senha
+       vão cifrados e nunca voltam: a tela mostra só titular e validade. Multipart com htmx próprio, fora do
+       boost. #}
+    <div class="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs" id="cartao-certificado">
+        <div class="bg-slate-50 border-b border-slate-200 px-5 py-3 flex items-start justify-between gap-3">
+            <div>
+                <h4 class="font-bold text-sm text-slate-800">
+                    <i class="fa-solid fa-file-signature text-[#037fb5] mr-1"></i>
+                    Certificado para assinar o SPED (e-CNPJ)
+                </h4>
+                <p class="text-[11px] text-slate-500 mt-0.5">
+                    O PVA assina com ele na aba Validar SPED e na rotina automática. Só assina arquivo validado sem erro.
+                </p>
+            </div>
+            {% if certificado and not certificado.vencido %}
+            <span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap">Configurado</span>
+            {% elif certificado %}
+            <span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 whitespace-nowrap">Vencido</span>
+            {% else %}
+            <span class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 whitespace-nowrap">Não configurado</span>
+            {% endif %}
+        </div>
+
+        {% if mensagem_certificado %}
+        <div class="mx-5 mt-4 flex items-start gap-2 rounded-xl px-4 py-3 text-sm {% if sucesso_certificado %}bg-emerald-50 border border-emerald-200 text-emerald-900{% else %}bg-red-50 border border-red-200 text-red-800{% endif %}">
+            <i class="fa-solid {% if sucesso_certificado %}fa-circle-check text-emerald-600{% else %}fa-circle-exclamation text-red-600{% endif %} mt-0.5"></i>
+            <span>{{ mensagem_certificado }}</span>
+        </div>
+        {% endif %}
+
+        <div class="p-5 space-y-4">
+            {% if certificado %}
+            <div class="flex items-center justify-between flex-wrap gap-3 text-sm bg-slate-50 border border-slate-200 rounded-lg px-4 py-3">
+                <div>
+                    <div class="font-bold text-slate-800">{{ certificado.titular }}</div>
+                    <div class="text-[12px] {% if certificado.vencido %}text-red-700{% elif certificado.dias is not none and certificado.dias <= 30 %}text-amber-700{% else %}text-slate-600{% endif %}">
+                        {% if certificado.validade %}válido até {{ certificado.validade.strftime('%d/%m/%Y') }}{% endif %}
+                        {% if certificado.vencido %} · vencido: a assinatura não funciona{% elif certificado.dias is not none and certificado.dias <= 30 %} · vence em {{ certificado.dias }} dia(s){% endif %}
+                    </div>
+                </div>
+                <form hx-post="/admin/configuracoes/certificado/remover" hx-target="#admin-content" hx-swap="innerHTML"
+                      hx-boost="false" hx-confirm="Remover o certificado? A assinatura do SPED fica desligada até um novo ser gravado.">
+                    <button type="submit" class="btn btn-xs btn-ghost text-red-700">
+                        <i class="fa-solid fa-trash-can mr-1"></i> Remover
+                    </button>
+                </form>
+            </div>
+            {% endif %}
+
+            <form hx-post="/admin/configuracoes/certificado" hx-target="#admin-content" hx-swap="innerHTML"
+                  hx-encoding="multipart/form-data" hx-boost="false" class="space-y-3">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-[13px] font-bold text-slate-800 mb-1.5">Arquivo .pfx</label>
+                        <input type="file" name="pfx" accept=".pfx,.p12" required
+                               class="file-input file-input-bordered file-input-sm w-full">
+                    </div>
+                    <div>
+                        <label class="block text-[13px] font-bold text-slate-800 mb-1.5">Senha do certificado</label>
+                        <input type="password" name="senha" autocomplete="new-password"
+                               class="input input-bordered input-sm w-full font-mono text-sm rounded-lg">
+                    </div>
+                </div>
+                <div class="flex items-center gap-3 pt-1">
+                    <button type="submit"
+                            class="btn btn-sm bg-[#037fb5] hover:bg-[#026a9e] text-white border-none px-5 shadow-2xs rounded-lg">
+                        <i class="fa-solid fa-floppy-disk mr-1"></i> {% if certificado %}Trocar certificado{% else %}Gravar certificado{% endif %}
+                    </button>
+                    <span class="text-[11px] text-slate-500">
+                        A senha é conferida agora. Arquivo e senha ficam cifrados e nunca voltam para a tela.
+                    </span>
+                </div>
+            </form>
+        </div>
+    </div>
+
     {# Servidor de e-mail. Usado pelo informativo da coleta automática de NFS-e
        (aba Automações). Mesmas regras do SIEG: senha cifrada, nunca devolvida
        para a tela, e campo em branco mantém a gravada. #}

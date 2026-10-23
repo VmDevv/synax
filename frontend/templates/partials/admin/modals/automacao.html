@@ -24,7 +24,7 @@
             <div class="px-6 pt-5 pb-4 border-b border-slate-100">
                 <h3 class="font-bold text-lg flex flex-wrap items-center gap-2">
                     <i class="fa-solid {{ info.icone if (info and not coleta) else 'fa-clock-rotate-left' }} text-blue-600"></i>
-                    {% if d.id %}Editar automação{% elif coleta %}Nova automação de coleta{% else %}Novo informativo por e-mail{% endif %}
+                    {% if d.id %}Editar automação{% elif coleta %}Nova automação de coleta{% elif tipo == "validar_sped" %}Nova rotina de SPED{% else %}Novo informativo por e-mail{% endif %}
                     {% if info and not coleta %}
                     <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-blue-50 text-blue-700 border border-blue-200">{{ info.rotulo }}</span>
                     {% endif %}
@@ -40,6 +40,10 @@
                     O resumo da manhã: o que chegou na caixa do escritório, escrito por IA, e
                     a lista dos XMLs que já ficaram prontos para auditar ou gerar o SPED.
                     A caixa é lida logo antes de o resumo sair.
+                    {% elif tipo == "validar_sped" %}
+                    No horário escolhido, cada SPED da pasta passa pelo PVA oficial, um por vez. Os aprovados são
+                    assinados com o e-CNPJ do escritório e a cópia assinada vai para a pasta de destino; o original
+                    não muda. Cada arquivo sai no histórico com o resultado, e na aba Validar SPED.
                     {% else %}
                     O sistema baixa as NFS-e do ADN no horário escolhido, empresa por empresa,
                     e registra o resultado no histórico.
@@ -217,6 +221,50 @@
                             <span class="block text-[11px] text-slate-500">Desmarcada, o período sem e-mail nenhum também vira aviso — numa manhã útil, caixa vazia costuma ser sinal de que algo travou.</span></span>
                     </label>
                 </div>
+                {% elif tipo == "validar_sped" %}
+                <!-- De onde vêm os SPED e o que fazer com eles -->
+                <div class="space-y-3">
+                    <div>
+                        <label for="aut-pasta" class="block text-[13px] font-bold text-slate-700 mb-1.5">Pasta onde os SPED chegam</label>
+                        <input id="aut-pasta" type="text" name="pasta" value="{{ conf.pasta }}" autocomplete="off"
+                               class="input input-bordered input-sm w-full bg-white font-mono text-[12px]"
+                               placeholder="\\srv-ap02\Desenvolvimento\SPED_FISCAL_202609">
+                        <p class="text-[11px] text-slate-500 mt-1">A pasta onde o Domínio grava os arquivos. O servidor do Synax precisa enxergar o caminho.</p>
+                    </div>
+                    <label class="flex items-start gap-3 cursor-pointer">
+                        <input type="checkbox" name="subpastas" value="1" class="checkbox checkbox-sm checkbox-primary mt-0.5"
+                               {% if conf.subpastas %}checked{% endif %}>
+                        <span class="text-[13px]"><b>Incluir as subpastas</b>
+                            <span class="block text-[11px] text-slate-500">Para pasta organizada por mês (AAAA-MM). A pasta dos assinados fica sempre de fora.</span></span>
+                    </label>
+                    <div>
+                        <label for="aut-destino" class="block text-[13px] font-bold text-slate-700 mb-1.5">Pasta dos assinados</label>
+                        <input id="aut-destino" type="text" name="destino" value="{{ conf.destino }}" autocomplete="off"
+                               class="input input-bordered input-sm w-full bg-white font-mono text-[12px]"
+                               placeholder="em branco: a subpasta Assinados dentro da pasta acima">
+                        <p class="text-[11px] text-slate-500 mt-1">A cópia assinada sai com o mesmo nome do original. Arquivo que já tem cópia aqui não é assinado de novo.</p>
+                    </div>
+                    <fieldset>
+                        <legend class="block text-[13px] font-bold text-slate-700 mb-1.5">O que fazer com cada arquivo</legend>
+                        <div class="flex flex-wrap gap-x-6 gap-y-2 text-[13px]">
+                            <label class="flex items-center gap-2 text-slate-700">
+                                <input type="checkbox" checked disabled class="checkbox checkbox-sm"> Validar no PVA
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" name="assinar" value="1" class="checkbox checkbox-sm checkbox-primary"
+                                       {% if conf.assinar %}checked{% endif %}> Assinar com o e-CNPJ
+                            </label>
+                            <label class="flex items-center gap-2 text-slate-400" title="O envio à Receita não está ligado no Synax">
+                                <input type="checkbox" disabled class="checkbox checkbox-sm"> Transmitir
+                            </label>
+                        </div>
+                        <p class="text-[11px] text-slate-500 mt-1.5">
+                            Só o arquivo que o PVA aprovar é assinado, com o certificado cadastrado em Configurações.
+                            Transmitir está desligado: o envio à Receita não tem volta e não está ligado no Synax.
+                            EFD-Contribuições fica de fora até o PVA dela ser instalado — aparece no histórico com esse motivo.
+                        </p>
+                    </fieldset>
+                </div>
                 {% endif %}
 
                 {# Empresas: nem o informe de erros nem o resumo da caixa têm escopo
@@ -286,6 +334,9 @@
                         Separe por vírgula. O e-mail leva o resumo do que chegou, os XMLs guardados
                         por empresa e o que não foi aproveitado, com o motivo. O mesmo resumo
                         aparece na tela E-mails.
+                        {% elif tipo == "validar_sped" %}
+                        Separe por vírgula. Em branco, a rotina roda e fica só no histórico. O e-mail leva
+                        cada arquivo com o resultado: assinado, reprovado (com os erros) ou pulado, com o motivo.
                         {% else %}
                         Separe por vírgula. Em branco, a coleta roda e fica só no histórico.
                         O e-mail leva as notas que chegaram, o que não foi consultado e os

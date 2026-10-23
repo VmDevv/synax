@@ -50,6 +50,9 @@ _NOVA = {
     # começar. A leitura da caixa roda antes dele, na própria rodada.
     tipos_aut.EMAILS: {"nome": "Resumo dos e-mails", "frequencia": "diaria",
                        "hora": "07:30", "dias": [0, 1, 2, 3, 4]},
+    # De madrugada, nos dias úteis: o PVA leva até meio minuto por arquivo, e a pasta do mês pode ter dezenas.
+    tipos_aut.VALIDAR: {"nome": "Validar e assinar SPED", "frequencia": "diaria",
+                        "hora": "06:00", "dias": [0, 1, 2, 3, 4]},
 }
 
 
@@ -207,6 +210,8 @@ def salvar(request: Request,
            periodo: str = Form(""), ultima_por_competencia: str = Form(""),
            so_com_novidade: str = Form(""), gravidade: str = Form(""),
            incluir_log: str = Form(""), usar_ia: str = Form(""),
+           pasta: str = Form(""), destino: str = Form(""), subpastas: str = Form(""),
+           assinar: str = Form(""),
            db: Session = Depends(get_db), profile=Depends(require_admin)):
     """Cria ou altera. Erro de preenchimento volta no PRÓPRIO modal, com 200 —
     o htmx não troca o alvo em resposta 4xx, e a pessoa clicaria sem ver nada.
@@ -232,7 +237,8 @@ def salvar(request: Request,
     config, erro_config = tipos_aut.config_do_formulario(tipo, {
         "periodo": periodo, "ultima_por_competencia": ultima_por_competencia,
         "so_com_novidade": so_com_novidade, "gravidade": gravidade,
-        "incluir_log": incluir_log, "usar_ia": usar_ia})
+        "incluir_log": incluir_log, "usar_ia": usar_ia,
+        "pasta": pasta, "destino": destino, "subpastas": subpastas, "assinar": assinar})
     dados = {"id": automacao_id, "tipo": tipo, "nome": (nome or "").strip(),
              "frequencia": frequencia, "hora": hora, "dias": dias_int,
              "dia_mes": dia_mes_ok or (dia_mes or "").strip(), "escopo": escopo,
@@ -299,6 +305,11 @@ def salvar(request: Request,
         texto += " Ela está pausada e não vai rodar sozinha."
     elif emails and not cfg.smtp_configurado(db):
         texto += " Atenção: o servidor de e-mail ainda não está configurado."
+    if tipo == tipos_aut.VALIDAR and config.get("assinar"):
+        certificado = cfg.situacao_certificado(db)
+        if certificado is None or certificado["vencido"]:
+            texto += (" Atenção: sem certificado válido em Configurações, a rotina só valida — ela não assina "
+                      "até o e-CNPJ ser cadastrado.")
     return _lista(db, request, FECHAR_MODAL + _toast(texto))
 
 
@@ -351,6 +362,12 @@ def execucao(execucao_id: str, request: Request, db: Session = Depends(get_db)):
     nome = automacao.nome if automacao else "(automação excluída)"
 
     tipo = e.tipo or tipos_aut.COLETA
+    if tipo == tipos_aut.VALIDAR:
+        from ...services.automacoes import validar_sped as rotina_sped
+        html = templates.get_template("partials/admin/modals/automacao_execucao_sped.html").render({
+            "request": request, "e": e, "nome": nome, "dados": detalhe, "status_rotulo": STATUS_ROTULO,
+            "situacoes": rotina_sped.SITUACOES})
+        return HTMLResponse(html)
     if tipo in (tipos_aut.RESUMO, tipos_aut.ERROS, tipos_aut.EMAILS):
         modelo = {tipos_aut.RESUMO: "automacao_execucao_resumo.html",
                   tipos_aut.ERROS: "automacao_execucao_erros.html",

@@ -13,13 +13,19 @@ Quatro regras:
 - **Só 127.0.0.1.** O motor não tem senha e recebe o SPED inteiro do cliente: endereço fora desta máquina é recusado
   aqui, antes de abrir conexão, mesmo que alguém configure `PVA_MOTOR_URL` assim.
 - **O corpo vai com Content-Length, nunca em pedaços** (o servidor do motor recusa `chunked` com 411).
-- **Um arquivo por vez** (`uso_exclusivo`): o PVA é um só por processo. Quem for usar o motor — a fila da tela, um
-  dia o agendador — passa por esta trava.
+- **Um arquivo por vez** (`uso_exclusivo`): o PVA é um só por processo. Quem usa o motor — a fila da tela e a
+  rotina automática — passa por esta trava.
 - **Motor fora do ar é exceção com frase para a tela**, nunca resultado vazio: "sem erro" só sai quando o PVA disse.
 
-Ligar e desligar é de quem cuida do servidor (`motor\\motor.cmd servir --porta 8095`; para desligar, sempre
-`POST /encerrar` — matar o processo deixa o mysqld órfão segurando a porta). O Synax não liga o motor.
+Assinar (`assinar_arquivo`, desde 23/10/2026) é o `POST /assinar` do motor: valida e, sem erro, assina como a tela,
+com o e-CNPJ que o admin cadastrou em Configurações. O certificado e a senha vão no corpo do pedido, a 127.0.0.1, e
+o motor não guarda nenhum dos dois. Certificado recusado (senha errada, vencido, fora da ICP-Brasil) é
+`AssinaturaRecusada`, com a frase do motor. **Transmitir não existe aqui**: o envio à Receita não está ligado.
+
+Ligar e desligar é do Painel Dev (sobe junto com o Synax; desliga sempre pelo `POST /encerrar` — matar o processo
+deixa o mysqld órfão segurando a porta). O Synax não liga o motor.
 """
+import base64
 import http.client
 import json
 import logging
@@ -67,6 +73,14 @@ class EnderecoNaoLocal(MotorIndisponivel):
 
 class RespostaInesperada(MotorIndisponivel):
     """O motor atendeu, mas fora do contrato (HTTP de erro, JSON quebrado, tempo esgotado)."""
+
+
+class AssinaturaRecusada(Exception):
+    """O motor recusou o certificado (ou o arquivo já vinha assinado) antes de validar. `mensagem` vai para a tela."""
+
+    def __init__(self, mensagem: str):
+        self.mensagem = mensagem
+        super().__init__(mensagem)
 
 
 def url() -> str:
@@ -258,10 +272,44 @@ def ler_resposta(dados: dict) -> Resultado:
     return resultado
 
 
-def validar_arquivo(caminho: str, timeout: float = TEMPO_VALIDAR_S) -> Resultado:
-    """Manda o TXT cru para o PVA e devolve o veredito dele. Chame dentro de `uso_exclusivo()`."""
+@dataclass
+class Assinatura:
+    """O que o motor disse da assinatura. `arquivo` são os bytes do SPED assinado (nunca vão para o JSON gravado)."""
+    assinado: bool
+    motivo: str = ""
+    titular: str = ""               # "emitido para" do e-CNPJ
+    valido_ate: str = ""
+    arquivo: bytes | None = None
+
+    def como_dict(self) -> dict:
+        return {"assinado": self.assinado, "motivo": self.motivo, "titular": self.titular,
+                "valido_ate": self.valido_ate}
+
+
+def ler_assinatura(dados: dict) -> Assinatura:
+    a = dados.get("assinatura")
+    if not isinstance(a, dict):
+        logger.error("Motor do PVA sem 'assinatura' na resposta do /assinar: %r", str(dados)[:500])
+        raise RespostaInesperada("O motor do PVA respondeu sem dizer se assinou — o motivo está no log do servidor.")
+    cert = a.get("certificado") if isinstance(a.get("certificado"), dict) else {}
+    arquivo = None
+    if a.get("assinado") is True:
+        try:
+            arquivo = base64.b64decode(dados.get("arquivoAssinado") or "", validate=True)
+        except (ValueError, TypeError):
+            arquivo = None
+    # Assinado sem o arquivo de volta não serve para nada: vale como não assinado, com o motivo.
+    assinado = a.get("assinado") is True and bool(arquivo)
+    motivo = _texto(a.get("motivo")) or ("" if assinado else "o motor não devolveu o arquivo assinado")
+    return Assinatura(assinado=assinado, motivo=motivo, titular=_texto(cert.get("emitidoPara")),
+                      valido_ate=_texto(cert.get("validoAte")), arquivo=arquivo if assinado else None)
+
+
+def _enviar(rota: str, caminho: str, timeout: float, prefixo: bytes = b"", cabecalhos: dict | None = None,
+            acao: str = "validação") -> dict:
+    """POST do TXT (com um prefixo opcional no corpo) ao motor. Devolve o JSON; 422 vira `AssinaturaRecusada`."""
     host, porta = endereco()
-    tamanho = os.path.getsize(caminho)
+    tamanho = len(prefixo) + os.path.getsize(caminho)
     conn = http.client.HTTPConnection(host, porta, timeout=TEMPO_CONEXAO_S)
     try:
         try:
@@ -271,21 +319,56 @@ def validar_arquivo(caminho: str, timeout: float = TEMPO_VALIDAR_S) -> Resultado
         conn.sock.settimeout(timeout)
         try:
             # putrequest + Content-Length à mão: assim o http.client nunca decide mandar em pedaços.
-            conn.putrequest("POST", "/validar")
-            conn.putheader("Content-Type", "text/plain; charset=iso-8859-1")
+            conn.putrequest("POST", rota)
+            conn.putheader("Content-Type", "application/octet-stream")
             conn.putheader("Content-Length", str(tamanho))
+            for nome, valor in (cabecalhos or {}).items():
+                conn.putheader(nome, valor)
             conn.endheaders()
+            if prefixo:
+                conn.send(prefixo)
             with open(caminho, "rb") as f:
                 while bloco := f.read(BLOCO):
                     conn.send(bloco)
             resp = conn.getresponse()
-            dados = _ler_json(resp)
+            if resp.status == 422:
+                corpo = resp.read()
+                try:
+                    erro = json.loads(corpo.decode("utf-8")).get("erro")
+                except (UnicodeDecodeError, ValueError, AttributeError):
+                    erro = None
+                raise AssinaturaRecusada(_texto(erro) or "o motor recusou o certificado")
+            return _ler_json(resp)
         except socket.timeout as exc:
-            raise RespostaInesperada(f"O PVA não terminou a validação em {int(timeout // 60)} minutos. Nada foi "
+            raise RespostaInesperada(f"O PVA não terminou a {acao} em {int(timeout // 60)} minutos. Nada foi "
                                      "aprovado; tente de novo mais tarde ou avise quem cuida do servidor.") from exc
         except (ConnectionError, OSError, http.client.HTTPException) as exc:
-            raise MotorForaDoAr("O motor do PVA parou de responder no meio da validação. Nada foi aprovado; valide "
+            raise MotorForaDoAr(f"O motor do PVA parou de responder no meio da {acao}. Nada foi aprovado; tente "
                                 "de novo quando ele voltar.") from exc
     finally:
         conn.close()
-    return ler_resposta(dados)
+
+
+def validar_arquivo(caminho: str, timeout: float = TEMPO_VALIDAR_S) -> Resultado:
+    """Manda o TXT cru para o PVA e devolve o veredito dele. Chame dentro de `uso_exclusivo()`."""
+    return ler_resposta(_enviar("/validar", caminho, timeout))
+
+
+def assinar_arquivo(caminho: str, pfx: bytes, senha: str,
+                    timeout: float = TEMPO_VALIDAR_S) -> tuple[Resultado, Assinatura]:
+    """Valida e, sem erro, assina com o e-CNPJ. Chame dentro de `uso_exclusivo()`.
+
+    O corpo é o .pfx, a senha (UTF-8) e o TXT, nessa ordem; os tamanhos dos dois primeiros vão nos cabeçalhos.
+    """
+    senha_bytes = (senha or "").encode("utf-8")
+    dados = _enviar("/assinar", caminho, timeout, prefixo=pfx + senha_bytes,
+                    cabecalhos={"X-Pfx-Bytes": str(len(pfx)), "X-Senha-Bytes": str(len(senha_bytes))},
+                    acao="validação e assinatura")
+    resultado = ler_resposta(dados)
+    assinatura = ler_assinatura(dados)
+    if assinatura.assinado and not resultado.aprovado:
+        # O motor só assina o que o PVA aprovou; se as duas coisas discordarem, não entregamos o arquivo.
+        logger.error("Motor do PVA assinou um arquivo que não saiu aprovado (estado %s)", resultado.estado)
+        assinatura = Assinatura(assinado=False, motivo="o PVA não aprovou o arquivo; a assinatura foi descartada",
+                                titular=assinatura.titular, valido_ate=assinatura.valido_ate)
+    return resultado, assinatura

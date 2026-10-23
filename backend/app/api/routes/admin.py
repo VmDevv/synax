@@ -1,7 +1,7 @@
 import logging
 import os
 import re
-from fastapi import APIRouter, Request, Form, Depends, HTTPException, status
+from fastapi import APIRouter, Request, Form, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import or_
@@ -1473,8 +1473,61 @@ def _tela_configuracoes(request: Request, db: Session, **extra):
             # Sem a senha: a tela só precisa saber que ela existe.
             "imap_extras": [{"usuario": c["usuario"], "pasta": c.get("pasta") or "INBOX",
                              "tem_senha": bool(c.get("senha"))} for c in cfg.caixas_extras(db)],
+            # Titular e validade, nunca o arquivo nem a senha.
+            "certificado": cfg.situacao_certificado(db),
             **extra,
         })
+
+
+# O .pfx de um e-CNPJ tem poucos KB; o teto barra arquivo trocado (um SPED de 300 MB no campo errado).
+LIMITE_PFX_BYTES = 64 * 1024
+
+
+@router.post("/configuracoes/certificado", response_class=HTMLResponse)
+async def salvar_certificado(request: Request,
+                             pfx: UploadFile | None = File(None),
+                             senha: str = Form(""),
+                             db: Session = Depends(get_db),
+                             profile=Depends(require_admin)):
+    """O e-CNPJ do escritório para assinar o SPED no PVA (aba Validar SPED e rotina automática).
+
+    O arquivo e a senha são conferidos AGORA (abre o .pfx, lê titular e validade): senha errada descoberta só na
+    rotina deixaria o mês sem assinatura. Os dois vão cifrados para `app_settings` e nunca voltam para a tela.
+    """
+    from ...services import configuracoes as cfg
+
+    autor = getattr(profile, "name", "") or str(getattr(profile, "id", ""))
+    conteudo = await pfx.read(LIMITE_PFX_BYTES + 1) if pfx is not None else b""
+    if not conteudo:
+        return _tela_configuracoes(request, db, mensagem_certificado="Escolha o arquivo .pfx do e-CNPJ.",
+                                   sucesso_certificado=False)
+    if len(conteudo) > LIMITE_PFX_BYTES:
+        return _tela_configuracoes(request, db, mensagem_certificado=(
+            "Este arquivo é grande demais para um certificado .pfx — confira se escolheu o arquivo certo."),
+            sucesso_certificado=False)
+    try:
+        info = cfg.gravar_certificado(db, conteudo, senha or "", autor)
+    except cfg.CertificadoRecusado as exc:
+        return _tela_configuracoes(request, db, mensagem_certificado=exc.mensagem + " Nada foi gravado.",
+                                   sucesso_certificado=False)
+    logger.info("Certificado de assinatura do SPED gravado por %s (titular %s, vence %s)", autor,
+                info["titular"], info["validade"])
+    return _tela_configuracoes(request, db, mensagem_certificado=(
+        f"Certificado gravado: {info['titular']}, válido até {info['validade']:%d/%m/%Y}."),
+        sucesso_certificado=True)
+
+
+@router.post("/configuracoes/certificado/remover", response_class=HTMLResponse)
+def remover_certificado(request: Request, db: Session = Depends(get_db),
+                        profile=Depends(require_admin)):
+    from ...services import configuracoes as cfg
+
+    autor = getattr(profile, "name", "") or str(getattr(profile, "id", ""))
+    cfg.remover_certificado(db, autor)
+    logger.info("Certificado de assinatura do SPED removido por %s", autor)
+    return _tela_configuracoes(request, db, mensagem_certificado=(
+        "Certificado removido. A assinatura do SPED fica desligada até um novo ser gravado."),
+        sucesso_certificado=True)
 
 
 @router.get("/configuracoes", response_class=HTMLResponse)

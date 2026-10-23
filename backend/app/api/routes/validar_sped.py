@@ -16,6 +16,10 @@ Quatro decisões desta rota:
   sem o PVA ter dito.
 - **O mesmo endereço responde JSON ou a tela.** Quem chama pela API recebe JSON; o htmx da aba (HX-Request) recebe o
   parcial. A regra de acesso é uma só.
+
+Desde 23/10/2026 à tarde a aba escolhe o que fazer com o arquivo: Validar (sempre), Assinar (com o e-CNPJ das
+Configurações, só se o PVA aprovar) e Transmitir — que aparece DESLIGADO: o envio à Receita não tem volta e não está
+ligado no Synax. Pedido de transmissão pela API é recusado com o motivo, nunca ignorado.
 """
 import io
 import json
@@ -43,6 +47,7 @@ from ...domain.models.auth_models import Tenant
 from ...infrastructure.database.session import get_db
 from ...services import pva_motor
 from ...services import validar_sped_fila as fila
+from ...services import configuracoes as cfg
 from ...services.audit_engine import sped_parser
 from ...services.sped_entregas import hash_do_corpo_arquivo
 
@@ -90,36 +95,8 @@ def _uuid_ou_404(processo: str) -> None:
         raise HTTPException(status_code=404, detail="Validação não encontrada.")
 
 
-def _cabecalho(caminho: str) -> dict | None:
-    """Os campos do 0000 que a rota usa, na posição do EFD ICMS/IPI. None se a primeira linha não é um 0000."""
-    with open(caminho, "rb") as f:
-        bruto = f.read(4096)
-    if bruto.startswith(b"\xef\xbb\xbf"):
-        bruto = bruto[3:]
-    primeira = re.split(rb"\r\n|\n|\r", bruto, maxsplit=1)[0]
-    try:
-        linha = primeira.decode("utf-8")
-    except UnicodeDecodeError:
-        linha = primeira.decode("latin-1")
-    campos = linha.split("|")
-    if len(campos) < 3 or campos[1] != "0000":
-        return None
-
-    def c(n):
-        return campos[n].strip() if len(campos) > n else ""
-
-    return {"cod_ver": c(2), "cod_fin": c(3), "dt_ini": c(4), "dt_fin": c(5), "nome": c(6),
-            "cnpj": c(7), "cpf": c(8), "uf": c(9)}
-
-
-def _contar_linhas(caminho: str) -> int:
-    n = 0
-    ultimo = b""
-    with open(caminho, "rb") as f:
-        while bloco := f.read(1 << 20):
-            n += bloco.count(b"\n")
-            ultimo = bloco[-1:]
-    return n + (1 if ultimo and ultimo != b"\n" else 0)
+_cabecalho = fila.ler_0000
+_contar_linhas = fila.contar_linhas
 
 
 def br(ddmmaaaa: str) -> str:
@@ -129,7 +106,7 @@ def br(ddmmaaaa: str) -> str:
 
 
 def _competencia(dt_ini: str) -> str | None:
-    return comp.valida(f"{dt_ini[4:8]}-{dt_ini[2:4]}") if len(dt_ini) == 8 and dt_ini.isdigit() else None
+    return fila.competencia_do_0000(dt_ini)
 
 
 def _dica_admin(profile) -> str:
@@ -146,6 +123,8 @@ def tela(request: Request, db_session: Session = Depends(get_db),
     return templates.TemplateResponse(request, "pages/validar_sped.html", {
         "request": request, "tenants": _empresas(db_session, profile),
         "user_profile": profile, "competencia": comp.fechada(),
+        # Titular e validade, nunca o .pfx nem a senha: a caixa "Assinar" só liga com certificado válido.
+        "certificado": cfg.situacao_certificado(db_session),
     })
 
 
@@ -156,11 +135,25 @@ async def validar(request: Request,
                   # com Form(...), e o htmx não troca o alvo em 4xx — o
                   # clique ficaria sem resposta nenhuma na tela.
                   tenant_id: str = Form(""),
+                  assinar: str = Form(""),
+                  transmitir: str = Form(""),
                   db_session: Session = Depends(get_db),
                   profile=Depends(get_profile)):
     assert_internal(profile)
     if not tenant_id.strip():
         return _recusar(request, "Escolha a empresa dona do arquivo.", 400)
+    if transmitir:
+        return _recusar(request, "O envio à Receita não está ligado no Synax: transmita pelo PVA ou pelo "
+                                 "Receitanet. Nada foi validado.", 422)
+    quer_assinar = bool(assinar)
+    if quer_assinar:
+        certificado = cfg.situacao_certificado(db_session)
+        if certificado is None:
+            return _recusar(request, "Não há certificado para assinar: o administrador cadastra o e-CNPJ em "
+                                     "Administração → Configurações. Nada foi validado.", 422)
+        if certificado["vencido"]:
+            return _recusar(request, "O certificado de assinatura cadastrado está vencido: o administrador troca em "
+                                     "Administração → Configurações. Nada foi validado.", 422)
     tenant_id = resolve_tenant_for_write(profile, tenant_id)
     empresa = db_session.query(Tenant).filter(Tenant.id == tenant_id).first()
     if empresa is None:
@@ -214,7 +207,8 @@ async def validar(request: Request,
             # NULOS até o PVA responder: zero aqui seria lido como "sem erro". `null()` e não None: com None o ORM
             # aplica o default (0) da coluna.
             erros=null(), advertencias=null(), nao_conferidas=null(),
-            hash_corpo=hash_corpo, motor=fila.MOTOR, situacao=fila.NA_FILA))
+            hash_corpo=hash_corpo, motor=fila.MOTOR, situacao=fila.NA_FILA,
+            assinar=quer_assinar or None, origem="tela"))
         db_session.commit()
     except Exception:                                     # noqa: BLE001
         # Sem a linha não há como a tela acompanhar nem o histórico guardar: melhor não validar do que validar
@@ -226,7 +220,7 @@ async def validar(request: Request,
                                  "foi validado. Tente de novo ou avise o administrador.", 500)
 
     try:
-        na_frente = fila.enfileirar(fila.Pedido(processo=processo, tenant_id=str(tenant_id)))
+        na_frente = fila.enfileirar(fila.Pedido(processo=processo, tenant_id=str(tenant_id), assinar=quer_assinar))
     except fila.FilaCheia as exc:
         db_session.query(SpedValidacao).filter(SpedValidacao.id == processo).delete()
         db_session.commit()
@@ -238,9 +232,10 @@ async def validar(request: Request,
     if _quer_html(request):
         return templates.TemplateResponse(request, "partials/validar_sped_resultado.html", {
             "request": request, "fase": fila.NA_FILA, "processo": processo, "na_frente": na_frente,
-            "segundos": 0, "cab": cab, "empresa": empresa, "br": br})
+            "segundos": 0, "cab": cab, "empresa": empresa, "br": br, "assinar": quer_assinar})
     return JSONResponse({"processo": processo, "situacao": fila.NA_FILA, "na_frente": na_frente,
-                         "competencia": competencia, "hash_corpo": hash_corpo}, status_code=202)
+                         "competencia": competencia, "hash_corpo": hash_corpo, "assinar": quer_assinar},
+                        status_code=202)
 
 
 def _recusa_do_arquivo(cab: dict | None, leiaute: str, empresa) -> str | None:
@@ -295,7 +290,8 @@ def painel(request: Request, competencia: str = "",
                       SpedValidacao.id, SpedValidacao.tenant_id, SpedValidacao.created_at,
                       SpedValidacao.user_name, SpedValidacao.erros,
                       SpedValidacao.advertencias, SpedValidacao.cod_fin,
-                      SpedValidacao.motor, SpedValidacao.situacao, SpedValidacao.aprovado)
+                      SpedValidacao.motor, SpedValidacao.situacao, SpedValidacao.aprovado,
+                      SpedValidacao.assinado, SpedValidacao.origem)
                   .filter(SpedValidacao.tenant_id.in_(ids),
                           SpedValidacao.competencia == competencia)
                   .order_by(SpedValidacao.created_at.desc())
@@ -401,7 +397,10 @@ def andamento(request: Request, processo: str,
     if not _quer_html(request):
         corpo = {"processo": processo, "situacao": fase, "registrada": registrada,
                  "na_frente": (mem or {}).get("na_frente"), "falha": falha,
-                 "resultado": resultado.como_dict() if resultado else None}
+                 "resultado": resultado.como_dict() if resultado else None,
+                 "assinatura": {"pedida": bool(linha.assinar), "assinado": bool(linha.assinado),
+                                "motivo": linha.assinatura_motivo, "titular": linha.assinatura_titular}
+                 if linha.assinar else None}
         if fase == fila.CONCLUIDA and resultado is None:
             corpo.update(aprovado=linha.aprovado, erros=linha.erros, advertencias=linha.advertencias)
         return JSONResponse(corpo)
@@ -409,7 +408,9 @@ def andamento(request: Request, processo: str,
     contexto = {
         "request": request, "fase": fase, "processo": processo, "linha": linha, "r": resultado,
         "registrada": registrada, "falha": falha, "na_frente": (mem or {}).get("na_frente", 0),
-        "segundos": segundos, "cab": _meta(processo), "empresa": empresa, "br": br,
+        "segundos": segundos, "cab": _meta(processo), "empresa": empresa, "br": br, "assinar": bool(linha.assinar),
+        "assinado_disponivel": bool(linha.assinado) and os.path.exists(
+            os.path.join(fila.pasta(processo), fila.ARQUIVO_ASSINADO)),
         "limite_tela": LIMITE_TELA, "admin": getattr(profile, "role", "") == "admin",
         "sem_cnpj_no_cadastro": empresa is not None and not _identificador(empresa.cnpj),
         "anteriores": _anteriores(db_session, linha) if final else [],
@@ -419,6 +420,29 @@ def andamento(request: Request, processo: str,
         # O painel do mês escuta este evento: a empresa muda de situação sem recarregar a página.
         resposta.headers["HX-Trigger"] = "validarSpedConcluida"
     return resposta
+
+
+@router.get("/api/validar-sped/{processo}/assinado")
+def baixar_assinado(processo: str, db_session: Session = Depends(get_db), profile=Depends(get_profile)):
+    """O SPED assinado pelo PVA. Fica na pasta do processo até a limpeza de `temp_uploads` (7 dias)."""
+    assert_internal(profile)
+    _uuid_ou_404(processo)
+    linha = db_session.get(SpedValidacao, processo)
+    if linha is None or not linha.assinado:
+        raise HTTPException(status_code=404, detail="Esta validação não tem arquivo assinado.")
+    # O arquivo é da empresa: quem não opera ela não baixa, mesmo com o link.
+    assert_tenant_access(profile, linha.tenant_id)
+    try:
+        with open(os.path.join(fila.pasta(processo), fila.ARQUIVO_ASSINADO), "rb") as f:
+            conteudo = f.read()
+    except OSError:
+        raise HTTPException(status_code=404, detail="O arquivo assinado não está mais no servidor (fica 7 dias). "
+                                                    "Valide e assine de novo.")
+    from .correcao_sped import _cabecalhos_download
+    base = re.sub(r"(?i)\.txt$", "", linha.file_name or "sped") or "sped"
+    return StreamingResponse(
+        io.BytesIO(conteudo), media_type="application/octet-stream",
+        headers={**_cabecalhos_download(f"{base}-assinado.txt"), "Content-Length": str(len(conteudo))})
 
 
 @router.get("/api/validar-sped/{processo}/csv")

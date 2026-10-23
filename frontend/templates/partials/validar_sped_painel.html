@@ -32,6 +32,8 @@
                     {% else %}
                     <span class="badge badge-error badge-sm text-white">recusado pelo PVA</span>
                     {% endif %}
+                    {% if u and u.assinado %}<span class="badge badge-outline badge-xs ml-1 text-emerald-700 border-emerald-300"><i class="fa-solid fa-file-signature mr-0.5"></i>assinado</span>{% endif %}
+                    {% if u and u.origem == 'rotina' %}<span class="badge badge-ghost badge-xs ml-1" title="Feito pela rotina automática">rotina</span>{% endif %}
                     {% if u and u.cod_fin == '1' %}<span class="badge badge-outline badge-xs ml-1">substituta</span>{% endif %}
                     {% if q.andamento == "na_fila" %}<span class="badge badge-info badge-xs ml-1">na fila</span>
                     {% elif q.andamento == "validando" %}<span class="badge badge-info badge-xs ml-1">validando agora</span>

@@ -73,9 +73,17 @@ IMAP_CAIXAS_EXTRAS = "imap_caixas_extras"
 # Portas de ENVIO: gravadas na leitura, o servidor que responde é o SMTP.
 PORTAS_SMTP = ("25", "465", "587", "2525")
 
+# O e-CNPJ do escritório para ASSINAR o SPED no PVA (23/10/2026, decisão do Sandro: o .pfx e a senha guardados
+# aqui, e não no repositório do Windows). O .pfx vai em base64, cifrado como a senha; titular e validade ficam em
+# claro só para a tela dizer qual certificado está valendo e quando vence.
+ASSINATURA_PFX = "assinatura_pfx"
+ASSINATURA_SENHA = "assinatura_senha"
+ASSINATURA_TITULAR = "assinatura_titular"
+ASSINATURA_VALIDADE = "assinatura_validade"     # AAAA-MM-DD
+
 # Chaves que guardam credencial. Entrar aqui é o que decide a cifra — e não o
 # nome parecer secreto.
-SEGREDOS = {SIEG_API_KEY, SMTP_SENHA, IMAP_SENHA, IMAP_CAIXAS_EXTRAS}
+SEGREDOS = {SIEG_API_KEY, SMTP_SENHA, IMAP_SENHA, IMAP_CAIXAS_EXTRAS, ASSINATURA_PFX, ASSINATURA_SENHA}
 
 
 def ler(db: Session, chave: str, padrao: str = "") -> str:
@@ -279,3 +287,87 @@ def caixas_imap(db: Session) -> list[dict]:
                        "chave_estado": f"imap_estado:{extra['usuario']}"[:80],
                        "rotulo": extra["usuario"]})
     return caixas
+
+
+# ------------------------------------------------------------------ certificado para assinar o SPED
+
+class CertificadoRecusado(Exception):
+    """O .pfx não abre com a senha, venceu ou não é um certificado. `mensagem` vai para a tela."""
+
+    def __init__(self, mensagem: str):
+        self.mensagem = mensagem
+        super().__init__(mensagem)
+
+
+def ler_certificado(pfx: bytes, senha: str, hoje=None) -> dict:
+    """{titular, validade (date)} do .pfx, ou `CertificadoRecusado`. Confere a senha AGORA, ao gravar: descobrir a
+    senha errada na rotina das 3 da manhã deixaria o mês inteiro sem assinatura."""
+    from datetime import date
+
+    from cryptography.x509.oid import NameOID
+
+    from .nfse.adn_client import CertificadoInvalido, abrir_pkcs12
+
+    try:
+        _, cert, _ = abrir_pkcs12(pfx, senha)
+    except CertificadoInvalido as exc:
+        raise CertificadoRecusado(str(exc)) from exc
+    if cert is None:
+        raise CertificadoRecusado("O arquivo abriu, mas não tem certificado dentro.")
+    nomes = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+    titular = nomes[0].value if nomes else cert.subject.rfc4514_string()
+    fim = getattr(cert, "not_valid_after_utc", None) or cert.not_valid_after
+    validade = fim.date()
+    if validade < (hoje or date.today()):
+        raise CertificadoRecusado(f"Este certificado venceu em {validade:%d/%m/%Y}.")
+    return {"titular": str(titular), "validade": validade}
+
+
+def gravar_certificado(db: Session, pfx: bytes, senha: str, por: str = "") -> dict:
+    """Confere e grava. Devolve {titular, validade}."""
+    import base64
+
+    info = ler_certificado(pfx, senha)
+    gravar(db, ASSINATURA_PFX, base64.b64encode(pfx).decode("ascii"), por)
+    gravar(db, ASSINATURA_SENHA, senha, por)
+    gravar(db, ASSINATURA_TITULAR, info["titular"][:255], por)
+    gravar(db, ASSINATURA_VALIDADE, info["validade"].isoformat(), por)
+    return info
+
+
+def remover_certificado(db: Session, por: str = "") -> None:
+    for chave in (ASSINATURA_PFX, ASSINATURA_SENHA, ASSINATURA_TITULAR, ASSINATURA_VALIDADE):
+        gravar(db, chave, "", por)
+
+
+def certificado_assinatura(db: Session) -> tuple[bytes, str] | None:
+    """(pfx, senha) para o motor assinar, ou None se não há certificado gravado. Só a fila e a rotina chamam:
+    nunca vai para a tela."""
+    import base64
+
+    pfx_b64 = ler(db, ASSINATURA_PFX)
+    if not pfx_b64:
+        return None
+    try:
+        pfx = base64.b64decode(pfx_b64, validate=True)
+    except (ValueError, TypeError):
+        logger.error("O certificado de assinatura gravado não é base64 válido")
+        return None
+    return pfx, ler(db, ASSINATURA_SENHA)
+
+
+def situacao_certificado(db: Session, hoje=None) -> dict | None:
+    """O que a tela pode saber do certificado: titular, validade, vencido, dias para vencer. Nada de senha."""
+    from datetime import date
+
+    if not ler(db, ASSINATURA_PFX):
+        return None
+    titular = ler(db, ASSINATURA_TITULAR)
+    try:
+        validade = date.fromisoformat(ler(db, ASSINATURA_VALIDADE))
+    except ValueError:
+        validade = None
+    hoje = hoje or date.today()
+    dias = (validade - hoje).days if validade else None
+    return {"titular": titular, "validade": validade, "vencido": dias is not None and dias < 0,
+            "dias": dias}

@@ -298,6 +298,8 @@ def executar(sessao_factory, automacao_id: str, gatilho: str,
 
         if tipo == "coleta_nfse":
             _rodar_coleta(db, automacao, execucao)
+        elif tipo == "validar_sped":
+            _rodar_validar_sped(db, automacao, execucao)
         else:
             _rodar_informativo(db, automacao, execucao, tipo, sessao_factory)
         return execucao.id
@@ -368,6 +370,24 @@ def _rodar_coleta(db, automacao: NfseAutomacao, execucao: NfseAutomacaoExecucao)
             db.rollback()
         except Exception:
             pass
+
+
+def _rodar_validar_sped(db, automacao: NfseAutomacao, execucao: NfseAutomacaoExecucao) -> None:
+    """A pasta de SPED pelo PVA (services/automacoes/validar_sped.py). O informativo sai se houver destinatário."""
+    from ..automacoes import tipos, validar_sped
+
+    config = tipos.ler_config(automacao)
+    detalhe = validar_sped.rodar(db, automacao, execucao, config)
+    execucao.detalhe = json.dumps(detalhe, ensure_ascii=False, default=str)
+    execucao.status, execucao.mensagem = validar_sped.desfecho(detalhe)
+    execucao.fim = datetime.utcnow()
+    db.commit()
+
+    def montar():
+        assunto, html, texto = validar_sped.montar_email(detalhe, automacao.nome, execucao.mensagem or "")
+        return assunto, html, texto, []
+
+    _enviar_email(db, execucao, automacao, montar)
 
 
 def _ultimo_fim(db, automacao_id: str, sem_id: str):
@@ -607,12 +627,16 @@ def rodar_agora(sessao_factory, automacao_id: str) -> tuple[bool, str]:
     tipo = _tipo_da_automacao(sessao_factory, automacao_id) or "coleta_nfse"
     coleta = tipo == "coleta_nfse"
     if _trava(tipo).locked():
+        if tipo == "validar_sped":
+            return False, "Esta rotina de SPED já está rodando. Aguarde ela terminar."
         return False, ("Já existe uma coleta em andamento. Aguarde ela terminar." if coleta
                        else "Já há um informativo deste tipo em andamento. Aguarde ele terminar.")
     _ultima_manual = threading.Thread(
         target=executar, args=(sessao_factory, automacao_id, "manual"),
         kwargs={"esperar": False}, name="automacao-manual", daemon=True)
     _ultima_manual.start()
+    if tipo == "validar_sped":
+        return True, "Rotina iniciada: os SPED vão ao PVA um por vez. O andamento aparece no histórico abaixo."
     return True, ("Coleta iniciada. O andamento aparece no histórico abaixo." if coleta
                   else "Informativo em preparação. O resultado aparece no histórico abaixo.")
 
@@ -628,6 +652,9 @@ def marcar_interrompidas(db) -> int:
             "O servidor reiniciou durante a coleta. O que foi baixado até ali está "
             "gravado, e a próxima execução continua do mesmo ponto."
             if (e.tipo or "coleta_nfse") == "coleta_nfse" else
+            "O servidor reiniciou no meio da rotina. Os arquivos que já passaram pelo PVA estão "
+            "no histórico; os outros voltam na próxima rodada."
+            if e.tipo == "validar_sped" else
             "O servidor reiniciou enquanto o informativo era montado; ele não foi "
             "enviado, e a próxima rodada cobre o período.")
     if presas:

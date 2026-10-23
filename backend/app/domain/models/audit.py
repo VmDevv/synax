@@ -183,3 +183,15 @@ class SpedValidacao(Base, TenantMixin, TimestampMixin):
     # O validador antigo roda junto, só para comparar, até o Sandro decidir apagá-lo. NULO = não rodou.
     py_erros = Column(Integer, nullable=True)
     py_advertencias = Column(Integer, nullable=True)
+
+    # Assinatura (23/10/2026): pedida na aba ou pela rotina, feita pelo PVA com o e-CNPJ das Configurações, e só
+    # em arquivo aprovado. `assinar` = alguém pediu; `assinado` = o PVA assinou e conferiu; o motivo diz por que
+    # não. O arquivo assinado fica na pasta do processo (aba) ou na pasta de destino (rotina) — nunca no banco.
+    assinar = Column(Boolean, nullable=True)
+    assinado = Column(Boolean, nullable=True)
+    assinatura_motivo = Column(String(500), nullable=True)
+    assinatura_titular = Column(String(255), nullable=True)
+    assinado_em = Column(DateTime, nullable=True)
+    arquivo_assinado = Column(String(500), nullable=True)
+    # tela | rotina. NULO = aba, antes da rotina existir.
+    origem = Column(String(10), nullable=True)

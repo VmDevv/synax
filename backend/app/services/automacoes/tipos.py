@@ -11,6 +11,7 @@ COLETA = "coleta_nfse"
 RESUMO = "resumo_auditorias"
 ERROS = "erros_sistema"
 EMAILS = "resumo_emails"
+VALIDAR = "validar_sped"
 
 TIPOS = {
     COLETA: {
@@ -46,6 +47,15 @@ TIPOS = {
         # e-mails não cabe num resumo que alguém leia.
         "frequencias": ("diaria", "semanal"),
         "email_obrigatorio": True,
+    },
+    # 23/10/2026: a pasta onde o Domínio grava os SPED, validada e assinada no PVA (services/automacoes/
+    # validar_sped.py). Trabalha sozinha mesmo sem e-mail: o resultado fica no histórico e na aba Validar SPED.
+    VALIDAR: {
+        "rotulo": "Validar e assinar SPED",
+        "icone": "fa-file-signature",
+        "descricao": "Valida no PVA os SPED de uma pasta e assina com o e-CNPJ os que passarem.",
+        "frequencias": ("diaria", "semanal", "mensal"),
+        "email_obrigatorio": False,
     },
 }
 
@@ -86,6 +96,8 @@ _PADRAO = {
             "so_com_novidade": True},
     # Envia mesmo sem e-mail: "nada chegou" numa manhã útil é, em si, estranho.
     EMAILS: {"periodo": "desde_ultima", "usar_ia": True, "so_com_novidade": False},
+    # Transmitir não é opção: o envio à Receita não tem volta e não está ligado no Synax.
+    VALIDAR: {"pasta": "", "subpastas": False, "destino": "", "assinar": True},
 }
 
 
@@ -142,6 +154,19 @@ def config_do_formulario(tipo: str, form: dict) -> tuple[dict, str]:
         config["periodo"] = periodo
         config["usar_ia"] = bool(form.get("usar_ia"))
         config["so_com_novidade"] = bool(form.get("so_com_novidade"))
+    elif tipo == VALIDAR:
+        import os
+
+        pasta = str(form.get("pasta") or "").strip().strip('"')
+        destino = str(form.get("destino") or "").strip().strip('"')
+        config.update(pasta=pasta, destino=destino, subpastas=bool(form.get("subpastas")),
+                      assinar=bool(form.get("assinar")))
+        if not pasta:
+            return config, "Informe a pasta onde os SPED chegam (a que o Domínio grava)."
+        if not os.path.isdir(pasta):
+            return config, f"O servidor não encontrou a pasta {pasta}. Confira o caminho (pasta da rede: \\\\servidor\\pasta)."
+        if destino and os.path.normcase(os.path.abspath(destino)) == os.path.normcase(os.path.abspath(pasta)):
+            return config, "A pasta dos assinados tem de ser outra: na mesma pasta, o assinado ficaria por cima do original."
     return config, ""
 
 
@@ -161,6 +186,11 @@ def descrever(tipo: str, config: dict) -> str:
             partes.append("sem o log cru")
         partes.append("só quando houver erro" if config.get("so_com_novidade")
                       else "envia mesmo sem erro")
+        return " · ".join(p for p in partes if p)
+    if tipo == VALIDAR:
+        partes = [config.get("pasta") or "(sem pasta)",
+                  "valida e assina" if config.get("assinar") else "só valida",
+                  "com subpastas" if config.get("subpastas") else ""]
         return " · ".join(p for p in partes if p)
     if tipo == EMAILS:
         partes = [PERIODOS_EMAILS.get(config.get("periodo"), ""),

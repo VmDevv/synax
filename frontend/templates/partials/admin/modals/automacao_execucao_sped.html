@@ -1,0 +1,88 @@
+{# Detalhe de UMA rodada da rotina "Validar e assinar SPED": cada arquivo da pasta com o que aconteceu. Nada some:
+   pulado também aparece, com o motivo. A validação de cada arquivo abre na aba Validar SPED. #}
+{% set tons = {
+    "ok": "bg-emerald-50 text-emerald-700 border-emerald-200",
+    "aviso": "bg-amber-50 text-amber-800 border-amber-200",
+    "erro": "bg-red-50 text-red-700 border-red-200",
+    "info": "bg-blue-50 text-blue-700 border-blue-200"} %}
+{% set r = status_rotulo.get(e.status, (e.status, "aviso")) %}
+{% set arquivos = (dados.arquivos if dados else none) or [] %}
+<dialog class="modal modal-open">
+    <div class="modal-box bg-white text-slate-800 max-w-5xl p-0 overflow-hidden">
+        <div class="px-6 pt-5 pb-4 border-b border-slate-100 flex items-start justify-between gap-4">
+            <div class="min-w-0">
+                <h3 class="font-bold text-lg flex flex-wrap items-center gap-2">
+                    <i class="fa-solid fa-file-signature text-blue-600"></i>
+                    Validar e assinar SPED · {{ e.inicio | hora_br }}
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-bold {{ tons[r[1]] }}">{{ r[0] }}</span>
+                </h3>
+                <p class="text-[13px] text-slate-500 mt-0.5">
+                    {{ nome }} · {{ "disparado à mão" if e.gatilho == "manual" else "pela agenda" }}
+                    {% if dados and dados.pasta %}<br><span class="font-mono text-[11px]">{{ dados.pasta }}</span>{% endif %}
+                    {% if dados and dados.assinar and dados.destino %}<span class="text-[11px]"> → assinados em <span class="font-mono">{{ dados.destino }}</span></span>{% endif %}
+                </p>
+            </div>
+            <button type="button" class="btn btn-sm btn-ghost btn-square text-slate-400" title="Fechar"
+                    onclick="document.getElementById('modal-container').innerHTML = ''"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <div class="px-6 py-5 space-y-5 max-h-[72vh] overflow-y-auto">
+            {% if e.status == "rodando" %}
+            <p class="flex items-center gap-2 text-[13px] text-slate-500 bg-slate-50 rounded-xl px-4 py-3">
+                <span class="loading loading-spinner loading-sm text-blue-600"></span>
+                {{ e.empresas_ok + e.empresas_falha + e.empresas_adiadas }} de {{ e.empresas_total }} arquivos já passaram pelo PVA…
+            </p>
+            {% endif %}
+
+            {% if dados and dados.aviso %}
+            <p class="text-[13px] bg-amber-50 border border-amber-200 text-amber-900 rounded-xl px-4 py-3">
+                <i class="fa-solid fa-triangle-exclamation mr-1"></i> {{ dados.aviso }}
+            </p>
+            {% endif %}
+
+            {% if e.mensagem and e.status != "rodando" %}
+            <p class="text-[13px] text-slate-700">{{ e.mensagem }}</p>
+            {% endif %}
+
+            {% if e.email_status == "enviado" %}
+            <p class="text-[12px] text-emerald-700"><i class="fa-solid fa-envelope-circle-check mr-1"></i>{{ e.email_detalhe }}</p>
+            {% elif e.email_status == "falhou" %}
+            <p class="text-[12px] text-red-700"><i class="fa-solid fa-envelope mr-1"></i>Informativo não enviado: {{ e.email_detalhe }}</p>
+            {% endif %}
+
+            {% if arquivos %}
+            <div class="overflow-x-auto">
+                <table class="table table-xs w-full border border-slate-200">
+                    <thead>
+                        <tr class="text-[11px] uppercase text-slate-500 bg-slate-50">
+                            <th>Empresa</th><th>Arquivo</th><th>Competência</th><th>Situação</th><th>Detalhe</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for a in arquivos %}
+                        {% set s = situacoes.get(a.situacao, (a.situacao, "info")) %}
+                        <tr>
+                            <td class="text-[12px] font-semibold text-slate-700">{{ a.empresa or "—" }}</td>
+                            <td class="text-[11px] font-mono max-w-[220px] truncate" title="{{ a.arquivo }}">{{ a.arquivo }}</td>
+                            <td class="text-[12px] tabular-nums">{{ a.competencia or "—" }}</td>
+                            <td><span class="inline-flex px-2 py-0.5 rounded-full border text-[11px] font-bold whitespace-nowrap {{ tons[s[1]] }}">{{ s[0] }}</span></td>
+                            <td class="text-[11px] text-slate-600 max-w-[320px]">
+                                {% if a.situacao == "assinado" %}<span class="font-mono break-all">{{ a.motivo }}</span>
+                                {% else %}{{ a.motivo or "" }}{% endif %}
+                                {% if a.advertencias %} · {{ a.advertencias }} advertência(s){% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p class="text-[11px] text-slate-500">
+                Cada arquivo validado também está na aba Validar SPED, no painel do mês da empresa, com os erros do PVA.
+                Transmitir não está ligado no Synax: a entrega continua pelo PVA ou pelo Receitanet.
+            </p>
+            {% elif e.status != "rodando" and not (dados and dados.aviso) %}
+            <p class="text-[13px] text-slate-600 bg-slate-50 rounded-xl px-4 py-3">Nenhum arquivo nesta rodada.</p>
+            {% endif %}
+        </div>
+    </div>
+</dialog>
