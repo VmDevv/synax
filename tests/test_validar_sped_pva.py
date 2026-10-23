@@ -20,6 +20,9 @@ O que esta suíte protege:
    assinar sempre aparece. **Transmitir nunca**: recusado com o motivo.
 8. **A rotina automática** valida e assina a pasta, arquivo por arquivo, sem nunca sumir com um: EFD-Contribuições,
    empresa fora, já assinado e "não é SPED" saem com o motivo; o assinado é uma cópia no destino, nunca por cima.
+9. **Correção pelo Synax**: só formato e contagens saem sozinhos, só onde o PVA apontou e a linha confere; a prévia
+   mostra antes → depois; o resto do arquivo sai byte a byte; a cópia corrigida volta ao PVA como validação nova; o
+   que não tem correção automática sai com o que fazer.
 """
 import json
 import os
@@ -542,8 +545,9 @@ check("com competência, CNPJ do 0000, original/substituta, COD_VER, linhas e qu
       ln and ln.competencia == "2026-04" and ln.cnpj == EMPRESA and ln.cod_fin == "0" and ln.leiaute == "020"
       and ln.linhas == 7 and ln.user_name == "Operador", ln and (ln.competencia, ln.leiaute, ln.linhas))
 check("o validador antigo rodou junto (comparação)", ln and isinstance(ln.py_erros, int), ln and ln.py_erros)
-check("o SPED do cliente não ficou no servidor",
-      not os.path.exists(os.path.join(fila.pasta(p_ok), fila.ARQUIVO_SPED)))
+check("o arquivo enviado sai da fila e fica guardado como original (7 dias, para a correção)",
+      not os.path.exists(os.path.join(fila.pasta(p_ok), fila.ARQUIVO_SPED))
+      and open(os.path.join(fila.pasta(p_ok), fila.ARQUIVO_ORIGINAL), "rb").read() == ARQ)
 check("o PVA recebeu o arquivo com Content-Length, sem chunked",
       Motor.pedidos[-1][:2] == (str(len(ARQ)), None) and Motor.pedidos[-1][2] == ARQ)
 
@@ -873,7 +877,7 @@ check("colunas: aprovado, assinado, titular, data, origem tela",
       ln.aprovado is True and ln.assinar is True and ln.assinado is True and ln.assinado_em is not None
       and ln.assinatura_titular == CERT_INFO["emitidoPara"] and ln.origem == "tela",
       (ln.aprovado, ln.assinado, ln.assinatura_titular, ln.origem))
-check("o SPED original não ficou no servidor; a cópia assinada sim",
+check("o arquivo saiu da fila, e a cópia assinada ficou para baixar",
       not os.path.exists(os.path.join(fila.pasta(p_ass), fila.ARQUIVO_SPED))
       and os.path.exists(os.path.join(fila.pasta(p_ass), fila.ARQUIVO_ASSINADO)))
 t = texto(as_("ope").get(f"/api/validar-sped/{p_ass}", headers=HX))
@@ -1073,6 +1077,165 @@ check("sem certificado, a aba recusa 'assinar' com o motivo",
 check("e a caixa 'Assinar' aparece desligada",
       re.search(r'name="assinar" value="1"[^>]*disabled', as_("ope").get("/validar-sped").text) is not None)
 __import__("shutil").rmtree(PASTA_ROT, ignore_errors=True)
+
+
+# ============================================================================
+print("\n=== 9. Correção pelo Synax: formato e contagens, prévia e revalidação ===")
+
+from backend.app.services import validar_sped_correcao as correcao_svc  # noqa: E402
+
+LINHAS_DEF = [
+    f"|0000|020|0|01042026|30042026|EMPRESA TESTE LTDA|{EMPRESA}||ES|082000000|3205309|||A|1|",
+    "|0001|0|",
+    "|0150|F001|FORNECEDOR LTDA |1058|11444777000161|||3205309||RUA B|20||CENTRO|",
+    "|0990|3|",
+    "|9001|0|",
+    "|9900|0000|1|", "|9900|0001|1|", "|9900|0150|1|", "|9900|0990|1|", "|9900|9001|1|", "|9900|9900|8|",
+    "|9900|9990|1|", "|9900|9999|1|",
+    "|9990|11|",
+    "|9999|14|",
+]
+# Sem a quebra final e com 0990 e 9999 errados; o espaço no nome do fornecedor é o do LIESA.
+DEFEITUOSO = ("\r\n".join(LINHAS_DEF)).encode("latin-1")
+REPROVADO_FORMATO = {
+    "versaoPva": "6.1.1", "estado": "EM_EDICAO", "valido": False, "integrado": True, "mensagens": [], "ms": 9000,
+    "erros": [
+        item("E", "MSG_ESPACOS_INICIO_FINAL", "Campo não pode conter espaços em branco no início nem no final.",
+             "0150", "3 - NOME", 3, "FORNECEDOR LTDA ", None),
+        item("E", "MSG_QTD_LIN_BLOCO0", "Quantidade de linhas do bloco zero informada não confere com a esperada "
+             "pelo sistema.", "0990", "2 - QTD_LIN_0", 4, "3", "4"),
+        item("E", "MSG_QTD_LIN_ARQUIVO", "Quantidade de registros informada não confere com a esperada pelo sistema.",
+             "9999", "2 - QTD_LIN", 15, "14", "15"),
+        item("E", "MSG_EXISTE_APURACAO_IPI", "Contribuinte de IPI deve apresentar registros E500 e registros filhos.",
+             "E500", None, 0, None, "E500"),
+        # Linha que não confere: o PVA diz 0150 na linha 2, mas lá está o 0001 — não pode virar palpite.
+        item("E", "MSG_ESPACOS_INICIO_FINAL", "Campo não pode conter espaços em branco no início nem no final.",
+             "0150", "4 - COD_PAIS", 2, "1058 ", None),
+    ]}
+
+Motor.respostas.append(REPROVADO_FORMATO)
+r = enviar("ope", tA, DEFEITUOSO)
+p_def = r.json()["processo"]
+PROCESSOS.append(p_def)
+fila.esperar(10)
+check("o original fica guardado para a correção", os.path.exists(os.path.join(fila.pasta(p_def), fila.ARQUIVO_ORIGINAL)))
+t = texto(as_("ope").get(f"/api/validar-sped/{p_def}", headers=HX))
+check("o resultado oferece 'Corrigir pelo Synax'", "Corrigir pelo Synax" in t
+      and f"/api/validar-sped/{p_def}/correcao" in t, t[-800:])
+
+j = as_("ope").get(f"/api/validar-sped/{p_def}/correcao").json()
+mud = {(m["registro"], m["campo"]): (m["antes"], m["depois"]) for m in j["mudancas"]}
+check("prévia: o espaço do 0150 sai, com antes -> depois",
+      mud.get(("0150", "3 - NOME")) == ("FORNECEDOR LTDA ", "FORNECEDOR LTDA"), mud)
+check("prévia: as contagens são refeitas (0990 e o total do 9999)",
+      mud.get(("0990", "QTD_LIN_0")) == ("3", "4") and mud.get(("9999", "QTD_LIN")) == ("14", "15"), mud)
+check("prévia: a quebra de linha final aparece (a cópia sai com ela)",
+      ("9999", "fim da linha") in mud, sorted(mud))
+check("nenhuma outra alteração além dessas", len(j["mudancas"]) == 4, j["mudancas"])
+pend = {(p["codigo"], p["registro"]): p["o_que_fazer"] for p in j["pendencias"]}
+check("o IPI fica com você, com o que fazer (Domínio)",
+      "Domínio" in pend.get(("MSG_EXISTE_APURACAO_IPI", "E500"), "")
+      and "PVA espera E500" in pend[("MSG_EXISTE_APURACAO_IPI", "E500")], pend)
+check("a linha que não confere com o arquivo vira pendência, nunca palpite",
+      "não confere" in pend.get(("MSG_ESPACOS_INICIO_FINAL", "0150"), ""), pend)
+check("três apontamentos do PVA cobertos pela correção", j["resolvidos"] == 3, j["resolvidos"])
+r = as_("ope").get(f"/api/validar-sped/{p_def}/correcao", headers=HX)
+t = texto(r)
+check("a prévia na tela: corrige sozinho, fica com você, e o botão de aplicar",
+      "Corrige sozinho (4" in t and "Fica com você (2)" in t and "Aplicar e validar de novo no PVA" in t
+      and "FORNECEDOR LTDA␣" in t, t[:600])
+check("operador de outra empresa não vê a prévia",
+      as_("ope2").get(f"/api/validar-sped/{p_def}/correcao").status_code == 403)
+check("cliente não corrige", as_("cli").post(f"/api/validar-sped/{p_def}/corrigir").status_code == 403)
+check("operador de outra empresa não corrige",
+      as_("ope2").post(f"/api/validar-sped/{p_def}/corrigir").status_code == 403)
+check("identificador que não é UUID não vira caminho",
+      as_("ope").get("/api/validar-sped/nao-e-uuid/correcao").status_code == 404)
+
+Motor.respostas.append(APROVADO)
+antes_ped = len(Motor.pedidos)
+r = as_("ope").post(f"/api/validar-sped/{p_def}/corrigir")
+check("aplicar: 202, uma validação nova que aponta para a corrigida",
+      r.status_code == 202 and r.json().get("corrige") == p_def, r.text[:200])
+p_corr = r.json()["processo"]
+PROCESSOS.append(p_corr)
+fila.esperar(10)
+enviado = Motor.pedidos[-1][2]
+esperado = ("\r\n".join([LINHAS_DEF[0], LINHAS_DEF[1], LINHAS_DEF[2].replace("LTDA |", "LTDA|"), "|0990|4|",
+                         *LINHAS_DEF[4:14], "|9999|15|"]) + "\r\n").encode("latin-1")
+check("o PVA recebeu a CÓPIA corrigida: só as linhas da prévia mudaram, o resto byte a byte",
+      len(Motor.pedidos) == antes_ped + 1 and enviado == esperado, (enviado[-60:], esperado[-60:]))
+with open(os.path.join(fila.pasta(p_def), fila.ARQUIVO_ORIGINAL), "rb") as f:
+    check("o original da primeira validação não mudou", f.read() == DEFEITUOSO)
+ln = linha_de(p_corr)
+check("a validação nova: origem 'correcao', aponta para a anterior, com o número de alterações e o veredito",
+      ln.origem == "correcao" and ln.corrige == p_def and ln.correcoes == 4 and ln.aprovado is True,
+      (ln.origem, ln.corrige, ln.correcoes, ln.aprovado))
+t = texto(as_("ope").get(f"/api/validar-sped/{p_corr}", headers=HX))
+check("na tela: 'Arquivo corrigido pelo Synax', o que mudou e o botão de baixar",
+      "Arquivo corrigido pelo Synax" in t and "4 alteração(ões)" in t and "Baixar SPED corrigido" in t
+      and "Ver o que mudou" in t, t[:900])
+r = as_("ope").get(f"/api/validar-sped/{p_corr}/arquivo")
+check("baixar o corrigido: arquivo, com '-corrigido' no nome e o conteúdo da cópia",
+      r.status_code == 200 and r.headers.get("content-type") == "application/octet-stream"
+      and "-corrigido.txt" in r.headers.get("content-disposition", "") and r.content == esperado,
+      r.headers.get("content-disposition"))
+check("operador de outra empresa não baixa o corrigido",
+      as_("ope2").get(f"/api/validar-sped/{p_corr}/arquivo").status_code == 403)
+
+# Nada automático: só apuração, IPI e a advertência do C590 (sem a contagem do Bloco 9 que o REPROVADO traz).
+Motor.respostas.append({**REPROVADO, "erros": [REPROVADO["erros"][i] for i in (0, 1, 3)]})
+r = enviar("ope", tA, ARQ_B)
+p_sem = r.json()["processo"]
+PROCESSOS.append(p_sem)
+fila.esperar(10)
+j = as_("ope").get(f"/api/validar-sped/{p_sem}/correcao").json()
+check("sem nada automático: zero alterações, tudo como pendência com o que fazer",
+      j["mudancas"] == [] and len(j["pendencias"]) == 3
+      and all(p["o_que_fazer"] for p in j["pendencias"]), j)
+check("e a apuração (E110) diz que muda imposto e pede o E116",
+      any("E116" in p["o_que_fazer"] for p in j["pendencias"] if p["registro"] == "E110"))
+r = as_("ope").post(f"/api/validar-sped/{p_sem}/corrigir")
+check("aplicar sem nada automático: recusado com o motivo", r.status_code == 422
+      and "Nada nesta validação" in r.json().get("erro", ""), r.text[:200])
+t = texto(as_("ope").get(f"/api/validar-sped/{p_sem}/correcao", headers=HX))
+check("na tela, sem botão de aplicar", "Aplicar e validar de novo" not in t and "Nada nesta validação" in t)
+
+# Recusado antes de importar: falta a quebra de linha final.
+Motor.respostas.append(RECUSADO)
+sem_quebra = ARQ.rstrip(b"\r\n")
+r = enviar("ope", tA, sem_quebra)
+p_rq = r.json()["processo"]
+PROCESSOS.append(p_rq)
+fila.esperar(10)
+j = as_("ope").get(f"/api/validar-sped/{p_rq}/correcao").json()
+check("recusado pela quebra final: a correção é só acrescentar a quebra",
+      [m["campo"] for m in j["mudancas"]] == ["fim da linha"] and j["resolvidos"] == 1, j)
+Motor.respostas.append(APROVADO)
+r = as_("ope").post(f"/api/validar-sped/{p_rq}/corrigir")
+PROCESSOS.append(r.json().get("processo", ""))
+fila.esperar(10)
+check("e a cópia vai ao PVA igual ao original, com a quebra no fim", Motor.pedidos[-1][2] == sem_quebra + b"\r\n")
+
+# Original apagado (limpeza dos 7 dias): a tela diz por quê.
+os.remove(os.path.join(fila.pasta(p_sem), fila.ARQUIVO_ORIGINAL))
+r = as_("ope").get(f"/api/validar-sped/{p_sem}/correcao")
+check("arquivo que já saiu do servidor: 410 com o motivo", r.status_code == 410 and "7" in r.text, r.text[:200])
+t = texto(as_("ope").get(f"/api/validar-sped/{p_sem}", headers=HX))
+check("e o resultado deixa de oferecer a correção", "Corrigir pelo Synax" not in t)
+
+# A rotina nunca corrige, mas o reprovado dela pode ser corrigido pela tela.
+ss = SessionLocal()
+da_rotina_rep = (ss.query(SpedValidacao.id).filter(SpedValidacao.origem == "rotina", SpedValidacao.aprovado.is_(False))
+                 .first())
+ss.close()
+check("reprovado da rotina: o original fica, e a prévia de correção abre",
+      da_rotina_rep is not None
+      and as_("ope").get(f"/api/validar-sped/{da_rotina_rep.id}/correcao").status_code == 200)
+
+fonte_rotina = open(os.path.join("backend", "app", "services", "automacoes", "validar_sped.py"), encoding="utf-8").read()
+check("a rotina automática nunca chama a correção", "validar_sped_correcao" not in fonte_rotina
+      and "propor(" not in fonte_rotina)
 
 
 # ============================================================================

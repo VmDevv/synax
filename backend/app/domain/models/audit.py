@@ -193,5 +193,9 @@ class SpedValidacao(Base, TenantMixin, TimestampMixin):
     assinatura_titular = Column(String(255), nullable=True)
     assinado_em = Column(DateTime, nullable=True)
     arquivo_assinado = Column(String(500), nullable=True)
-    # tela | rotina. NULO = aba, antes da rotina existir.
+    # tela | rotina | correcao. NULO = aba, antes da rotina existir.
     origem = Column(String(10), nullable=True)
+    # Correção pelo Synax (23/10/2026): a validação nova de um arquivo corrigido aponta para a que ela corrigiu, e
+    # guarda quantas alterações a correção fez (o "antes → depois" fica em correcao.json, na pasta do processo).
+    corrige = Column(String(36), nullable=True)
+    correcoes = Column(Integer, nullable=True)

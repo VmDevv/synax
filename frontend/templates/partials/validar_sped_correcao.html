@@ -1,0 +1,93 @@
+{# Prévia da correção pelo Synax: o que muda sozinho (antes → depois) e o que fica com a pessoa, com o que fazer.
+   Nada é gravado aqui; "Aplicar" refaz a proposta no servidor, grava uma CÓPIA e manda ao PVA de novo. #}
+<div class="space-y-4">
+    <div>
+        <h5 class="font-bold text-sm text-slate-700 mb-2">
+            <i class="fa-solid fa-wand-magic-sparkles mr-1 text-emerald-700"></i>
+            Corrige sozinho ({{ p.mudancas | length }} alteração(ões))
+        </h5>
+        {% if p.mudancas %}
+        <div class="overflow-x-auto">
+            <table class="table table-xs w-full border border-slate-200">
+                <thead>
+                    <tr class="text-[11px] uppercase text-slate-500 bg-slate-50">
+                        <th>Linha</th><th>Registro</th><th>Campo</th><th>Antes</th><th>Depois</th><th>Por quê</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in p.mudancas %}
+                    <tr>
+                        <td class="font-mono">{{ m.linha or "—" }}</td>
+                        <td class="font-mono">{{ m.registro }}</td>
+                        <td class="font-mono text-[11px]">{{ m.campo }}</td>
+                        {# Os espaços aparecem marcados: "CANIVETE␣" não se distingue de "CANIVETE" a olho. #}
+                        <td class="font-mono text-red-700 whitespace-pre">{{ mostrar(m.antes) }}</td>
+                        <td class="font-mono text-emerald-700 whitespace-pre">{{ mostrar(m.depois) }}</td>
+                        <td class="text-[11px] text-slate-600">{{ m.motivo }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <p class="text-[11px] text-slate-500 mt-1">O resto do arquivo sai exatamente igual ao original. ␣ = espaço; ⍽ = espaço não separável (o que vem do Domínio às vezes).</p>
+        {% else %}
+        <p class="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3">
+            Nada nesta validação tem correção automática: o Synax só corrige sozinho espaços no início ou no fim de
+            campo, a quebra de linha final e as contagens de linhas. O resto está abaixo, com o que fazer.
+        </p>
+        {% endif %}
+        {% for aviso in p.avisos %}
+        <p class="text-[11px] text-amber-800 mt-1"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Também muda: {{ aviso }}</p>
+        {% endfor %}
+    </div>
+
+    {% if p.pendencias %}
+    <div>
+        <h5 class="font-bold text-sm text-slate-700 mb-2">
+            <i class="fa-solid fa-user-pen mr-1 text-amber-700"></i>
+            Fica com você ({{ p.pendencias | length }})
+        </h5>
+        <div class="overflow-x-auto">
+            <table class="table table-xs w-full border border-slate-200">
+                <thead>
+                    <tr class="text-[11px] uppercase text-slate-500 bg-slate-50">
+                        <th>Tipo</th><th>Linha</th><th>Registro</th><th>Campo</th><th>Mensagem do PVA</th><th>O que fazer</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for x in p.pendencias %}
+                    <tr class="{% if x.tipo == 'A' %}bg-amber-50{% endif %}">
+                        <td>{% if x.tipo == 'A' %}<span class="badge badge-warning badge-xs">advertência</span>{% else %}<span class="badge badge-error badge-xs text-white">erro</span>{% endif %}</td>
+                        <td class="font-mono">{{ x.linha or "—" }}</td>
+                        <td class="font-mono">{{ x.registro }}</td>
+                        <td class="font-mono text-[11px]">{{ x.campo }}</td>
+                        <td class="text-[11px] max-w-[280px]">{{ x.descricao }}{% if x.codigo %}<div class="font-mono text-[10px] text-slate-400">{{ x.codigo }}</div>{% endif %}</td>
+                        <td class="text-[12px] text-slate-700 max-w-[360px]">{{ x.o_que_fazer }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if p.corrige %}
+    {# Aplicar: a cópia corrigida volta ao PVA como validação nova, e o resultado novo substitui este cartão. #}
+    <form hx-post="/api/validar-sped/{{ processo }}/corrigir" hx-target="#resultado-validar" hx-swap="innerHTML"
+          hx-boost="false" class="flex items-center gap-4 flex-wrap bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+        <button type="submit" class="btn btn-sm bg-emerald-700 hover:bg-emerald-800 text-white border-none">
+            <i class="fa-solid fa-check mr-1"></i> Aplicar e validar de novo no PVA
+        </button>
+        {% if certificado and not certificado.vencido %}
+        <label class="flex items-center gap-2 text-[13px] text-slate-700">
+            <input type="checkbox" name="assinar" value="1" class="checkbox checkbox-sm checkbox-primary" {% if linha.assinar %}checked{% endif %}>
+            Assinar se o PVA aprovar
+        </label>
+        {% endif %}
+        <span class="text-[11px] text-slate-600">
+            O seu arquivo não muda: a correção é uma cópia, que fica para baixar.
+            {% if p.pendencias %}Com as pendências acima, o PVA ainda vai reprovar — corrija-as no Domínio.{% endif %}
+        </span>
+    </form>
+    {% endif %}
+</div>

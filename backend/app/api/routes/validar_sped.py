@@ -46,6 +46,7 @@ from ...domain.models.audit import SpedValidacao
 from ...domain.models.auth_models import Tenant
 from ...infrastructure.database.session import get_db
 from ...services import pva_motor
+from ...services import validar_sped_correcao as correcao
 from ...services import validar_sped_fila as fila
 from ...services import configuracoes as cfg
 from ...services.audit_engine import sped_parser
@@ -146,14 +147,8 @@ async def validar(request: Request,
         return _recusar(request, "O envio à Receita não está ligado no Synax: transmita pelo PVA ou pelo "
                                  "Receitanet. Nada foi validado.", 422)
     quer_assinar = bool(assinar)
-    if quer_assinar:
-        certificado = cfg.situacao_certificado(db_session)
-        if certificado is None:
-            return _recusar(request, "Não há certificado para assinar: o administrador cadastra o e-CNPJ em "
-                                     "Administração → Configurações. Nada foi validado.", 422)
-        if certificado["vencido"]:
-            return _recusar(request, "O certificado de assinatura cadastrado está vencido: o administrador troca em "
-                                     "Administração → Configurações. Nada foi validado.", 422)
+    if quer_assinar and (motivo := _assinatura_recusada(db_session)):
+        return _recusar(request, motivo, 422)
     tenant_id = resolve_tenant_for_write(profile, tenant_id)
     empresa = db_session.query(Tenant).filter(Tenant.id == tenant_id).first()
     if empresa is None:
@@ -179,6 +174,28 @@ async def validar(request: Request,
         fila.descartar(processo)
         return _recusar(request, recusa, 422)
 
+    return await _colocar_na_fila(request, db_session, profile, processo, str(tenant_id), empresa, cab,
+                                  nome_seguro(sped_file.filename, "sped.txt"), quer_assinar, origem="tela")
+
+
+def _assinatura_recusada(db_session: Session) -> str | None:
+    """Por que não dá para pedir assinatura agora, ou None."""
+    certificado = cfg.situacao_certificado(db_session)
+    if certificado is None:
+        return ("Não há certificado para assinar: o administrador cadastra o e-CNPJ em Administração → "
+                "Configurações. Nada foi validado.")
+    if certificado["vencido"]:
+        return ("O certificado de assinatura cadastrado está vencido: o administrador troca em Administração → "
+                "Configurações. Nada foi validado.")
+    return None
+
+
+async def _colocar_na_fila(request: Request, db_session: Session, profile, processo: str, tenant_id: str, empresa,
+                           cab: dict, nome_arquivo: str, quer_assinar: bool, origem: str,
+                           corrige: str | None = None, correcoes: int | None = None):
+    """Do arquivo já gravado em `<processo>/sped_validar.txt` até a fila: confere o motor, registra a linha e
+    enfileira. Um caminho só para o arquivo enviado e para o corrigido pelo Synax."""
+    caminho = os.path.join(fila.pasta(processo), fila.ARQUIVO_SPED)
     try:
         await run_in_threadpool(pva_motor.saude)
     except pva_motor.MotorIndisponivel as exc:
@@ -193,22 +210,22 @@ async def validar(request: Request,
     linhas = await run_in_threadpool(_contar_linhas, caminho)
     competencia = _competencia(cab["dt_ini"])
     with open(os.path.join(fila.pasta(processo), "meta.json"), "w", encoding="utf-8") as f:
-        json.dump({"tenant_id": str(tenant_id), "linhas": linhas, **cab}, f)
+        json.dump({"tenant_id": tenant_id, "linhas": linhas, **cab}, f)
 
     do_arquivo = _identificador(cab["cnpj"] or cab["cpf"])
     try:
         db_session.add(SpedValidacao(
-            id=processo, tenant_id=str(tenant_id),
+            id=processo, tenant_id=tenant_id,
             user_id=str(getattr(profile, "id", "") or ""),
             user_name=getattr(profile, "name", None),
-            file_name=nome_seguro(sped_file.filename, "sped.txt"), competencia=competencia,
+            file_name=nome_arquivo, competencia=competencia,
             cnpj=do_arquivo[:14] or None, cod_fin=(cab["cod_fin"][:1] or None),
             leiaute=(cab["cod_ver"][:3] or None), linhas=linhas,
             # NULOS até o PVA responder: zero aqui seria lido como "sem erro". `null()` e não None: com None o ORM
             # aplica o default (0) da coluna.
             erros=null(), advertencias=null(), nao_conferidas=null(),
             hash_corpo=hash_corpo, motor=fila.MOTOR, situacao=fila.NA_FILA,
-            assinar=quer_assinar or None, origem="tela"))
+            assinar=quer_assinar or None, origem=origem, corrige=corrige, correcoes=correcoes))
         db_session.commit()
     except Exception:                                     # noqa: BLE001
         # Sem a linha não há como a tela acompanhar nem o histórico guardar: melhor não validar do que validar
@@ -220,22 +237,23 @@ async def validar(request: Request,
                                  "foi validado. Tente de novo ou avise o administrador.", 500)
 
     try:
-        na_frente = fila.enfileirar(fila.Pedido(processo=processo, tenant_id=str(tenant_id), assinar=quer_assinar))
+        na_frente = fila.enfileirar(fila.Pedido(processo=processo, tenant_id=tenant_id, assinar=quer_assinar,
+                                                guardar_original=True))
     except fila.FilaCheia as exc:
         db_session.query(SpedValidacao).filter(SpedValidacao.id == processo).delete()
         db_session.commit()
         fila.descartar(processo)
         return _recusar(request, str(exc), 503)
 
-    logger.info("SPED na fila do PVA processo=%s tenant=%s linhas=%d na_frente=%d por=%s", processo, tenant_id,
-                linhas, na_frente, getattr(profile, "name", "") or getattr(profile, "id", ""))
+    logger.info("SPED na fila do PVA processo=%s tenant=%s origem=%s linhas=%d na_frente=%d por=%s", processo,
+                tenant_id, origem, linhas, na_frente, getattr(profile, "name", "") or getattr(profile, "id", ""))
     if _quer_html(request):
         return templates.TemplateResponse(request, "partials/validar_sped_resultado.html", {
             "request": request, "fase": fila.NA_FILA, "processo": processo, "na_frente": na_frente,
             "segundos": 0, "cab": cab, "empresa": empresa, "br": br, "assinar": quer_assinar})
     return JSONResponse({"processo": processo, "situacao": fila.NA_FILA, "na_frente": na_frente,
-                         "competencia": competencia, "hash_corpo": hash_corpo, "assinar": quer_assinar},
-                        status_code=202)
+                         "competencia": competencia, "hash_corpo": hash_corpo, "assinar": quer_assinar,
+                         "corrige": corrige}, status_code=202)
 
 
 def _recusa_do_arquivo(cab: dict | None, leiaute: str, empresa) -> str | None:
@@ -409,6 +427,9 @@ def andamento(request: Request, processo: str,
         "request": request, "fase": fase, "processo": processo, "linha": linha, "r": resultado,
         "registrada": registrada, "falha": falha, "na_frente": (mem or {}).get("na_frente", 0),
         "segundos": segundos, "cab": _meta(processo), "empresa": empresa, "br": br, "assinar": bool(linha.assinar),
+        "original_disponivel": os.path.exists(os.path.join(fila.pasta(processo), fila.ARQUIVO_ORIGINAL)),
+        "correcao_feita": _correcao_gravada(processo) if linha.corrige else None,
+        "corrigida_de": _hora_da(db_session, linha.corrige) if linha.corrige else None,
         "assinado_disponivel": bool(linha.assinado) and os.path.exists(
             os.path.join(fila.pasta(processo), fila.ARQUIVO_ASSINADO)),
         "limite_tela": LIMITE_TELA, "admin": getattr(profile, "role", "") == "admin",
@@ -420,6 +441,105 @@ def andamento(request: Request, processo: str,
         # O painel do mês escuta este evento: a empresa muda de situação sem recarregar a página.
         resposta.headers["HX-Trigger"] = "validarSpedConcluida"
     return resposta
+
+
+def _correcao_gravada(processo: str) -> dict | None:
+    try:
+        with open(os.path.join(fila.pasta(processo), "correcao.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _hora_da(db_session: Session, processo: str):
+    linha = db_session.query(SpedValidacao.created_at).filter(SpedValidacao.id == processo).first()
+    return linha.created_at if linha else None
+
+
+def _validacao_para_corrigir(db_session: Session, processo: str, profile, escrever: bool):
+    """(linha, resultado, caminho do original) — ou HTTPException com o motivo."""
+    _uuid_ou_404(processo)
+    linha = db_session.get(SpedValidacao, processo)
+    if linha is None:
+        raise HTTPException(status_code=404, detail="Validação não encontrada.")
+    # Ver a prévia é ler; aplicar grava um arquivo novo e enfileira — regra de escrita, como no envio.
+    if escrever:
+        resolve_tenant_for_write(profile, linha.tenant_id)
+    else:
+        assert_tenant_access(profile, linha.tenant_id)
+    original = os.path.join(fila.pasta(processo), fila.ARQUIVO_ORIGINAL)
+    resultado = fila.ler_resultado(processo)
+    if linha.motor != fila.MOTOR or linha.situacao != fila.CONCLUIDA or resultado is None:
+        raise HTTPException(status_code=409, detail="Só dá para corrigir uma validação que o PVA concluiu.")
+    if not os.path.exists(original):
+        raise HTTPException(status_code=410, detail="O arquivo desta validação não está mais no servidor (fica 7 "
+                                                    "dias). Suba de novo.")
+    return linha, resultado, original
+
+
+@router.get("/api/validar-sped/{processo}/correcao", response_class=HTMLResponse)
+def previa_correcao(request: Request, processo: str, db_session: Session = Depends(get_db),
+                    profile=Depends(get_profile)):
+    """O que o Synax corrige sozinho (antes → depois) e o que fica com a pessoa. Não grava nada."""
+    assert_internal(profile)
+    linha, resultado, original = _validacao_para_corrigir(db_session, processo, profile, escrever=False)
+    proposta = correcao.propor(original, resultado)
+    if not _quer_html(request):
+        return JSONResponse(proposta.como_dict())
+    return templates.TemplateResponse(request, "partials/validar_sped_correcao.html", {
+        "request": request, "processo": processo, "p": proposta, "linha": linha, "mostrar": correcao.mostrar,
+        "certificado": cfg.situacao_certificado(db_session)})
+
+
+@router.post("/api/validar-sped/{processo}/corrigir")
+async def aplicar_correcao(request: Request, processo: str, assinar: str = Form(""),
+                           db_session: Session = Depends(get_db), profile=Depends(get_profile)):
+    """Aplica as correções automáticas numa CÓPIA e manda a cópia ao PVA como validação nova. A proposta é refeita
+    aqui, do arquivo e do resultado gravados: o que vem do navegador não decide o que muda."""
+    assert_internal(profile)
+    linha, resultado, original = _validacao_para_corrigir(db_session, processo, profile, escrever=True)
+    quer_assinar = bool(assinar)
+    if quer_assinar and (motivo := _assinatura_recusada(db_session)):
+        return _recusar(request, motivo, 422)
+    proposta = await run_in_threadpool(correcao.propor, original, resultado)
+    if not proposta.corrige:
+        return _recusar(request, "Nada nesta validação tem correção automática. Veja a lista do que fazer.", 422)
+    empresa = db_session.query(Tenant).filter(Tenant.id == linha.tenant_id).first()
+
+    novo = str(uuid.uuid4())
+    os.makedirs(fila.pasta(novo), exist_ok=True)
+    with open(os.path.join(fila.pasta(novo), fila.ARQUIVO_SPED), "wb") as f:
+        f.write(proposta.conteudo)
+    with open(os.path.join(fila.pasta(novo), "correcao.json"), "w", encoding="utf-8") as f:
+        json.dump({**proposta.como_dict(), "de": processo}, f, ensure_ascii=False)
+    cab = fila.ler_0000(os.path.join(fila.pasta(novo), fila.ARQUIVO_SPED)) or _meta(processo)
+    logger.info("Correção pelo Synax processo=%s -> %s: %d alteração(ões), %d pendência(s)", processo, novo,
+                len(proposta.mudancas), len(proposta.pendencias))
+    return await _colocar_na_fila(request, db_session, profile, novo, linha.tenant_id, empresa, cab,
+                                  linha.file_name or "sped.txt", quer_assinar, origem="correcao",
+                                  corrige=processo, correcoes=len(proposta.mudancas))
+
+
+@router.get("/api/validar-sped/{processo}/arquivo")
+def baixar_arquivo(processo: str, db_session: Session = Depends(get_db), profile=Depends(get_profile)):
+    """O arquivo que foi ao PVA nesta validação — no corrigido, a cópia corrigida. Fica 7 dias."""
+    assert_internal(profile)
+    _uuid_ou_404(processo)
+    linha = db_session.get(SpedValidacao, processo)
+    if linha is None:
+        raise HTTPException(status_code=404, detail="Validação não encontrada.")
+    assert_tenant_access(profile, linha.tenant_id)
+    try:
+        with open(os.path.join(fila.pasta(processo), fila.ARQUIVO_ORIGINAL), "rb") as f:
+            conteudo = f.read()
+    except OSError:
+        raise HTTPException(status_code=404, detail="O arquivo não está mais no servidor (fica 7 dias).")
+    from .correcao_sped import _cabecalhos_download
+    base = re.sub(r"(?i)\.txt$", "", linha.file_name or "sped") or "sped"
+    nome = f"{base}-corrigido.txt" if linha.origem == "correcao" else f"{base}.txt"
+    return StreamingResponse(
+        io.BytesIO(conteudo), media_type="application/octet-stream",
+        headers={**_cabecalhos_download(nome), "Content-Length": str(len(conteudo))})
 
 
 @router.get("/api/validar-sped/{processo}/assinado")

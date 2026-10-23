@@ -184,7 +184,11 @@ com ele.
   fila. **Assinar** só arquivo aprovado, com o e-CNPJ (.pfx + senha) cifrado em `app_settings`, conferido ao gravar;
   sem certificado ou com ele recusado, valida e diz por que não assinou. **Rotina automática** `validar_sped`
   (`services/automacoes/validar_sped.py`): pasta → PVA arquivo por arquivo pelo mesmo caminho da aba; assinado é
-  CÓPIA no destino, nunca por cima; nada some (pulado sai com o motivo). O `sped_validador` em Python roda junto só
+  CÓPIA no destino, nunca por cima; nada some (pulado sai com o motivo). **Correção pelo Synax**
+  (`validar_sped_correcao.py`): sozinho só formato e contagens (espaço nas pontas, quebra final, x990/Bloco 9), só
+  onde o PVA apontou e a linha confere; prévia antes → depois; cópia volta ao PVA como validação nova (`corrige`);
+  o resto vira pendência com o que fazer — valor, apuração e cadastro nunca saem sozinhos, e a rotina nunca corrige.
+  O arquivo enviado fica 7 dias (`sped_original.txt`) para isso. O `sped_validador` em Python roda junto só
   para comparar (`py_erros`, CSV do admin) — apagar é decisão do Sandro.
 - **Radar/painel nunca abrem `result_data`** (`painel_atividade.py` nomeia coluna por
   coluna); ranking é a última auditoria, não a soma.

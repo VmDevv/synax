@@ -112,6 +112,9 @@ COLUNAS_NOVAS = {
         ("assinado_em", "TIMESTAMP"),
         ("arquivo_assinado", "VARCHAR(500)"),
         ("origem", "VARCHAR(10)"),
+        # Mesmo dia, fim da tarde: correção pelo Synax (formato e contagens). NULO = não veio de correção.
+        ("corrige", "VARCHAR(36)"),
+        ("correcoes", "INTEGER"),
     ],
     "nfse_automacao_execucoes": [
         ("relatorio", "VARCHAR(500)"),

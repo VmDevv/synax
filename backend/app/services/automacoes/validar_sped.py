@@ -195,7 +195,10 @@ def _validar(db, automacao, caminho, nome, alvo, cab, empresa, assinar, item) ->
         fila.descartar(processo)
         return {**item, "situacao": "falhou", "motivo": "não foi possível registrar no histórico; nada foi validado"}
 
-    final = fila.processar_agora(fila.Pedido(processo=processo, tenant_id=str(empresa.id), assinar=assinar))
+    # O original fica na pasta do processo (7 dias) para quem abrir a validação na aba poder usar "Corrigir": a rotina
+    # nunca corrige sozinha, mas o reprovado dela tem de poder ser corrigido pela tela.
+    final = fila.processar_agora(fila.Pedido(processo=processo, tenant_id=str(empresa.id), assinar=assinar,
+                                             guardar_original=True))
     item.update(processo=processo, erros=final.get("erros"), advertencias=final.get("advertencias"))
     if final.get("situacao") != fila.CONCLUIDA:
         return {**item, "situacao": "falhou", "motivo": final.get("falha") or "o PVA não respondeu"}

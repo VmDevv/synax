@@ -10,7 +10,9 @@ Quatro regras:
 - **O resultado vai em colunas** (veredito, estado, erros, advertências, falha, tempo) — o painel do mês é uma
   consulta só. A lista linha a linha fica em `temp_uploads/<processo>/` (JSON para a tela, CSV para baixar), como já
   ficava o relatório, e sai pela limpeza de sempre (`core/limpeza_uploads.py`).
-- **O SPED do cliente fica no servidor só até o PVA responder.** Apagado no `finally`, com ou sem resposta.
+- **O SPED do cliente fica no servidor só até o PVA responder** — salvo o que veio pela aba (`guardar_original`):
+  desde 23/10/2026 ele fica como `ARQUIVO_ORIGINAL` para a correção pelo Synax partir dele, e sai com a limpeza
+  de `temp_uploads` (7 dias). O da rotina automática continua na pasta de origem, então aqui é apagado.
 - **A fila vive na memória do processo.** Reiniciar o servidor perde o que estava na fila — a linha fica em
   `na_fila`/`validando`, e a tela, não achando o pedido aqui, diz "interrompida", nunca "validando" para sempre.
 - **O validador antigo roda junto, só para comparar** (`py_erros`/`py_advertencias` e o CSV dele), até o Sandro
@@ -41,6 +43,7 @@ logger = logging.getLogger(__name__)
 TEMP_DIR = os.path.join(os.getcwd(), "temp_uploads")
 ARQUIVO_SPED = "sped_validar.txt"
 ARQUIVO_ASSINADO = "sped_assinado.txt"
+ARQUIVO_ORIGINAL = "sped_original.txt"
 # Mais que isso na fila é engano (ou uma pasta inteira subindo pela API): a fila passaria de meia hora.
 MAX_FILA = 30
 # Teto da lista do validador antigo (a contagem segue inteira): hierarquia quebrada gera uma por linha.
@@ -67,6 +70,7 @@ class Pedido:
     processo: str
     tenant_id: str
     assinar: bool = False
+    guardar_original: bool = False
     enfileirado_em: datetime = field(default_factory=datetime.utcnow)
     inicio: datetime | None = None
 
@@ -302,7 +306,10 @@ def _um_arquivo(pedido: Pedido) -> dict:
         py_erros, py_adv = _validador_antigo(caminho, pedido.processo)
     finally:
         try:
-            os.remove(caminho)
+            if pedido.guardar_original:
+                os.replace(caminho, os.path.join(pasta(pedido.processo), ARQUIVO_ORIGINAL))
+            else:
+                os.remove(caminho)
         except OSError:
             pass
 
