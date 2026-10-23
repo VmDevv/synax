@@ -20,6 +20,8 @@ O que esta suíte protege:
    assinar sempre aparece. **Transmitir nunca**: recusado com o motivo.
 8. **A rotina automática** valida e assina a pasta, arquivo por arquivo, sem nunca sumir com um: EFD-Contribuições,
    empresa fora, já assinado e "não é SPED" saem com o motivo; o assinado é uma cópia no destino, nunca por cima.
+10. **EFD-Contribuições** (23/10/2026, à noite): segundo motor, mesma aba. O 0000 decide o PVA; a empresa confere pela
+   raiz do CNPJ; motor trocado de porta é recusado; a rotina valida e assina a EFD-Contribuições como a Fiscal.
 9. **Correção pelo Synax**: só formato e contagens saem sozinhos, só onde o PVA apontou e a linha confere; a prévia
    mostra antes → depois; o resto do arquivo sai byte a byte; a cópia corrigida volta ao PVA como validação nova; o
    que não tem correção automática sai com o que fazer.
@@ -70,9 +72,26 @@ class Motor:
     guarda = threading.Lock()
 
 
+class MotorContribFake:
+    """Estado do motor falso da EFD-Contribuições (outro processo, outra porta, mesmo contrato)."""
+    padrao = None
+    respostas = deque()
+    pedidos = []
+    assinaturas = []
+    respostas_assinar = deque()
+    atraso = 0.0
+    ao_mesmo_tempo = 0
+    maximo_junto = 0
+    guarda = threading.Lock()
+
+
 class _Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
+
+    @property
+    def M(self):
+        return self.server.estado
 
     def _json(self, status, dados):
         corpo = dados if isinstance(dados, bytes) else json.dumps(dados).encode("utf-8")
@@ -84,7 +103,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/saude":
-            self._json(200, {"ok": True, "versaoPva": "6.1.1"})
+            self._json(200, {"ok": True, "versaoPva": self.server.versao, "leiaute": self.server.leiaute})
         else:
             self._json(404, {"erro": "rota desconhecida"})
 
@@ -98,14 +117,14 @@ class _Handler(BaseHTTPRequestHandler):
         tamanho = self.headers.get("Content-Length")
         em_pedacos = self.headers.get("Transfer-Encoding")
         corpo = self.rfile.read(int(tamanho)) if tamanho else b""
-        with Motor.guarda:
-            Motor.pedidos.append((tamanho, em_pedacos, corpo))
-            Motor.ao_mesmo_tempo += 1
-            Motor.maximo_junto = max(Motor.maximo_junto, Motor.ao_mesmo_tempo)
-            resposta = Motor.respostas.popleft() if Motor.respostas else Motor.padrao
+        with self.M.guarda:
+            self.M.pedidos.append((tamanho, em_pedacos, corpo))
+            self.M.ao_mesmo_tempo += 1
+            self.M.maximo_junto = max(self.M.maximo_junto, self.M.ao_mesmo_tempo)
+            resposta = self.M.respostas.popleft() if self.M.respostas else self.M.padrao
         try:
-            if Motor.atraso:
-                time.sleep(Motor.atraso)
+            if self.M.atraso:
+                time.sleep(self.M.atraso)
             if resposta == "cair":
                 # O motor morre no meio: fecha sem responder.
                 self.close_connection = True
@@ -116,8 +135,8 @@ class _Handler(BaseHTTPRequestHandler):
             else:
                 self._json(200, resposta)
         finally:
-            with Motor.guarda:
-                Motor.ao_mesmo_tempo -= 1
+            with self.M.guarda:
+                self.M.ao_mesmo_tempo -= 1
 
 
     def _assinar(self):
@@ -126,18 +145,26 @@ class _Handler(BaseHTTPRequestHandler):
         n_senha = int(self.headers.get("X-Senha-Bytes") or -1)
         corpo = self.rfile.read(tamanho)
         pfx, senha, txt = corpo[:n_pfx], corpo[n_pfx:n_pfx + n_senha], corpo[n_pfx + n_senha:]
-        with Motor.guarda:
-            Motor.assinaturas.append((pfx, senha, txt, self.headers.get("Content-Length"),
+        with self.M.guarda:
+            self.M.assinaturas.append((pfx, senha, txt, self.headers.get("Content-Length"),
                                       self.headers.get("Transfer-Encoding")))
-            resposta = Motor.respostas_assinar.popleft() if Motor.respostas_assinar else None
-        self._json(*(resposta or resposta_assinar(txt)))
+            resposta = self.M.respostas_assinar.popleft() if self.M.respostas_assinar else None
+        self._json(*(resposta or resposta_assinar(txt, self.server.versao)))
 
 
-servidor = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-servidor.daemon_threads = True
-servidor.handle_error = lambda *a: None     # o "cair" fecha a conexão de propósito: sem traceback na saída
-threading.Thread(target=servidor.serve_forever, daemon=True).start()
+def subir_fake(estado, leiaute, versao):
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    srv.daemon_threads = True
+    srv.handle_error = lambda *a: None     # o "cair" fecha a conexão de propósito: sem traceback na saída
+    srv.estado, srv.leiaute, srv.versao = estado, leiaute, versao
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+servidor = subir_fake(Motor, "EFD ICMS/IPI", "6.1.1")
+servidor_contrib = subir_fake(MotorContribFake, "EFD-Contribuições", "6.2.0")
 URL_MOTOR = f"http://127.0.0.1:{servidor.server_address[1]}"
+URL_MOTOR_CONTRIB = f"http://127.0.0.1:{servidor_contrib.server_address[1]}"
 
 
 def porta_fechada() -> int:
@@ -150,6 +177,7 @@ def porta_fechada() -> int:
 
 URL_DESLIGADO = f"http://127.0.0.1:{porta_fechada()}"
 os.environ["PVA_MOTOR_URL"] = URL_MOTOR
+os.environ["PVA_MOTOR_CONTRIB_URL"] = URL_MOTOR_CONTRIB
 
 
 def item(tipo, codigo, descricao, registro, campo, linha, valor=None, esperado=None, conteudo=""):
@@ -187,18 +215,19 @@ NAO_INTEGRADO = {"versaoPva": "6.1.1", "estado": None, "valido": False, "integra
                  "erros": [item("E", "MSG_QTD_LIN_BLOCOC", "Quantidade de linhas do bloco C informada não confere "
                                 "com a esperada pelo sistema.", "C990", "2 - QTD_LIN_C", 3899, "2852", "2848")]}
 Motor.padrao = APROVADO
+MotorContribFake.padrao = {**APROVADO, "versaoPva": "6.2.0", "leiaute": "EFD-Contribuições"}
 CERT_INFO = {"emitidoPara": "VM CONTADORES LTDA:11222333000181", "emitidoPor": "AC TESTE", "validoAte": "31/12/2027",
              "vencido": False}
 SUFIXO_ASSINATURA = b"SBRCAAEPDR" + bytes(range(64))
 
 
-def resposta_assinar(txt):
+def resposta_assinar(txt, versao="6.1.1"):
     """O /assinar do motor falso: ARQ_B (com |0001|0|) sai reprovado e não assina; o resto, aprovado e assinado."""
     import base64 as _b64
-    if b"|0001|0|" in txt:
+    if b"|0001|0|" in txt and b"|0000|006|" not in txt:
         return 200, {**REPROVADO, "assinatura": {"assinado": False, "certificado": CERT_INFO,
                                                   "motivo": "o PVA só assina escrituração validada sem erros"}}
-    return 200, {**APROVADO, "assinatura": {"assinado": True, "motivo": None, "certificado": CERT_INFO,
+    return 200, {**APROVADO, "versaoPva": versao, "assinatura": {"assinado": True, "motivo": None, "certificado": CERT_INFO,
                                              "conferencia": {"assinaturaOK": True, "hashOK": True}},
                  "arquivoAssinado": _b64.b64encode(txt + SUFIXO_ASSINATURA).decode("ascii")}
 
@@ -216,6 +245,17 @@ print("\n=== 1. O cliente do motor: contrato e veredito ===")
 from backend.app.services import pva_motor  # noqa: E402
 
 check("saúde responde com a versão do PVA", pva_motor.saude().get("versaoPva") == "6.1.1")
+check("e o motor da EFD-Contribuições, com a dele",
+      pva_motor.saude(leiaute="contribuicoes").get("versaoPva") == "6.2.0")
+os.environ["PVA_MOTOR_CONTRIB_URL"] = URL_MOTOR
+exc = None
+try:
+    pva_motor.saude(leiaute="contribuicoes")
+except pva_motor.RespostaInesperada as e:
+    exc = e
+check("portas trocadas no .env: o motor do Fiscal não serve de EFD-Contribuições",
+      exc is not None and "EFD ICMS/IPI" in exc.mensagem and "PVA_MOTOR_CONTRIB_URL" in exc.mensagem, exc)
+os.environ["PVA_MOTOR_CONTRIB_URL"] = URL_MOTOR_CONTRIB
 
 import tempfile  # noqa: E402
 with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp:
@@ -475,11 +515,14 @@ check("anônimo também não", as_(None).get("/validar-sped").status_code in (40
 
 r = as_("ope").get("/api/validar-sped/motor", headers=HX)
 check("motor ligado aparece na tela com a versão", "PVA 6.1.1 ligado" in r.text, r.text[:300])
-check("pela API também", as_("ope").get("/api/validar-sped/motor").json() == {"ligado": True, "versao": "6.1.1"})
+j = as_("ope").get("/api/validar-sped/motor").json()
+check("pela API também, os dois motores",
+      j["fiscal"]["ligado"] and j["fiscal"]["versao"] == "6.1.1" and j["contribuicoes"]["versao"] == "6.2.0", j)
 os.environ["PVA_MOTOR_URL"] = URL_DESLIGADO
 r = as_("ope").get("/api/validar-sped/motor", headers=HX)
-check("motor desligado: 'fora do ar', sem nada verde",
-      "fora do ar" in r.text and "emerald" not in r.text, r.text[:300])
+check("motor desligado: 'fora do ar' para ele, e o outro segue ligado",
+      "Motor do PVA da EFD ICMS/IPI fora do ar" in r.text and "EFD-Contribuições: PVA 6.2.0 ligado" in r.text,
+      r.text[:400])
 check("o operador não vê o comando de ligar", "motor.cmd" not in r.text)
 r = as_("adm").get("/api/validar-sped/motor", headers=HX)
 check("o admin vê como ligar e o aviso de nunca matar o processo",
@@ -498,9 +541,11 @@ check("e nada entrou no histórico", ss.query(SpedValidacao).count() == 0)
 ss.close()
 os.environ["PVA_MOTOR_URL"] = URL_MOTOR
 
+os.environ["PVA_MOTOR_CONTRIB_URL"] = URL_DESLIGADO
 r = enviar("ope", tA, CONTRIB)
-check("EFD-Contribuições: 422 com o motivo (o PVA dela não está instalado)",
-      r.status_code == 422 and "EFD-Contribuições" in r.json().get("erro", ""), r.text[:200])
+os.environ["PVA_MOTOR_CONTRIB_URL"] = URL_MOTOR_CONTRIB
+check("EFD-Contribuições com o motor dela desligado: 503 com o motivo, nada na fila",
+      r.status_code == 503 and "EFD-Contribuições não está respondendo" in r.json().get("erro", ""), r.text[:200])
 r = enviar("ope", tB, ARQ)
 check("arquivo de OUTRA empresa é recusado (CNPJ do 0000 x cadastro)",
       r.status_code == 422 and "outra empresa" in r.json().get("erro", ""), r.text[:200])
@@ -986,11 +1031,13 @@ det = json.loads(ex.detalhe)
 ss.close()
 por_arquivo = {a["arquivo"]: a["situacao"] for a in det["arquivos"]}
 check("cada .txt da pasta sai com o que aconteceu (o PDF fica de fora; subpasta não, sem marcar)",
-      por_arquivo == {"a_fiscal.txt": "assinado", "b_reprovado.txt": "reprovado", "c_contrib.txt": "contribuicoes",
+      por_arquivo == {"a_fiscal.txt": "assinado", "b_reprovado.txt": "reprovado", "c_contrib.txt": "assinado",
                       "d_outra.txt": "fora", "e_nota.txt": "nao_sped", "f_assinado.txt": "ja_assinado"},
       por_arquivo)
-check("só os dois da empresa da rotina passaram pelo PVA", len(Motor.assinaturas) == antes_ass + 2,
+check("os dois EFD ICMS/IPI da empresa da rotina passaram pelo PVA do Fiscal", len(Motor.assinaturas) == antes_ass + 2,
       len(Motor.assinaturas) - antes_ass)
+check("e a EFD-Contribuições foi ao PVA dela", len(MotorContribFake.assinaturas) == 1
+      and MotorContribFake.assinaturas[0][2] == CONTRIB, len(MotorContribFake.assinaturas))
 destino_rot = os.path.join(PASTA_ROT, "Assinados")
 with open(os.path.join(destino_rot, "a_fiscal.txt"), "rb") as f:
     assinado_rot = f.read()
@@ -1000,28 +1047,29 @@ check("o assinado é uma CÓPIA no destino, com o mesmo nome; o original não mu
       assinado_rot == ARQ + SUFIXO_ASSINATURA and original_rot == ARQ)
 check("o reprovado não foi para o destino", not os.path.exists(os.path.join(destino_rot, "b_reprovado.txt")))
 check("a rodada não sai verde: 'com avisos', e a mensagem conta cada situação",
-      ex.status == "com_falhas" and "1 Assinado" in ex.mensagem and "1 Reprovado pelo PVA" in ex.mensagem
-      and "efd-contribuições" in ex.mensagem.lower(), (ex.status, ex.mensagem))
-check("contadores: 1 ok, 1 com falha, 4 pulados, de 6 arquivos",
-      (ex.empresas_total, ex.empresas_ok, ex.empresas_falha, ex.empresas_adiadas) == (6, 1, 1, 4),
+      ex.status == "com_falhas" and "2 Assinado" in ex.mensagem and "1 Reprovado pelo PVA" in ex.mensagem,
+      (ex.status, ex.mensagem))
+check("contadores: 2 ok, 1 com falha, 3 pulados, de 6 arquivos",
+      (ex.empresas_total, ex.empresas_ok, ex.empresas_falha, ex.empresas_adiadas) == (6, 2, 1, 3),
       (ex.empresas_total, ex.empresas_ok, ex.empresas_falha, ex.empresas_adiadas))
 ss = SessionLocal()
 da_rotina = ss.query(SpedValidacao).filter(SpedValidacao.origem == "rotina").all()
 ss.close()
-check("o histórico da aba ganhou as duas validações, como 'rotina', na empresa certa",
-      len(da_rotina) == 2 and all(v.tenant_id == str(tA) and v.user_name == "Rotina: Rotina SPED teste"
+check("o histórico da aba ganhou as três validações, como 'rotina', na empresa certa",
+      len(da_rotina) == 3 and all(v.tenant_id == str(tA) and v.user_name == "Rotina: Rotina SPED teste"
                                   for v in da_rotina)
-      and sorted(bool(v.assinado) for v in da_rotina) == [False, True],
-      [(v.file_name, v.assinado, v.user_name) for v in da_rotina])
+      and sorted(bool(v.assinado) for v in da_rotina) == [False, True, True]
+      and sorted(v.escrituracao for v in da_rotina) == ["contribuicoes", "fiscal", "fiscal"],
+      [(v.file_name, v.assinado, v.escrituracao) for v in da_rotina])
 check("a linha assinada aponta para a cópia no destino",
       any(v.arquivo_assinado == os.path.join(destino_rot, "a_fiscal.txt") for v in da_rotina))
 r = as_("adm").get(f"/admin/automacoes/execucao/{exec_id}")
 t = texto(r)
 check("o detalhe da rodada lista os arquivos com a situação e o motivo",
-      "a_fiscal.txt" in t and "Assinado" in t and "aguarda o PVA dela" in t and "Empresa fora da rotina" in t
+      "a_fiscal.txt" in t and "c_contrib.txt" in t and "Assinado" in t and "Empresa fora da rotina" in t
       and "Já assinado antes" in t, t[:600])
 check("o histórico da lista mostra a mensagem da rodada",
-      "1 Assinado" in texto(as_("adm").get("/admin/automacoes")))
+      "2 Assinado" in texto(as_("adm").get("/admin/automacoes")))
 
 antes_ass = len(Motor.assinaturas)
 exec2 = svc_aut.executar(SessionLocal, rot_id, "manual")
@@ -1048,13 +1096,23 @@ check("com subpastas: a do mês entra; a dos assinados nunca",
       and not any(n.startswith("Assinados") for n in nomes3), nomes3)
 
 os.environ["PVA_MOTOR_URL"] = URL_DESLIGADO
+os.environ["PVA_MOTOR_CONTRIB_URL"] = URL_DESLIGADO
 exec4 = svc_aut.executar(SessionLocal, rot_id, "manual")
-os.environ["PVA_MOTOR_URL"] = URL_MOTOR
+os.environ["PVA_MOTOR_CONTRIB_URL"] = URL_MOTOR_CONTRIB
 ss = SessionLocal()
 ex4 = ss.get(NfseAutomacaoExecucao, exec4)
 ss.close()
-check("motor fora do ar: a rodada falha com o motivo, sem tocar em arquivo nenhum",
+check("os dois motores fora do ar: a rodada falha com o motivo, sem tocar em arquivo nenhum",
       ex4.status == "falhou" and "não está respondendo" in (ex4.mensagem or ""), (ex4.status, ex4.mensagem))
+exec4b = svc_aut.executar(SessionLocal, rot_id, "manual")
+os.environ["PVA_MOTOR_URL"] = URL_MOTOR
+ss = SessionLocal()
+det4b = json.loads(ss.get(NfseAutomacaoExecucao, exec4b).detalhe)
+ss.close()
+sit4b = {a["arquivo"]: (a["situacao"], a["motivo"]) for a in det4b["arquivos"]}
+check("só o do Fiscal fora: o que precisava dele falha com o motivo, o resto segue",
+      sit4b["b_reprovado.txt"][0] == "falhou" and "EFD ICMS/IPI" in sit4b["b_reprovado.txt"][1]
+      and sit4b["c_contrib.txt"][0] == "ja_assinado" and sit4b["a_fiscal.txt"][0] == "ja_assinado", sit4b)
 
 ss = SessionLocal()
 cfg.remover_certificado(ss, "teste")
@@ -1239,10 +1297,91 @@ check("a rotina automática nunca chama a correção", "validar_sped_correcao" n
 
 
 # ============================================================================
+print("\n=== 10. EFD-Contribuições na mesma aba ===")
+
+r = as_("ope").get("/validar-sped?tipo=contribuicoes")
+check("a aba alterna para a EFD-Contribuições", r.status_code == 200 and "EFD-Contribuições (.txt)" in r.text
+      and 'name="tipo" value="contribuicoes"' in r.text, r.status_code)
+check("com a escolha dos dois tipos no alto", "/validar-sped?tipo=fiscal" in r.text
+      and "/validar-sped?tipo=contribuicoes" in r.text)
+
+antes_c = len(MotorContribFake.pedidos)
+r = as_("ope").post("/api/validar-sped", data={"tenant_id": str(tA), "tipo": "contribuicoes"},
+                    files={"sped_file": ("EFD_CONTRIB.txt", CONTRIB, "text/plain")})
+check("EFD-Contribuições: 202, para o PVA dela", r.status_code == 202
+      and r.json().get("escrituracao") == "contribuicoes", r.text[:200])
+p_c = r.json().get("processo", "")
+PROCESSOS.append(p_c)
+fila.esperar(10)
+check("o motor da EFD-Contribuições recebeu o arquivo, com Content-Length, sem chunked",
+      len(MotorContribFake.pedidos) == antes_c + 1 and MotorContribFake.pedidos[-1][:2] == (str(len(CONTRIB)), None)
+      and MotorContribFake.pedidos[-1][2] == CONTRIB)
+ln = linha_de(p_c)
+check("a linha: escrituracao contribuicoes, competência e CNPJ do 0000 dela, aprovado, sem comparação antiga",
+      ln.escrituracao == "contribuicoes" and ln.competencia == "2026-04" and ln.cnpj == EMPRESA
+      and ln.aprovado is True and ln.py_erros is None and ln.versao_pva == "6.2.0",
+      (ln.escrituracao, ln.competencia, ln.cnpj, ln.aprovado, ln.py_erros, ln.versao_pva))
+t = texto(as_("ope").get(f"/api/validar-sped/{p_c}", headers=HX))
+check("na tela: aprovado, dizendo que foi a EFD-Contribuições", "Aprovado pelo PVA" in t
+      and "EFD-Contribuições · PVA 6.2.0" in t, t[:500])
+
+r = as_("ope").post("/api/validar-sped", data={"tenant_id": str(tA), "tipo": "fiscal"},
+                    files={"sped_file": ("EFD_CONTRIB.txt", CONTRIB, "text/plain")}, headers=HX)
+check("arquivo de EFD-Contribuições com a aba em EFD ICMS/IPI: vai ao PVA certo, e a tela diz",
+      "Este arquivo é EFD-Contribuições pelo registro 0000" in texto(r), texto(r)[:400])
+PROCESSOS.append(re.search(r"/api/validar-sped/([0-9a-f-]{36})", r.text).group(1))
+fila.esperar(10)
+
+# A EFD-Contribuições é da PJ: a empresa confere pela raiz do CNPJ.
+ss = SessionLocal()
+tFil = _uuid.uuid4()
+ss.add(Tenant(id=tFil, name="EMPRESA TESTE FILIAL", cnpj=EMPRESA[:8] + "000262", uf="ES"))
+ss.add(UserTenant(user_id=u_ope, tenant_id=tFil))
+ss.commit()
+ss.close()
+r = as_("ope").post("/api/validar-sped", data={"tenant_id": str(tFil)},
+                    files={"sped_file": ("EFD_CONTRIB.txt", CONTRIB, "text/plain")})
+check("EFD-Contribuições da matriz validada pela filial (mesma raiz): aceita", r.status_code == 202, r.text[:200])
+PROCESSOS.append(r.json().get("processo", ""))
+fila.esperar(10)
+r = enviar("ope", tFil, ARQ)
+check("mas EFD ICMS/IPI continua pelo CNPJ exato", r.status_code == 422 and "outra empresa" in r.json()["erro"])
+r = as_("ope").post("/api/validar-sped", data={"tenant_id": str(tB)},
+                    files={"sped_file": ("EFD_CONTRIB.txt", CONTRIB, "text/plain")})
+check("EFD-Contribuições de outra raiz: recusada com o motivo", r.status_code == 422
+      and "raiz do CNPJ diferente" in r.json().get("erro", ""), r.text[:200])
+
+t = texto(as_("ope").get("/api/validar-sped/painel?competencia=2026-04&tipo=contribuicoes"))
+check("painel da EFD-Contribuições: conta só as dela", "validação da EFD-Contribuições" in t
+      and "aprovado pelo PVA" in t, t[:600])
+t2 = texto(as_("ope2").get("/api/validar-sped/painel?competencia=2026-04&tipo=contribuicoes"))
+check("e a do outro operador continua sem nada dela", "0</strong> de 1" in t2, t2[:300])
+
+# Correção pela tela também na EFD-Contribuições: a cópia corrigida volta ao PVA dela.
+CONTRIB_ESP = CONTRIB.replace(b"EMPRESA TESTE LTDA|", b"EMPRESA TESTE LTDA |")
+MotorContribFake.respostas.append({**MotorContribFake.padrao, "estado": "EM_EDICAO", "valido": False,
+                                   "erros": [item("E", "MSG_ESPACOS_INICIO_FINAL", "Campo não pode conter espaços.",
+                                                  "0000", "8 - NOME", 1, "EMPRESA TESTE LTDA ", None)]})
+r = as_("ope").post("/api/validar-sped", data={"tenant_id": str(tA)},
+                    files={"sped_file": ("EFD_CONTRIB.txt", CONTRIB_ESP, "text/plain")})
+p_ce = r.json()["processo"]
+PROCESSOS.append(p_ce)
+fila.esperar(10)
+antes_c = len(MotorContribFake.pedidos)
+r = as_("ope").post(f"/api/validar-sped/{p_ce}/corrigir")
+check("corrigir a EFD-Contribuições: 202", r.status_code == 202, r.text[:200])
+PROCESSOS.append(r.json().get("processo", ""))
+fila.esperar(10)
+check("e a cópia corrigida foi ao PVA da EFD-Contribuições, sem o espaço",
+      len(MotorContribFake.pedidos) == antes_c + 1 and MotorContribFake.pedidos[-1][2] == CONTRIB)
+
+
+# ============================================================================
 import shutil as _shutil  # noqa: E402
 
 fila.esperar(10)
 servidor.shutdown()
+servidor_contrib.shutdown()
 ss = SessionLocal()
 _todos = [r.id for r in ss.query(SpedValidacao.id).all()]
 ss.close()

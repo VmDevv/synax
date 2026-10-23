@@ -199,3 +199,6 @@ class SpedValidacao(Base, TenantMixin, TimestampMixin):
     # guarda quantas alterações a correção fez (o "antes → depois" fica em correcao.json, na pasta do processo).
     corrige = Column(String(36), nullable=True)
     correcoes = Column(Integer, nullable=True)
+    # fiscal | contribuicoes — qual PVA validou (23/10/2026, a EFD-Contribuições entrou na mesma aba). NULO = EFD
+    # ICMS/IPI, a única que existia antes.
+    escrituracao = Column(String(15), nullable=True)

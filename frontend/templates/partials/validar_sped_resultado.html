@@ -14,8 +14,11 @@
      class="bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-4 flex items-center gap-3">
     <span class="loading loading-spinner loading-md text-syn-700"></span>
     <div class="text-sm text-slate-700">
+        {% if outro_tipo %}
+        <div class="text-[12px] text-sky-800 mb-1"><i class="fa-solid fa-arrows-rotate mr-1"></i>Este arquivo é {{ escrituracao }} pelo registro 0000: foi para o PVA dela.</div>
+        {% endif %}
         {% if fase == "na_fila" %}
-        <strong>Na fila do PVA.</strong>
+        <strong>Na fila do PVA{% if escrituracao %} da {{ escrituracao }}{% endif %}.</strong>
         {% if na_frente %}{{ na_frente }} arquivo(s) na frente deste — o PVA valida um por vez.{% else %}É o próximo.{% endif %}
         {% else %}
         <strong>O PVA está {% if assinar %}validando e assinando{% else %}validando{% endif %} o arquivo</strong> há {{ segundos }} s.
@@ -68,7 +71,7 @@
             {% if n_adv %}<span class="font-normal text-sm">· {{ n_adv }} advertência(s)</span>{% endif %}
         </h4>
         <span class="text-xs font-bold">
-            PVA {{ (r.versao_pva if r else linha.versao_pva) or "" }}
+            {{ escrituracao }} · PVA {{ (r.versao_pva if r else linha.versao_pva) or "" }}
             {% if linha.duracao_ms %} · {{ "%.1f" | format(linha.duracao_ms / 1000) | replace(".", ",") }} s{% endif %}
             {% if linha.linhas %} · {{ linha.linhas }} linhas{% endif %}
         </span>

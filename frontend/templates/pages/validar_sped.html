@@ -7,9 +7,20 @@
     <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-3">
         <h2 class="syn-h2 text-xl font-bold flex items-center gap-2.5">
             <i class="fa-solid fa-list-check text-base" style="color: var(--syn-700);"></i>
-            Validar SPED (EFD ICMS IPI)
+            Validar SPED
         </h2>
         <p class="text-[13px] text-slate-500">Valida o arquivo do cliente no PVA oficial da Receita antes da transmissão.</p>
+    </div>
+
+    {# EFD ICMS/IPI ou EFD-Contribuições: muda o painel do mês e os textos. Quem decide o PVA é o 0000 do arquivo —
+       arquivo do outro tipo vai ao PVA certo, e a tela avisa. Link comum (página inteira), sem estado escondido. #}
+    <div class="flex items-center gap-1 mb-3 bg-slate-100 border border-slate-200 rounded-xl p-1 w-fit">
+        {% for chave in ("fiscal", "contribuicoes") %}
+        <a href="/validar-sped?tipo={{ chave }}" hx-boost="false"
+           class="px-4 py-1.5 rounded-lg text-[13px] font-semibold {% if tipo == chave %}bg-white text-syn-800 shadow-sm{% else %}text-slate-500 hover:text-slate-800{% endif %}">
+            {{ nomes[chave] }}
+        </a>
+        {% endfor %}
     </div>
 
     {# Conferido ao abrir: com o motor fora do ar, ninguém sobe arquivo à toa. Fora do form de propósito: o
@@ -26,6 +37,7 @@
               hx-encoding="multipart/form-data" hx-target="#resultado-validar"
               hx-swap="innerHTML" hx-indicator="#spinner-validar"
               hx-boost="false" class="p-5">
+            <input type="hidden" name="tipo" value="{{ tipo }}">
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start mb-5">
                 <div>
@@ -47,7 +59,7 @@
                 <div>
                     <label class="block text-[14px] font-bold text-slate-800 mb-2">
                         <i class="fa-regular fa-file-lines text-syn-600 text-sm mr-1"></i>
-                        EFD ICMS IPI (.txt)
+                        {{ nomes[tipo] }} (.txt)
                     </label>
                     <input type="file" name="sped_file" accept=".txt" required
                            class="file-input file-input-bordered w-full">
@@ -116,6 +128,7 @@
                       hx-trigger="change, load, htmx:afterRequest from:#formValidarSped, validarSpedConcluida from:body"
                       hx-boost="false"
                       class="flex items-center gap-2">
+                    <input type="hidden" name="tipo" value="{{ tipo }}">
                     <label class="text-[12px] text-slate-500" for="competencia-painel">Competência</label>
                     <input id="competencia-painel" type="month" name="competencia"
                            value="{{ competencia }}"
@@ -131,11 +144,12 @@
             <i class="fa-solid fa-circle-info mr-1"></i> Como funciona
         </h3>
         <p class="text-xs text-slate-700 leading-relaxed">
-            Quem valida é o próprio PVA da EFD ICMS/IPI, o programa oficial da Receita, rodando sem tela no
-            servidor do escritório: o resultado, as mensagens, a linha, o campo e o valor esperado são os mesmos
-            que a tela do PVA mostraria. O PVA valida um arquivo por vez — se outra pessoa estiver validando, o
-            seu entra na fila e esta página acompanha sozinha (cada arquivo leva de 10 a 40 segundos).
-            <strong>EFD-Contribuições ainda não</strong>: o PVA dela não está instalado no servidor. Com
+            Quem valida é o próprio PVA da Receita — o da EFD ICMS/IPI ou o da EFD-Contribuições, conforme o
+            registro 0000 do arquivo —, rodando sem tela no servidor do escritório: o resultado, as mensagens, a
+            linha, o campo e o valor esperado são os mesmos que a tela do PVA mostraria. Cada PVA valida um arquivo
+            por vez — se outra pessoa estiver validando, o seu entra na fila e esta página acompanha sozinha (cada
+            arquivo leva de 10 a 40 segundos). Na EFD-Contribuições a empresa confere pela raiz do CNPJ, porque o
+            arquivo é da empresa inteira (matriz e filiais). Com
             <strong>Assinar</strong> marcado, o PVA assina com o e-CNPJ do escritório só o arquivo que aprovar, e a
             cópia assinada fica para baixar. Transmitir não está ligado no Synax. Para fazer isso sozinho todo mês,
             há a rotina "Validar e assinar SPED" em Administração → Automações.

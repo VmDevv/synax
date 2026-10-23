@@ -17,7 +17,12 @@ Quatro decisões desta rota:
 - **O mesmo endereço responde JSON ou a tela.** Quem chama pela API recebe JSON; o htmx da aba (HX-Request) recebe o
   parcial. A regra de acesso é uma só.
 
-Desde 23/10/2026 à tarde a aba escolhe o que fazer com o arquivo: Validar (sempre), Assinar (com o e-CNPJ das
+Desde 23/10/2026 à noite a aba valida também a EFD-Contribuições, no PVA dela (segundo motor). No alto da aba se
+escolhe EFD ICMS/IPI ou EFD-Contribuições — o que muda o painel do mês —, mas quem decide para qual PVA o arquivo vai
+é o 0000 dele: arquivo do outro tipo vai ao PVA certo, e a tela diz. Na EFD-Contribuições a empresa confere pela RAIZ
+do CNPJ (o arquivo é da PJ, com todas as filiais).
+
+Também desde 23/10/2026 à tarde a aba escolhe o que fazer com o arquivo: Validar (sempre), Assinar (com o e-CNPJ das
 Configurações, só se o PVA aprovar) e Transmitir — que aparece DESLIGADO: o envio à Receita não tem volta e não está
 ligado no Synax. Pedido de transmissão pela API é recusado com o motivo, nunca ignorado.
 """
@@ -31,7 +36,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
-from sqlalchemy import null
+from sqlalchemy import null, or_
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -110,20 +115,26 @@ def _competencia(dt_ini: str) -> str | None:
     return fila.competencia_do_0000(dt_ini)
 
 
-def _dica_admin(profile) -> str:
+def _dica_admin(profile, leiaute: str = pva_motor.FISCAL) -> str:
     if getattr(profile, "role", "") != "admin":
         return ""
-    return (f" Para ligar, na pasta do pva-motor: {pva_motor.COMANDO_LIGAR}. Para desligar, sempre POST /encerrar "
-            "(matar o processo deixa o MySQL do PVA preso na porta).")
+    return (f" O Painel Dev liga os motores junto com o Synax; à mão, na pasta do pva-motor: "
+            f"{pva_motor.COMANDOS_LIGAR[_tipo(leiaute)]}. Para desligar, sempre POST /encerrar (matar o processo "
+            "deixa o MySQL do PVA preso na porta).")
+
+
+def _tipo(tipo: str | None) -> str:
+    return pva_motor.CONTRIBUICOES if tipo == pva_motor.CONTRIBUICOES else pva_motor.FISCAL
 
 
 @router.get("/validar-sped", response_class=HTMLResponse)
-def tela(request: Request, db_session: Session = Depends(get_db),
+def tela(request: Request, tipo: str = "", db_session: Session = Depends(get_db),
          profile=Depends(get_profile)):
     assert_internal(profile)
     return templates.TemplateResponse(request, "pages/validar_sped.html", {
         "request": request, "tenants": _empresas(db_session, profile),
         "user_profile": profile, "competencia": comp.fechada(),
+        "tipo": _tipo(tipo), "nomes": pva_motor.NOMES,
         # Titular e validade, nunca o .pfx nem a senha: a caixa "Assinar" só liga com certificado válido.
         "certificado": cfg.situacao_certificado(db_session),
     })
@@ -138,6 +149,7 @@ async def validar(request: Request,
                   tenant_id: str = Form(""),
                   assinar: str = Form(""),
                   transmitir: str = Form(""),
+                  tipo: str = Form(""),
                   db_session: Session = Depends(get_db),
                   profile=Depends(get_profile)):
     assert_internal(profile)
@@ -174,8 +186,11 @@ async def validar(request: Request,
         fila.descartar(processo)
         return _recusar(request, recusa, 422)
 
+    # Quem decide o PVA é o 0000; a escolha no alto da aba só avisa quando o arquivo é do outro tipo.
+    destino = pva_motor.CONTRIBUICOES if leiaute == sped_parser.CONTRIBUICOES else pva_motor.FISCAL
     return await _colocar_na_fila(request, db_session, profile, processo, str(tenant_id), empresa, cab,
-                                  nome_seguro(sped_file.filename, "sped.txt"), quer_assinar, origem="tela")
+                                  nome_seguro(sped_file.filename, "sped.txt"), quer_assinar, origem="tela",
+                                  leiaute=destino, outro_tipo=destino != _tipo(tipo))
 
 
 def _assinatura_recusada(db_session: Session) -> str | None:
@@ -192,15 +207,16 @@ def _assinatura_recusada(db_session: Session) -> str | None:
 
 async def _colocar_na_fila(request: Request, db_session: Session, profile, processo: str, tenant_id: str, empresa,
                            cab: dict, nome_arquivo: str, quer_assinar: bool, origem: str,
-                           corrige: str | None = None, correcoes: int | None = None):
+                           corrige: str | None = None, correcoes: int | None = None,
+                           leiaute: str = pva_motor.FISCAL, outro_tipo: bool = False):
     """Do arquivo já gravado em `<processo>/sped_validar.txt` até a fila: confere o motor, registra a linha e
     enfileira. Um caminho só para o arquivo enviado e para o corrigido pelo Synax."""
     caminho = os.path.join(fila.pasta(processo), fila.ARQUIVO_SPED)
     try:
-        await run_in_threadpool(pva_motor.saude)
+        await run_in_threadpool(lambda: pva_motor.saude(leiaute=leiaute))
     except pva_motor.MotorIndisponivel as exc:
         fila.descartar(processo)
-        return _recusar(request, exc.mensagem + _dica_admin(profile), 503)
+        return _recusar(request, exc.mensagem + _dica_admin(profile, leiaute), 503)
     if not fila.cabe():
         fila.descartar(processo)
         return _recusar(request, f"A fila do PVA está cheia ({fila.MAX_FILA} arquivos esperando). Espere alguns "
@@ -225,7 +241,8 @@ async def _colocar_na_fila(request: Request, db_session: Session, profile, proce
             # aplica o default (0) da coluna.
             erros=null(), advertencias=null(), nao_conferidas=null(),
             hash_corpo=hash_corpo, motor=fila.MOTOR, situacao=fila.NA_FILA,
-            assinar=quer_assinar or None, origem=origem, corrige=corrige, correcoes=correcoes))
+            assinar=quer_assinar or None, origem=origem, corrige=corrige, correcoes=correcoes,
+            escrituracao=leiaute))
         db_session.commit()
     except Exception:                                     # noqa: BLE001
         # Sem a linha não há como a tela acompanhar nem o histórico guardar: melhor não validar do que validar
@@ -238,7 +255,7 @@ async def _colocar_na_fila(request: Request, db_session: Session, profile, proce
 
     try:
         na_frente = fila.enfileirar(fila.Pedido(processo=processo, tenant_id=tenant_id, assinar=quer_assinar,
-                                                guardar_original=True))
+                                                guardar_original=True, leiaute=leiaute))
     except fila.FilaCheia as exc:
         db_session.query(SpedValidacao).filter(SpedValidacao.id == processo).delete()
         db_session.commit()
@@ -250,22 +267,26 @@ async def _colocar_na_fila(request: Request, db_session: Session, profile, proce
     if _quer_html(request):
         return templates.TemplateResponse(request, "partials/validar_sped_resultado.html", {
             "request": request, "fase": fila.NA_FILA, "processo": processo, "na_frente": na_frente,
-            "segundos": 0, "cab": cab, "empresa": empresa, "br": br, "assinar": quer_assinar})
+            "segundos": 0, "cab": cab, "empresa": empresa, "br": br, "assinar": quer_assinar,
+            "escrituracao": pva_motor.NOMES[leiaute], "outro_tipo": outro_tipo})
     return JSONResponse({"processo": processo, "situacao": fila.NA_FILA, "na_frente": na_frente,
                          "competencia": competencia, "hash_corpo": hash_corpo, "assinar": quer_assinar,
-                         "corrige": corrige}, status_code=202)
+                         "corrige": corrige, "escrituracao": leiaute}, status_code=202)
 
 
 def _recusa_do_arquivo(cab: dict | None, leiaute: str, empresa) -> str | None:
     if cab is None:
-        return ("O arquivo não começa com o registro 0000: não é uma EFD ICMS/IPI. Confira se é o TXT do SPED Fiscal "
-                "e se não veio vazio.")
-    if leiaute == sped_parser.CONTRIBUICOES:
-        return ("Este arquivo é EFD-Contribuições (PIS/COFINS), e o Synax valida no PVA da EFD ICMS/IPI. O PVA da "
-                "EFD-Contribuições ainda não está instalado no servidor: valide este arquivo no PVA dela.")
+        return ("O arquivo não começa com o registro 0000: não é uma EFD ICMS/IPI nem uma EFD-Contribuições. "
+                "Confira se é o TXT do SPED e se não veio vazio.")
     # Data do 0000 fora do formato (leiaute "") não é recusada aqui: o PVA diz o motivo com a mensagem oficial.
     do_arquivo = _identificador(cab["cnpj"] or cab["cpf"])
     do_cadastro = _identificador(empresa.cnpj)
+    if leiaute == sped_parser.CONTRIBUICOES and do_cadastro and len(do_arquivo) == 14 and len(do_cadastro) == 14:
+        # A EFD-Contribuições é da PJ (a matriz entrega por todas as filiais): a empresa confere pela raiz.
+        if do_arquivo[:8] != do_cadastro[:8]:
+            return (f"O arquivo é de outra empresa: o 0000 traz {cab['nome'] or 'sem nome'} ({do_arquivo}), e a "
+                    f"empresa escolhida é {empresa.name} ({do_cadastro}) — raiz do CNPJ diferente.")
+        return None
     if do_cadastro and do_arquivo != do_cadastro:
         return (f"O arquivo é de outra empresa: o 0000 traz {cab['nome'] or 'sem nome'} "
                 f"({do_arquivo or 'sem CNPJ/CPF'}), e a empresa escolhida é {empresa.name} ({do_cadastro}).")
@@ -276,19 +297,22 @@ def _recusa_do_arquivo(cab: dict | None, leiaute: str, empresa) -> str | None:
 def motor(request: Request, profile=Depends(get_profile)):
     """O motor do PVA está de pé? A aba mostra antes de alguém subir arquivo."""
     assert_internal(profile)
-    try:
-        saude = pva_motor.saude()
-        contexto = {"ligado": True, "versao": saude.get("versaoPva") or ""}
-    except pva_motor.MotorIndisponivel as exc:
-        contexto = {"ligado": False, "motivo": exc.mensagem + _dica_admin(profile)}
+    motores = {}
+    for leiaute in pva_motor.LEIAUTES:
+        try:
+            saude = pva_motor.saude(leiaute=leiaute)
+            motores[leiaute] = {"ligado": True, "versao": saude.get("versaoPva") or "", "nome": pva_motor.NOMES[leiaute]}
+        except pva_motor.MotorIndisponivel as exc:
+            motores[leiaute] = {"ligado": False, "nome": pva_motor.NOMES[leiaute],
+                                "motivo": exc.mensagem + _dica_admin(profile, leiaute)}
     if not _quer_html(request):
-        return JSONResponse(contexto)
+        return JSONResponse(motores)
     return templates.TemplateResponse(request, "partials/validar_sped_motor.html",
-                                      {"request": request, **contexto})
+                                      {"request": request, "motores": motores})
 
 
 @router.get("/api/validar-sped/painel", response_class=HTMLResponse)
-def painel(request: Request, competencia: str = "",
+def painel(request: Request, competencia: str = "", tipo: str = "",
            db_session: Session = Depends(get_db),
            profile=Depends(get_profile)):
     """As empresas do usuário numa competência: validada ou não, e como saiu.
@@ -297,6 +321,7 @@ def painel(request: Request, competencia: str = "",
     """
     assert_internal(profile)
     competencia = comp.valida(competencia) or comp.fechada()
+    tipo = _tipo(tipo)
     empresas = _empresas(db_session, profile)
     permitidas = allowed_tenant_ids(profile)
     ids = [str(t.id) for t in empresas]
@@ -311,7 +336,11 @@ def painel(request: Request, competencia: str = "",
                       SpedValidacao.motor, SpedValidacao.situacao, SpedValidacao.aprovado,
                       SpedValidacao.assinado, SpedValidacao.origem)
                   .filter(SpedValidacao.tenant_id.in_(ids),
-                          SpedValidacao.competencia == competencia)
+                          SpedValidacao.competencia == competencia,
+                          # NULO = validação de antes da EFD-Contribuições entrar: é EFD ICMS/IPI.
+                          (SpedValidacao.escrituracao == tipo) if tipo == pva_motor.CONTRIBUICOES
+                          else or_(SpedValidacao.escrituracao.is_(None),
+                                   SpedValidacao.escrituracao == pva_motor.FISCAL))
                   .order_by(SpedValidacao.created_at.desc())
                   .all())
     andando = fila.em_andamento()
@@ -340,7 +369,7 @@ def painel(request: Request, competencia: str = "",
     return templates.TemplateResponse(
         request, "partials/validar_sped_painel.html",
         {"request": request, "quadro": quadro, "competencia": competencia,
-         "rotulo": comp.rotulo(competencia),
+         "rotulo": comp.rotulo(competencia), "nome_tipo": pva_motor.NOMES[tipo],
          "validadas": sum(1 for q in quadro if q["ultima"])})
 
 
@@ -433,6 +462,7 @@ def andamento(request: Request, processo: str,
         "assinado_disponivel": bool(linha.assinado) and os.path.exists(
             os.path.join(fila.pasta(processo), fila.ARQUIVO_ASSINADO)),
         "limite_tela": LIMITE_TELA, "admin": getattr(profile, "role", "") == "admin",
+        "escrituracao": pva_motor.NOMES[_tipo(linha.escrituracao)],
         "sem_cnpj_no_cadastro": empresa is not None and not _identificador(empresa.cnpj),
         "anteriores": _anteriores(db_session, linha) if final else [],
     }
@@ -517,7 +547,8 @@ async def aplicar_correcao(request: Request, processo: str, assinar: str = Form(
                 len(proposta.mudancas), len(proposta.pendencias))
     return await _colocar_na_fila(request, db_session, profile, novo, linha.tenant_id, empresa, cab,
                                   linha.file_name or "sped.txt", quer_assinar, origem="correcao",
-                                  corrige=processo, correcoes=len(proposta.mudancas))
+                                  corrige=processo, correcoes=len(proposta.mudancas),
+                                  leiaute=_tipo(linha.escrituracao))
 
 
 @router.get("/api/validar-sped/{processo}/arquivo")

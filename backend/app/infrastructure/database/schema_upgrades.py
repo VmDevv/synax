@@ -115,6 +115,8 @@ COLUNAS_NOVAS = {
         # Mesmo dia, fim da tarde: correção pelo Synax (formato e contagens). NULO = não veio de correção.
         ("corrige", "VARCHAR(36)"),
         ("correcoes", "INTEGER"),
+        # Mesmo dia, à noite: a EFD-Contribuições na mesma aba. NULO = EFD ICMS/IPI.
+        ("escrituracao", "VARCHAR(15)"),
     ],
     "nfse_automacao_execucoes": [
         ("relatorio", "VARCHAR(500)"),

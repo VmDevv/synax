@@ -7,9 +7,12 @@ lê a pasta configurada (a que o Domínio grava), manda cada SPED ao PVA pelo ME
 Regras:
 
 - **Nada some.** Todo `.txt` da pasta sai no relatório da rodada com o que aconteceu: assinado, aprovado,
-  reprovado (com o número de erros), não assinado (com o motivo), EFD-Contribuições (aguarda o PVA dela, que não está
-  instalado), empresa fora da rotina, já assinado antes, ou que não é SPED.
-- **A empresa é a do 0000**, pelo CNPJ do cadastro. Arquivo de empresa fora do escopo da rotina (ou que o Synax não
+  reprovado (com o número de erros), não assinado (com o motivo), sem resposta do PVA, empresa fora da rotina, já
+  assinado antes, ou que não é SPED.
+- **Os dois PVAs** (desde 23/10/2026 à noite): o 0000 de cada arquivo decide se vai ao motor da EFD ICMS/IPI ou ao
+  da EFD-Contribuições. Um motor fora do ar derruba só os arquivos dele, cada um com o motivo.
+- **A empresa é a do 0000**, pelo CNPJ do cadastro (na EFD-Contribuições, que é da PJ inteira, vale também a raiz,
+  se só uma empresa da rotina tiver aquela raiz). Arquivo de empresa fora do escopo da rotina (ou que o Synax não
   conhece) não é validado nem assinado: a rotina não age em nome de quem não está nela.
 - **Não assina duas vezes.** Arquivo que já tem assinatura (depois do 9999) ou que já tem cópia na pasta de
   destino é pulado, com o motivo. O original nunca é alterado: o assinado é uma CÓPIA, com o mesmo nome, no destino.
@@ -47,6 +50,7 @@ SITUACOES = {
     "nao_assinado": ("Aprovado, não assinado", "aviso"),
     "reprovado": ("Reprovado pelo PVA", "erro"),
     "falhou": ("Sem resposta do PVA", "erro"),
+    # Só em rodada antiga, de antes do motor da EFD-Contribuições (23/10/2026): hoje ela é validada como as outras.
     "contribuicoes": ("EFD-Contribuições: aguarda o PVA dela", "aviso"),
     "fora": ("Empresa fora da rotina", "aviso"),
     "ja_assinado": ("Já assinado antes", "info"),
@@ -100,6 +104,20 @@ def empresas_da_rotina(db, automacao) -> dict:
     return {_identificador(t.cnpj): t for t in consulta.all() if _identificador(t.cnpj)}
 
 
+def empresa_do_arquivo(empresas: dict, cnpj: str, leiaute: str) -> tuple[object | None, str]:
+    """(Tenant, motivo de não achar). CNPJ exato; na EFD-Contribuições, a raiz, se só uma empresa a tiver."""
+    if cnpj in empresas:
+        return empresas[cnpj], ""
+    if leiaute == pva_motor.CONTRIBUICOES and len(cnpj) == 14:
+        mesma_raiz = [t for c, t in empresas.items() if len(c) == 14 and c[:8] == cnpj[:8]]
+        if len(mesma_raiz) == 1:
+            return mesma_raiz[0], ""
+        if len(mesma_raiz) > 1:
+            return None, ("mais de uma empresa da rotina tem esta raiz de CNPJ e nenhuma tem o CNPJ exato do 0000: "
+                          "valide pela aba, escolhendo a empresa")
+    return None, "empresa não cadastrada no Synax ou fora desta rotina"
+
+
 def rodar(db, automacao, execucao, config: dict) -> dict:
     """Uma rodada. Devolve o detalhe (também gravado em `execucao.detalhe` por quem chama)."""
     pasta = (config.get("pasta") or "").strip()
@@ -110,10 +128,17 @@ def rodar(db, automacao, execucao, config: dict) -> dict:
     if not pasta or not os.path.isdir(pasta):
         detalhe["aviso"] = f"A pasta {pasta or '(em branco)'} não está acessível. Nada foi validado."
         return detalhe
-    try:
-        pva_motor.saude()
-    except pva_motor.MotorIndisponivel as exc:
-        detalhe["aviso"] = exc.mensagem
+    # Os dois motores, conferidos uma vez por rodada. Só com os DOIS fora não há o que fazer; com um, os arquivos
+    # dele saem "sem resposta do PVA", com o motivo.
+    motores: dict = {}
+    for leiaute in pva_motor.LEIAUTES:
+        try:
+            pva_motor.saude(leiaute=leiaute)
+            motores[leiaute] = ""
+        except pva_motor.MotorIndisponivel as exc:
+            motores[leiaute] = exc.mensagem
+    if all(motores.values()):
+        detalhe["aviso"] = " ".join(motores.values())
         return detalhe
     if assinar:
         situacao = cfg.situacao_certificado(db)
@@ -134,7 +159,7 @@ def rodar(db, automacao, execucao, config: dict) -> dict:
     db.commit()
 
     for caminho in arquivos:
-        item = _um(db, automacao, caminho, pasta, destino, assinar, empresas)
+        item = _um(db, automacao, caminho, pasta, destino, assinar, empresas, motores)
         detalhe["arquivos"].append(item)
         if item["situacao"] in ("assinado", "aprovado"):
             execucao.empresas_ok += 1
@@ -146,7 +171,8 @@ def rodar(db, automacao, execucao, config: dict) -> dict:
     return detalhe
 
 
-def _um(db, automacao, caminho: str, pasta: str, destino: str, assinar: bool, empresas: dict) -> dict:
+def _um(db, automacao, caminho: str, pasta: str, destino: str, assinar: bool, empresas: dict,
+        motores: dict | None = None) -> dict:
     nome = os.path.relpath(caminho, pasta)
     item = {"arquivo": nome, "empresa": "", "cnpj": "", "competencia": "", "situacao": "", "erros": None,
             "advertencias": None, "motivo": "", "processo": None}
@@ -154,27 +180,29 @@ def _um(db, automacao, caminho: str, pasta: str, destino: str, assinar: bool, em
         cab = fila.ler_0000(caminho)
         if cab is None:
             return {**item, "situacao": "nao_sped", "motivo": "não começa com o registro 0000"}
-        if sped_parser.detectar_leiaute(caminho) == sped_parser.CONTRIBUICOES:
-            return {**item, "empresa": cab["nome"], "situacao": "contribuicoes",
-                    "motivo": "o PVA da EFD-Contribuições não está instalado no servidor"}
+        leiaute = (pva_motor.CONTRIBUICOES if sped_parser.detectar_leiaute(caminho) == sped_parser.CONTRIBUICOES
+                   else pva_motor.FISCAL)
         cnpj = _identificador(cab["cnpj"] or cab["cpf"])
-        item.update(empresa=cab["nome"], cnpj=cnpj, competencia=fila.competencia_do_0000(cab["dt_ini"]) or "")
-        empresa = empresas.get(cnpj)
+        item.update(empresa=cab["nome"], cnpj=cnpj, competencia=fila.competencia_do_0000(cab["dt_ini"]) or "",
+                    escrituracao=pva_motor.NOMES[leiaute])
+        empresa, motivo = empresa_do_arquivo(empresas, cnpj, leiaute)
         if empresa is None:
-            return {**item, "situacao": "fora", "motivo": "empresa não cadastrada no Synax ou fora desta rotina"}
+            return {**item, "situacao": "fora", "motivo": motivo}
         item["empresa"] = empresa.name
         alvo = os.path.join(destino, nome)
         if assinar and os.path.exists(alvo):
             return {**item, "situacao": "ja_assinado", "motivo": "já há uma cópia assinada na pasta de destino"}
         if assinar and _ja_assinado(caminho):
             return {**item, "situacao": "ja_assinado", "motivo": "o arquivo já vem assinado"}
-        return _validar(db, automacao, caminho, nome, alvo, cab, empresa, assinar, item)
+        if (motores or {}).get(leiaute):
+            return {**item, "situacao": "falhou", "motivo": motores[leiaute]}
+        return _validar(db, automacao, caminho, nome, alvo, cab, empresa, assinar, item, leiaute)
     except OSError as exc:
         logger.warning("Rotina Validar SPED: não li %s: %s", caminho, exc)
         return {**item, "situacao": "falhou", "motivo": f"não foi possível ler o arquivo ({exc.strerror or exc})"}
 
 
-def _validar(db, automacao, caminho, nome, alvo, cab, empresa, assinar, item) -> dict:
+def _validar(db, automacao, caminho, nome, alvo, cab, empresa, assinar, item, leiaute=pva_motor.FISCAL) -> dict:
     processo = str(uuid.uuid4())
     os.makedirs(fila.pasta(processo), exist_ok=True)
     shutil.copyfile(caminho, os.path.join(fila.pasta(processo), fila.ARQUIVO_SPED))
@@ -187,7 +215,7 @@ def _validar(db, automacao, caminho, nome, alvo, cab, empresa, assinar, item) ->
             leiaute=(cab["cod_ver"][:3] or None), linhas=fila.contar_linhas(copia),
             erros=null(), advertencias=null(), nao_conferidas=null(),
             hash_corpo=hash_do_corpo_arquivo(copia), motor=fila.MOTOR, situacao=fila.NA_FILA,
-            assinar=assinar or None, origem="rotina"))
+            assinar=assinar or None, origem="rotina", escrituracao=leiaute))
         db.commit()
     except Exception:                                      # noqa: BLE001
         logger.exception("Rotina Validar SPED: não registrou %s", caminho)
@@ -198,7 +226,7 @@ def _validar(db, automacao, caminho, nome, alvo, cab, empresa, assinar, item) ->
     # O original fica na pasta do processo (7 dias) para quem abrir a validação na aba poder usar "Corrigir": a rotina
     # nunca corrige sozinha, mas o reprovado dela tem de poder ser corrigido pela tela.
     final = fila.processar_agora(fila.Pedido(processo=processo, tenant_id=str(empresa.id), assinar=assinar,
-                                             guardar_original=True))
+                                             guardar_original=True, leiaute=leiaute))
     item.update(processo=processo, erros=final.get("erros"), advertencias=final.get("advertencias"))
     if final.get("situacao") != fila.CONCLUIDA:
         return {**item, "situacao": "falhou", "motivo": final.get("falha") or "o PVA não respondeu"}

@@ -1,11 +1,19 @@
-{# O motor do PVA está de pé? Aparece antes de alguém subir arquivo: fora do ar, nada é validado. #}
-{% if ligado %}
-<span class="inline-flex items-center gap-1.5 text-[12px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-0.5">
-    <i class="fa-solid fa-circle text-[7px] text-emerald-600"></i> PVA {{ versao }} ligado
-</span>
-{% else %}
-<div class="text-[12px] bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-3 py-2">
+{# Os dois motores do PVA (EFD ICMS/IPI e EFD-Contribuições) estão de pé? Aparece antes de alguém subir arquivo:
+   fora do ar, nada daquele tipo é validado. #}
+<div class="flex flex-wrap items-center gap-2">
+    {% for chave, m in motores.items() %}
+    {% if m.ligado %}
+    <span class="inline-flex items-center gap-1.5 text-[12px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-0.5">
+        <i class="fa-solid fa-circle text-[7px] text-emerald-600"></i> {{ m.nome }}: PVA {{ m.versao }} ligado
+    </span>
+    {% endif %}
+    {% endfor %}
+</div>
+{% for chave, m in motores.items() %}
+{% if not m.ligado %}
+<div class="text-[12px] bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-3 py-2 mt-2">
     <i class="fa-solid fa-plug-circle-xmark mr-1 text-amber-600"></i>
-    <strong>Motor do PVA fora do ar.</strong> {{ motivo }}
+    <strong>Motor do PVA da {{ m.nome }} fora do ar.</strong> {{ m.motivo }}
 </div>
 {% endif %}
+{% endfor %}

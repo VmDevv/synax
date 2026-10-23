@@ -71,6 +71,7 @@ class Pedido:
     tenant_id: str
     assinar: bool = False
     guardar_original: bool = False
+    leiaute: str = "fiscal"           # qual PVA: pva_motor.FISCAL ou pva_motor.CONTRIBUICOES
     enfileirado_em: datetime = field(default_factory=datetime.utcnow)
     inicio: datetime | None = None
 
@@ -91,9 +92,17 @@ def pasta(processo: str) -> str:
     return os.path.join(TEMP_DIR, processo)
 
 
+def _e_data(v: str) -> bool:
+    return len(v) == 8 and v.isdigit()
+
+
 def ler_0000(caminho: str) -> dict | None:
-    """Os campos do 0000 que a aba e a rotina usam, na posição do EFD ICMS/IPI. None se a primeira linha não é
-    um 0000."""
+    """Os campos do 0000 que a aba e a rotina usam, já com o `leiaute` ("fiscal", "contribuicoes" ou "" quando o 0000
+    não deixa dizer). None se a primeira linha não é um 0000.
+
+    Só o 0000 muda entre os dois: no EFD ICMS/IPI as datas são os campos 4 e 5 (nome 6, CNPJ 7, CPF 8, UF 9); na
+    EFD-Contribuições, 6 e 7 (nome 8, CNPJ 9, UF 10), e o campo 3 é o TIPO_ESCRIT (0 original, 1 retificadora) — no
+    lugar do COD_FIN, com o mesmo sentido. Mesma regra de `sped_parser.detectar_leiaute`."""
     with open(caminho, "rb") as f:
         bruto = f.read(4096)
     if bruto.startswith(b"\xef\xbb\xbf"):
@@ -110,8 +119,11 @@ def ler_0000(caminho: str) -> dict | None:
     def c(n):
         return campos[n].strip() if len(campos) > n else ""
 
-    return {"cod_ver": c(2), "cod_fin": c(3), "dt_ini": c(4), "dt_fin": c(5), "nome": c(6),
-            "cnpj": c(7), "cpf": c(8), "uf": c(9)}
+    if not (_e_data(c(4)) and _e_data(c(5))) and _e_data(c(6)) and _e_data(c(7)):
+        return {"leiaute": pva_motor.CONTRIBUICOES, "cod_ver": c(2), "cod_fin": c(3), "dt_ini": c(6),
+                "dt_fin": c(7), "nome": c(8), "cnpj": c(9), "cpf": "", "uf": c(10)}
+    return {"leiaute": pva_motor.FISCAL if _e_data(c(4)) and _e_data(c(5)) else "", "cod_ver": c(2),
+            "cod_fin": c(3), "dt_ini": c(4), "dt_fin": c(5), "nome": c(6), "cnpj": c(7), "cpf": c(8), "uf": c(9)}
 
 
 def competencia_do_0000(dt_ini: str) -> str | None:
@@ -276,17 +288,19 @@ def _certificado() -> tuple[bytes, str] | None:
 
 def _validar_ou_assinar(caminho: str, pedido: Pedido):
     """(resultado, assinatura ou None). Sem certificado ou com ele recusado, valida só e diz por que não assinou."""
+    leiaute = pedido.leiaute
     if not pedido.assinar:
-        return pva_motor.validar_arquivo(caminho), None
+        return pva_motor.validar_arquivo(caminho, leiaute=leiaute), None
     cert = _certificado()
     if cert is None:
-        return pva_motor.validar_arquivo(caminho), pva_motor.Assinatura(
+        return pva_motor.validar_arquivo(caminho, leiaute=leiaute), pva_motor.Assinatura(
             assinado=False, motivo="nenhum certificado de assinatura cadastrado em Configurações")
     try:
-        return pva_motor.assinar_arquivo(caminho, *cert)
+        return pva_motor.assinar_arquivo(caminho, *cert, leiaute=leiaute)
     except pva_motor.AssinaturaRecusada as exc:
         logger.warning("Validar SPED: certificado recusado no pedido %s: %s", pedido.processo, exc.mensagem)
-        return pva_motor.validar_arquivo(caminho), pva_motor.Assinatura(assinado=False, motivo=exc.mensagem)
+        return pva_motor.validar_arquivo(caminho, leiaute=leiaute), pva_motor.Assinatura(assinado=False,
+                                                                                         motivo=exc.mensagem)
 
 
 def _um_arquivo(pedido: Pedido) -> dict:
@@ -295,7 +309,7 @@ def _um_arquivo(pedido: Pedido) -> dict:
     t0 = time.monotonic()
     try:
         try:
-            with pva_motor.uso_exclusivo():
+            with pva_motor.uso_exclusivo(pedido.leiaute):
                 resultado, assinatura = _validar_ou_assinar(caminho, pedido)
         except pva_motor.MotorIndisponivel as exc:
             logger.warning("Validar SPED: %s sem resposta do PVA: %s", pedido.processo, exc.mensagem)
@@ -303,7 +317,9 @@ def _um_arquivo(pedido: Pedido) -> dict:
                                     duracao_ms=int((time.monotonic() - t0) * 1000),
                                     concluida_em=datetime.utcnow())
             return {"situacao": FALHOU, "registrada": registrada, "falha": exc.mensagem}
-        py_erros, py_adv = _validador_antigo(caminho, pedido.processo)
+        # O validador antigo só conhece a EFD ICMS/IPI: na EFD-Contribuições não há com o que comparar.
+        py_erros, py_adv = (_validador_antigo(caminho, pedido.processo) if pedido.leiaute == pva_motor.FISCAL
+                            else (None, None))
     finally:
         try:
             if pedido.guardar_original:

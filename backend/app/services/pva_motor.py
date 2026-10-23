@@ -38,7 +38,15 @@ from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 
+# Dois PVAs, dois motores, cada um no próprio processo (23/10/2026): o da EFD ICMS/IPI e o da EFD-Contribuições. As
+# chaves são as do `sped_parser.detectar_leiaute`, que é quem decide para qual motor o arquivo vai.
+FISCAL = "fiscal"
+CONTRIBUICOES = "contribuicoes"
+LEIAUTES = (FISCAL, CONTRIBUICOES)
+NOMES = {FISCAL: "EFD ICMS/IPI", CONTRIBUICOES: "EFD-Contribuições"}
 URL_PADRAO = "http://127.0.0.1:8095"
+URLS_PADRAO = {FISCAL: URL_PADRAO, CONTRIBUICOES: "http://127.0.0.1:8096"}
+VARIAVEIS = {FISCAL: "PVA_MOTOR_URL", CONTRIBUICOES: "PVA_MOTOR_CONTRIB_URL"}
 HOSTS_LOCAIS = frozenset({"127.0.0.1", "localhost", "::1"})
 TEMPO_SAUDE_S = 3
 TEMPO_CONEXAO_S = 5
@@ -47,12 +55,15 @@ TEMPO_CONEXAO_S = 5
 TEMPO_VALIDAR_S = 30 * 60
 BLOCO = 1 << 16
 
-# O PVA marca a escrituração assim quando ela passa. EM_EDICAO = reprovada; sem estado = não integrada.
+# O PVA marca a escrituração assim quando ela passa (o da EFD-Contribuições só usa VALIDADA). EM_EDICAO = reprovada;
+# sem estado = não integrada.
 ESTADOS_APROVADOS = frozenset({"VALIDADA", "GERADA_PARA_ENTREGA"})
 
 COMANDO_LIGAR = r"motor\motor.cmd servir --porta 8095"
+COMANDOS_LIGAR = {FISCAL: COMANDO_LIGAR, CONTRIBUICOES: r"motor\motor-contrib.cmd servir --porta 8096"}
 
-_trava = threading.Lock()
+# Uma trava por motor: o PVA de cada um valida um arquivo por vez, mas os dois são processos separados.
+_travas = {FISCAL: threading.Lock(), CONTRIBUICOES: threading.Lock()}
 
 
 class MotorIndisponivel(Exception):
@@ -68,11 +79,11 @@ class MotorForaDoAr(MotorIndisponivel):
 
 
 class EnderecoNaoLocal(MotorIndisponivel):
-    """`PVA_MOTOR_URL` aponta para fora desta máquina."""
+    """`PVA_MOTOR_URL` (ou `PVA_MOTOR_CONTRIB_URL`) aponta para fora desta máquina."""
 
 
 class RespostaInesperada(MotorIndisponivel):
-    """O motor atendeu, mas fora do contrato (HTTP de erro, JSON quebrado, tempo esgotado)."""
+    """O motor atendeu, mas fora do contrato (HTTP de erro, JSON quebrado, tempo esgotado, PVA trocado)."""
 
 
 class AssinaturaRecusada(Exception):
@@ -83,28 +94,35 @@ class AssinaturaRecusada(Exception):
         super().__init__(mensagem)
 
 
-def url() -> str:
-    return (os.getenv("PVA_MOTOR_URL") or URL_PADRAO).strip().rstrip("/")
+def _leiaute(leiaute: str | None) -> str:
+    return leiaute if leiaute in LEIAUTES else FISCAL
 
 
-def endereco() -> tuple[str, int]:
-    partes = urlsplit(url())
+def url(leiaute: str = FISCAL) -> str:
+    leiaute = _leiaute(leiaute)
+    return (os.getenv(VARIAVEIS[leiaute]) or URLS_PADRAO[leiaute]).strip().rstrip("/")
+
+
+def endereco(leiaute: str = FISCAL) -> tuple[str, int]:
+    leiaute = _leiaute(leiaute)
+    partes = urlsplit(url(leiaute))
     host = (partes.hostname or "").lower()
     if partes.scheme != "http" or host not in HOSTS_LOCAIS:
         raise EnderecoNaoLocal(
-            f"O endereço do motor do PVA ({url()}) não é desta máquina. O motor não tem senha e recebe o SPED inteiro "
-            "do cliente: ele só é chamado em http://127.0.0.1. Corrija PVA_MOTOR_URL no .env do servidor.")
+            f"O endereço do motor do PVA ({url(leiaute)}) não é desta máquina. O motor não tem senha e recebe o SPED "
+            f"inteiro do cliente: ele só é chamado em http://127.0.0.1. Corrija {VARIAVEIS[leiaute]} no .env do servidor.")
     try:
         porta = partes.port or 80
     except ValueError as exc:
-        raise EnderecoNaoLocal(f"A porta do motor do PVA em PVA_MOTOR_URL ({url()}) não é um número.") from exc
+        raise EnderecoNaoLocal(f"A porta do motor do PVA em {VARIAVEIS[leiaute]} ({url(leiaute)}) não é um número.") from exc
     return host, porta
 
 
-def _fora_do_ar() -> MotorForaDoAr:
+def _fora_do_ar(leiaute: str = FISCAL) -> MotorForaDoAr:
+    leiaute = _leiaute(leiaute)
     return MotorForaDoAr(
-        f"O motor do PVA não está respondendo em {url()}. Nada foi validado. Ele roda no servidor do Synax e precisa "
-        "ser ligado lá — avise quem cuida do servidor.")
+        f"O motor do PVA da {NOMES[leiaute]} não está respondendo em {url(leiaute)}. Nada foi validado. Ele roda no "
+        "servidor do Synax e precisa ser ligado lá — avise quem cuida do servidor.")
 
 
 def _ler_json(resp) -> dict:
@@ -123,27 +141,34 @@ def _ler_json(resp) -> dict:
     return dados
 
 
-def saude(timeout: float = TEMPO_SAUDE_S) -> dict:
-    """`{"ok": True, "versaoPva": "6.1.1"}`, ou a exceção que diz por que não."""
-    host, porta = endereco()
+def saude(timeout: float = TEMPO_SAUDE_S, leiaute: str = FISCAL) -> dict:
+    """`{"ok": True, "versaoPva": "6.1.1", "leiaute": "EFD ICMS/IPI"}`, ou a exceção que diz por que não."""
+    leiaute = _leiaute(leiaute)
+    host, porta = endereco(leiaute)
     conn = http.client.HTTPConnection(host, porta, timeout=timeout)
     try:
         conn.request("GET", "/saude")
         dados = _ler_json(conn.getresponse())
     except (ConnectionError, socket.timeout, OSError, http.client.HTTPException) as exc:
-        raise _fora_do_ar() from exc
+        raise _fora_do_ar(leiaute) from exc
     finally:
         conn.close()
     if dados.get("ok") is not True:
         raise RespostaInesperada("O motor do PVA atendeu, mas disse que não está pronto. Nada foi validado.")
+    # Portas trocadas no .env mandariam a EFD-Contribuições ao PVA do Fiscal (e vice-versa). Motor antigo, que não diz
+    # o leiaute, é o do Fiscal.
+    atende = dados.get("leiaute") or NOMES[FISCAL]
+    if atende != NOMES[leiaute]:
+        raise RespostaInesperada(f"Em {url(leiaute)} quem atende é o PVA da {atende}, não o da {NOMES[leiaute]}. "
+                                 f"Confira {VARIAVEIS[leiaute]} no .env do servidor. Nada foi validado.")
     return dados
 
 
 @contextmanager
-def uso_exclusivo():
-    """Um arquivo por vez no PVA. O servidor do motor também serializa, mas esperar aqui deixa o tempo de cada
+def uso_exclusivo(leiaute: str = FISCAL):
+    """Um arquivo por vez em cada PVA. O servidor do motor também serializa, mas esperar aqui deixa o tempo de cada
     arquivo ser só o dele, e o teto de `TEMPO_VALIDAR_S` não estoura por fila de outro."""
-    with _trava:
+    with _travas[_leiaute(leiaute)]:
         yield
 
 
@@ -306,16 +331,16 @@ def ler_assinatura(dados: dict) -> Assinatura:
 
 
 def _enviar(rota: str, caminho: str, timeout: float, prefixo: bytes = b"", cabecalhos: dict | None = None,
-            acao: str = "validação") -> dict:
+            acao: str = "validação", leiaute: str = FISCAL) -> dict:
     """POST do TXT (com um prefixo opcional no corpo) ao motor. Devolve o JSON; 422 vira `AssinaturaRecusada`."""
-    host, porta = endereco()
+    host, porta = endereco(leiaute)
     tamanho = len(prefixo) + os.path.getsize(caminho)
     conn = http.client.HTTPConnection(host, porta, timeout=TEMPO_CONEXAO_S)
     try:
         try:
             conn.connect()
         except (ConnectionError, socket.timeout, OSError) as exc:
-            raise _fora_do_ar() from exc
+            raise _fora_do_ar(leiaute) from exc
         conn.sock.settimeout(timeout)
         try:
             # putrequest + Content-Length à mão: assim o http.client nunca decide mandar em pedaços.
@@ -349,21 +374,21 @@ def _enviar(rota: str, caminho: str, timeout: float, prefixo: bytes = b"", cabec
         conn.close()
 
 
-def validar_arquivo(caminho: str, timeout: float = TEMPO_VALIDAR_S) -> Resultado:
-    """Manda o TXT cru para o PVA e devolve o veredito dele. Chame dentro de `uso_exclusivo()`."""
-    return ler_resposta(_enviar("/validar", caminho, timeout))
+def validar_arquivo(caminho: str, timeout: float = TEMPO_VALIDAR_S, leiaute: str = FISCAL) -> Resultado:
+    """Manda o TXT cru para o PVA do `leiaute` e devolve o veredito dele. Chame dentro de `uso_exclusivo(leiaute)`."""
+    return ler_resposta(_enviar("/validar", caminho, timeout, leiaute=leiaute))
 
 
-def assinar_arquivo(caminho: str, pfx: bytes, senha: str,
-                    timeout: float = TEMPO_VALIDAR_S) -> tuple[Resultado, Assinatura]:
-    """Valida e, sem erro, assina com o e-CNPJ. Chame dentro de `uso_exclusivo()`.
+def assinar_arquivo(caminho: str, pfx: bytes, senha: str, timeout: float = TEMPO_VALIDAR_S,
+                    leiaute: str = FISCAL) -> tuple[Resultado, Assinatura]:
+    """Valida e, sem erro, assina com o e-CNPJ. Chame dentro de `uso_exclusivo(leiaute)`.
 
     O corpo é o .pfx, a senha (UTF-8) e o TXT, nessa ordem; os tamanhos dos dois primeiros vão nos cabeçalhos.
     """
     senha_bytes = (senha or "").encode("utf-8")
     dados = _enviar("/assinar", caminho, timeout, prefixo=pfx + senha_bytes,
                     cabecalhos={"X-Pfx-Bytes": str(len(pfx)), "X-Senha-Bytes": str(len(senha_bytes))},
-                    acao="validação e assinatura")
+                    acao="validação e assinatura", leiaute=leiaute)
     resultado = ler_resposta(dados)
     assinatura = ler_assinatura(dados)
     if assinatura.assinado and not resultado.aprovado:

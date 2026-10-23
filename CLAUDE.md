@@ -175,8 +175,11 @@ com ele.
 - **Auditoria de PDF de NFS-e** (`pdf_ia_auditor.py`, `claude-sonnet-5`, `effort: "low"`,
   `MAX_TOKENS = 128000`) manda o PDF cru, saída por `output_config.format`; truncado
   levanta erro; >20 MB pela Files API, apagado no `finally`.
-- **Validar SPED valida no PVA oficial** (`services/pva_motor.py`; motor em `Desktop\Projetos\pva-motor`, HTTP só
-  em 127.0.0.1, `PVA_MOTOR_URL`; o Painel Dev liga junto com o Synax). O Synax só pede `/saude`, `/validar` e
+- **Validar SPED valida no PVA oficial** (`services/pva_motor.py`; motores em `Desktop\Projetos\pva-motor`, HTTP só
+  em 127.0.0.1: EFD ICMS/IPI em `PVA_MOTOR_URL` (8095) e EFD-Contribuições em `PVA_MOTOR_CONTRIB_URL` (8096), um
+  processo e uma trava cada; o Painel Dev liga os dois junto com o Synax). Quem escolhe o PVA é o 0000 do arquivo
+  (`fila.ler_0000`, coluna `escrituracao`); a escolha no alto da aba só filtra o painel; na EFD-Contribuições a
+  empresa confere pela raiz do CNPJ; o `/saude` diz qual PVA atende e porta trocada é recusada. O Synax só pede `/saude`, `/validar` e
   `/assinar`: nunca liga, desliga nem **transmite** (a suíte confere a fonte; o envio à Receita não está ligado e
   não deve ser ligado daqui — pedido de transmitir é recusado com o motivo). Fila de um por vez
   (`validar_sped_fila.py`), resultado em colunas de `sped_validacoes` (`motor` NULO = validador antigo). Aprovado só
