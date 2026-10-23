@@ -40,6 +40,14 @@
       "link": "/admin",
       "rotulo_link": "Abrir Administração",
       "papeis": ["admin"]
+    },
+    {
+      "data": "2026-10-23",
+      "titulo": "Validar SPED agora é o PVA da Receita",
+      "texto": "A aba Validar SPED passou a validar o arquivo no próprio PVA da EFD ICMS/IPI, rodando no servidor do escritório: as mensagens, a linha e o valor esperado são os mesmos da tela do PVA, e o arquivo aprovado aparece em verde. O PVA valida um arquivo por vez — se alguém estiver validando, o seu entra na fila e a tela acompanha sozinha. EFD-Contribuições ainda não.",
+      "link": "/validar-sped",
+      "rotulo_link": "Abrir Validar SPED",
+      "papeis": ["admin", "operador"]
     }
   ]
 }
