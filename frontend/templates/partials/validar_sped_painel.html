@@ -1,5 +1,6 @@
-{# Painel do mês: as empresas do usuário numa competência. "Validada" é só
-   validada no Synax — transmissão entra quando o recibo .REC for lido. #}
+{# Painel do mês: as empresas do usuário numa competência. "Aprovado" é o veredito do PVA; as validações do
+   validador antigo (antes de 23/10/2026) aparecem como tal, nunca como aprovadas. Transmissão entra quando o
+   recibo .REC for lido. #}
 <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
     <span class="text-[13px] text-slate-600">
         <strong>{{ validadas }}</strong> de {{ quadro | length }} empresa(s) com validação em {{ rotulo }}
@@ -21,12 +22,20 @@
                 <td class="text-[12px]">
                     {% if not u %}
                     <span class="text-slate-400">não validada</span>
+                    {% elif u.motor != "pva" %}
+                    <span class="badge badge-ghost badge-sm">validador antigo: {{ u.erros or 0 }} erro(s)</span>
+                    {% elif u.aprovado %}
+                    <span class="badge badge-success badge-sm text-white">aprovado pelo PVA</span>
+                    {% if u.advertencias %}<span class="text-[11px] text-slate-500 ml-1">{{ u.advertencias }} adv.</span>{% endif %}
                     {% elif u.erros %}
-                    <span class="badge badge-error badge-sm text-white">{{ u.erros }} erro(s)</span>
+                    <span class="badge badge-error badge-sm text-white">{{ u.erros }} erro(s) no PVA</span>
                     {% else %}
-                    <span class="badge badge-ghost badge-sm">sem erros nas regras conferidas</span>
+                    <span class="badge badge-error badge-sm text-white">recusado pelo PVA</span>
                     {% endif %}
                     {% if u and u.cod_fin == '1' %}<span class="badge badge-outline badge-xs ml-1">substituta</span>{% endif %}
+                    {% if q.andamento == "na_fila" %}<span class="badge badge-info badge-xs ml-1">na fila</span>
+                    {% elif q.andamento == "validando" %}<span class="badge badge-info badge-xs ml-1">validando agora</span>
+                    {% elif q.andamento == "nao_concluida" %}<span class="badge badge-warning badge-xs ml-1">última tentativa não concluída</span>{% endif %}
                 </td>
                 <td class="text-[12px] font-mono">{% if u %}{{ u.created_at | hora_br }}{% else %}—{% endif %}</td>
                 <td class="text-[12px]">{{ u.user_name if u else "—" }}</td>

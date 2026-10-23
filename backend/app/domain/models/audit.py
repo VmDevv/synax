@@ -1,5 +1,5 @@
-from sqlalchemy import (Boolean, Column, Index, Integer, Numeric,
-                        String, Text)
+from sqlalchemy import (Boolean, Column, DateTime, Index, Integer,
+                        Numeric, String, Text)
 from .base import Base, TenantMixin, TimestampMixin
 
 class AuditTask(Base, TenantMixin, TimestampMixin):
@@ -165,4 +165,21 @@ class SpedValidacao(Base, TenantMixin, TimestampMixin):
     nao_conferidas = Column(Integer, default=0)
 
     hash_corpo = Column(String(64), nullable=True)
-    versao_pva = Column(String(20), nullable=True)   # dos dados do leiaute
+    versao_pva = Column(String(20), nullable=True)   # dos dados do leiaute; no motor, a do PVA que validou
+
+    # Desde 23/10/2026 quem valida é o PVA oficial (`services/pva_motor`), numa fila de um arquivo por vez. Linha
+    # com `motor` NULO é do validador antigo, em Python: as contagens dela não são o veredito do PVA, e `aprovado`
+    # fica NULO. Nas do motor, `erros`/`advertencias` são as do PVA e ficam NULAS até ele responder.
+    motor = Column(String(10), nullable=True)
+    # na_fila | validando | concluida (o PVA respondeu, aprovando ou não) | falhou (não houve resposta do PVA).
+    # NULO = validação antiga, síncrona, sempre concluída.
+    situacao = Column(String(12), nullable=True)
+    estado_pva = Column(String(30), nullable=True)   # VALIDADA, GERADA_PARA_ENTREGA, EM_EDICAO; NULO = não integrou
+    aprovado = Column(Boolean, nullable=True)
+    integrado = Column(Boolean, nullable=True)
+    falha = Column(String(500), nullable=True)
+    duracao_ms = Column(Integer, nullable=True)
+    concluida_em = Column(DateTime, nullable=True)
+    # O validador antigo roda junto, só para comparar, até o Sandro decidir apagá-lo. NULO = não rodou.
+    py_erros = Column(Integer, nullable=True)
+    py_advertencias = Column(Integer, nullable=True)

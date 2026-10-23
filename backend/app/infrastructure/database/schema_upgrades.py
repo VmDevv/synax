@@ -91,6 +91,20 @@ COLUNAS_NOVAS = {
     "nfse_documents": [
         ("lote_id", "VARCHAR(36)"),
     ],
+    # 23/10/2026: a aba Validar SPED passou a validar no PVA oficial, numa fila. Todas sem default: NULO é
+    # "validação do validador antigo, anterior à fila" — nunca "o PVA aprovou" nem "zero erro".
+    "sped_validacoes": [
+        ("motor", "VARCHAR(10)"),
+        ("situacao", "VARCHAR(12)"),
+        ("estado_pva", "VARCHAR(30)"),
+        ("aprovado", "BOOLEAN"),
+        ("integrado", "BOOLEAN"),
+        ("falha", "VARCHAR(500)"),
+        ("duracao_ms", "INTEGER"),
+        ("concluida_em", "TIMESTAMP"),
+        ("py_erros", "INTEGER"),
+        ("py_advertencias", "INTEGER"),
+    ],
     "nfse_automacao_execucoes": [
         ("relatorio", "VARCHAR(500)"),
         ("email_status", "VARCHAR(20)"),

@@ -1,6 +1,6 @@
-{# Resultado da validação. Zero inconsistência NÃO sai verde: a v1 não confere
-   as regras específicas do PVA, e "aprovado" aqui faria alguém transmitir
-   achando que o PVA já foi. #}
+{# Resultado da validação no PVA, em cada fase. Verde só quando o PVA aprovou (`r.aprovado`): motor fora do ar,
+   recusa, interrupção ou falha nunca saem como aprovado. Enquanto está na fila, o cartão se repete sozinho
+   (`load delay:2s` + outerHTML) e para quando a fase deixa de ser pendente. #}
 
 {% if erro %}
 <div class="alert bg-amber-50 border border-amber-200 text-amber-900 rounded-xl">
@@ -8,42 +8,118 @@
     <span class="text-sm">{{ erro }}</span>
 </div>
 
+{% elif fase in ("na_fila", "validando") %}
+<div id="validacao-{{ processo }}" hx-get="/api/validar-sped/{{ processo }}" hx-trigger="load delay:2s"
+     hx-swap="outerHTML"
+     class="bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-4 flex items-center gap-3">
+    <span class="loading loading-spinner loading-md text-syn-700"></span>
+    <div class="text-sm text-slate-700">
+        {% if fase == "na_fila" %}
+        <strong>Na fila do PVA.</strong>
+        {% if na_frente %}{{ na_frente }} arquivo(s) na frente deste — o PVA valida um por vez.{% else %}É o próximo.{% endif %}
+        {% else %}
+        <strong>O PVA está validando o arquivo</strong> há {{ segundos }} s.
+        Arquivos assim levam de 10 a 40 segundos.
+        {% endif %}
+        <div class="text-[11px] text-slate-500 mt-0.5">
+            {% if cab and cab.nome %}{{ cab.nome }} · {{ br(cab.dt_ini) }} a {{ br(cab.dt_fin) }} · {% endif %}pode sair desta tela: o resultado fica no painel do mês.
+        </div>
+    </div>
+</div>
+
+{% elif fase == "interrompida" %}
+<div class="alert bg-amber-50 border border-amber-200 text-amber-900 rounded-xl">
+    <i class="fa-solid fa-triangle-exclamation text-amber-600"></i>
+    <span class="text-sm">Esta validação foi interrompida: o servidor do Synax reiniciou com o arquivo na fila, e o
+    PVA não chegou a responder. Nada foi aprovado — suba o arquivo de novo.</span>
+</div>
+
+{% elif fase == "falhou" %}
+<div class="alert bg-amber-50 border border-amber-200 text-amber-900 rounded-xl">
+    <i class="fa-solid fa-plug-circle-xmark text-amber-600"></i>
+    <span class="text-sm">{{ falha or "O PVA não respondeu." }}</span>
+</div>
+
+{% elif fase == "antiga" %}
+<div class="text-sm bg-slate-50 border border-slate-200 rounded-xl p-4 text-slate-700">
+    Validação feita em {{ linha.created_at | hora_br }} pelo validador antigo (antes do PVA oficial):
+    {{ linha.erros or 0 }} erro(s) nas regras que ele conferia. Não é o veredito do PVA — valide de novo.
+</div>
+
 {% else %}
-{% set r = resultado %}
-{% set nc = r.nao_conferidas %}
-<div class="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+{# concluída: o PVA respondeu #}
+{% set aprovado = r.aprovado if r else linha.aprovado %}
+{% set n_erros = r.erros if r else (linha.erros or 0) %}
+{% set n_adv = r.advertencias if r else (linha.advertencias or 0) %}
+{% set veredito = r.veredito if r else ("aprovado" if aprovado else ("reprovado" if linha.integrado else ("nao_integrado" if n_erros else "recusado"))) %}
+<div id="validacao-{{ processo }}" class="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
     <div class="px-5 py-3 flex items-center justify-between flex-wrap gap-2 text-white
-                {% if r.erros %}bg-red-700{% else %}bg-slate-700{% endif %}">
+                {% if aprovado %}bg-emerald-700{% else %}bg-red-700{% endif %}">
         <h4 class="font-bold flex items-center gap-2">
-            <i class="fa-solid {% if r.erros %}fa-circle-exclamation{% else %}fa-clipboard-check{% endif %}"></i>
-            {% if r.erros %}{{ r.erros }} erro(s) encontrados{% else %}Nenhum erro nas regras conferidas{% endif %}
-            {% if r.advertencias %}<span class="font-normal text-sm">· {{ r.advertencias }} advertência(s)</span>{% endif %}
+            {% if aprovado %}
+            <i class="fa-solid fa-circle-check"></i> Aprovado pelo PVA
+            {% elif veredito == "reprovado" %}
+            <i class="fa-solid fa-circle-exclamation"></i> Reprovado pelo PVA: {{ n_erros }} erro(s)
+            {% elif veredito == "nao_integrado" %}
+            <i class="fa-solid fa-circle-exclamation"></i> O PVA não integrou a escrituração: {{ n_erros }} erro(s) de importação
+            {% else %}
+            <i class="fa-solid fa-ban"></i> O PVA recusou o arquivo antes de importar
+            {% endif %}
+            {% if n_adv %}<span class="font-normal text-sm">· {{ n_adv }} advertência(s)</span>{% endif %}
         </h4>
-        <span class="text-xs font-bold">{{ r.linhas }} linhas · {{ r.leiaute_rotulo }}</span>
+        <span class="text-xs font-bold">
+            PVA {{ (r.versao_pva if r else linha.versao_pva) or "" }}
+            {% if linha.duracao_ms %} · {{ "%.1f" | format(linha.duracao_ms / 1000) | replace(".", ",") }} s{% endif %}
+            {% if linha.linhas %} · {{ linha.linhas }} linhas{% endif %}
+        </span>
     </div>
 
     <div class="p-5 space-y-5">
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-[13px]">
             <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
                 <div class="text-[11px] text-slate-500 uppercase tracking-wide">Empresa no 0000</div>
-                <div class="font-bold text-slate-800">{{ r.empresa.nome }}</div>
-                <div class="text-slate-600">{{ r.empresa.cnpj or r.empresa.cpf }} · {{ r.empresa.uf }}</div>
+                <div class="font-bold text-slate-800">{{ cab.nome or (empresa.name if empresa else "") }}</div>
+                <div class="text-slate-600">{{ cab.cnpj or cab.cpf or linha.cnpj }}{% if cab.uf %} · {{ cab.uf }}{% endif %}</div>
             </div>
             <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
                 <div class="text-[11px] text-slate-500 uppercase tracking-wide">Período</div>
-                <div class="font-bold text-slate-800">{{ br(r.empresa.dt_ini) }} a {{ br(r.empresa.dt_fin) }}</div>
-                <div class="text-slate-600">COD_VER {{ r.cod_ver }}</div>
+                <div class="font-bold text-slate-800">{% if cab.dt_ini %}{{ br(cab.dt_ini) }} a {{ br(cab.dt_fin) }}{% else %}{{ linha.competencia or "—" }}{% endif %}</div>
+                <div class="text-slate-600">COD_VER {{ linha.leiaute or "—" }}{% if linha.cod_fin == "1" %} · substituta{% endif %}</div>
             </div>
             <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                <div class="text-[11px] text-slate-500 uppercase tracking-wide">Não conferido nesta versão</div>
-                <div class="font-bold text-slate-800">{{ nc.values() | sum }} aplicações de {{ nc | length }} regras específicas</div>
-                <div class="text-slate-600">Leiaute do PVA {{ r.pva.versao }}</div>
+                <div class="text-[11px] text-slate-500 uppercase tracking-wide">Situação no PVA</div>
+                <div class="font-bold text-slate-800">
+                    {% set estado = r.estado if r else linha.estado_pva %}
+                    {% if estado == "GERADA_PARA_ENTREGA" %}Gerada para entrega
+                    {% elif estado == "VALIDADA" %}Validada
+                    {% elif estado == "EM_EDICAO" %}Em edição (com erros)
+                    {% else %}Não integrada{% endif %}
+                </div>
+                <div class="text-slate-600">{{ linha.file_name or "" }}</div>
             </div>
         </div>
 
+        {% if (r and r.falha) or (not r and linha.falha) %}
+        <p class="text-xs bg-red-50 border border-red-200 text-red-900 rounded-lg p-3">
+            <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+            {{ r.falha if r else linha.falha }}
+        </p>
+        {% endif %}
+        {% if r and r.mensagens and not r.itens and not r.falha %}
+        <ul class="text-xs bg-red-50 border border-red-200 text-red-900 rounded-lg p-3 list-disc pl-6 space-y-1">
+            {% for m in r.mensagens %}<li>{{ m }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+        {% if r and r.assinatura_removida %}
+        <p class="text-xs bg-slate-50 border border-slate-200 text-slate-700 rounded-lg p-3">
+            <i class="fa-solid fa-signature mr-1"></i>
+            O arquivo veio assinado: a assinatura foi tirada só da cópia validada. O seu arquivo não muda.
+        </p>
+        {% endif %}
+
         {% if anteriores %}
         {% set ultima = anteriores[0] %}
-        {% set igual = anteriores | selectattr("hash_corpo", "equalto", hash_corpo) | first %}
+        {% set igual = anteriores | selectattr("hash_corpo", "equalto", linha.hash_corpo) | first %}
         <p class="text-xs bg-sky-50 border border-sky-200 text-sky-900 rounded-lg p-3">
             <i class="fa-solid fa-clock-rotate-left mr-1"></i>
             Esta competência já tinha {{ anteriores | length }} validação(ões) desta empresa
@@ -53,11 +129,11 @@
         </p>
         {% endif %}
 
-        {% if registrada is defined and not registrada %}
+        {% if not registrada %}
         <p class="text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3">
             <i class="fa-solid fa-triangle-exclamation mr-1"></i>
-            O resultado acima vale, mas a validação NÃO ficou registrada no histórico
-            da empresa (falha ao gravar). Valide de novo ou avise o administrador.
+            O resultado acima vale, mas NÃO ficou registrado no histórico da empresa (falha ao gravar).
+            Valide de novo ou avise o administrador.
         </p>
         {% endif %}
 
@@ -69,15 +145,15 @@
         </p>
         {% endif %}
 
-        {% if r.total %}
+        {% if r and r.itens %}
         <div>
             <h5 class="font-bold text-sm text-slate-700 mb-2">
-                <i class="fa-solid fa-chart-simple mr-1 text-[#037fb5]"></i> Por regra
+                <i class="fa-solid fa-chart-simple mr-1 text-[#037fb5]"></i> Por mensagem do PVA
             </h5>
             <div class="flex flex-wrap gap-2">
-                {% for regra, n in r.por_regra.most_common() %}
+                {% for codigo, n in r.por_codigo() %}
                 <span class="px-2 py-1 rounded-md bg-slate-100 border border-slate-200 text-[11px] font-mono">
-                    {{ regra }} <strong>{{ n }}</strong>
+                    {{ codigo }} <strong>{{ n }}</strong>
                 </span>
                 {% endfor %}
             </div>
@@ -86,9 +162,9 @@
         <div>
             <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
                 <h5 class="font-bold text-sm text-slate-700">
-                    <i class="fa-solid fa-list mr-1 text-[#037fb5]"></i> Inconsistências
-                    {% if r.total > limite_tela %}
-                    <span class="font-normal text-slate-500">(as primeiras {{ limite_tela }} de {{ r.total }}; o CSV traz {% if r.truncado %}as primeiras {{ r.inconsistencias | length }}{% else %}todas{% endif %})</span>
+                    <i class="fa-solid fa-list mr-1 text-[#037fb5]"></i> Erros e advertências
+                    {% if r.itens | length > limite_tela %}
+                    <span class="font-normal text-slate-500">(os primeiros {{ limite_tela }} de {{ r.itens | length }}; o CSV traz todos)</span>
                     {% endif %}
                 </h5>
                 {# Download: fora do boost, ou o htmx injeta o CSV na página. #}
@@ -101,35 +177,49 @@
                 <table class="table table-xs w-full border border-slate-200">
                     <thead>
                         <tr class="text-[11px] uppercase text-slate-500 bg-slate-50">
-                            <th>Linha</th><th>Registro</th><th>Campo</th><th>Valor</th>
-                            <th>Mensagem</th><th>Regra</th>
+                            <th>Tipo</th><th>Linha</th><th>Registro</th><th>Campo</th><th>Valor</th>
+                            <th>Esperado</th><th>Mensagem do PVA</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for i in r.inconsistencias[:limite_tela] %}
-                        <tr class="{% if i.gravidade == 'advertencia' %}bg-amber-50{% endif %}">
+                        {% for i in r.itens[:limite_tela] %}
+                        <tr class="{% if i.advertencia %}bg-amber-50{% endif %}" {% if i.conteudo %}title="{{ i.conteudo }}"{% endif %}>
+                            <td>{% if i.advertencia %}<span class="badge badge-warning badge-xs">advertência</span>{% else %}<span class="badge badge-error badge-xs text-white">erro</span>{% endif %}</td>
                             <td class="font-mono">{{ i.linha or "—" }}</td>
                             <td class="font-mono">{{ i.registro }}</td>
                             <td class="font-mono">{{ i.campo }}</td>
-                            <td class="font-mono max-w-[160px] truncate" title="{{ i.valor }}">{{ i.valor }}</td>
+                            <td class="font-mono max-w-[140px] truncate" title="{{ i.valor }}">{{ i.valor }}</td>
+                            <td class="font-mono max-w-[140px] truncate" title="{{ i.esperado }}">{{ i.esperado }}</td>
                             <td class="text-[12px]">
-                                {% if i.gravidade == 'advertencia' %}<span class="badge badge-warning badge-xs mr-1">advertência</span>{% endif %}
-                                {{ i.mensagem }}
+                                {{ i.descricao }}
+                                <div class="font-mono text-[10px] text-slate-400">{{ i.codigo }}</div>
                             </td>
-                            <td class="font-mono text-[10px] text-slate-500">{{ i.regra }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
         </div>
+        {% elif not r and (n_erros or n_adv) %}
+        <p class="text-xs bg-slate-50 border border-slate-200 text-slate-700 rounded-lg p-3">
+            A lista linha a linha não está mais no servidor. Valide o arquivo de novo para ver cada erro.
+        </p>
+        {% endif %}
+
+        {% if admin and linha.py_erros is not none %}
+        {# Período em paralelo: o validador antigo roda junto só para comparar, até a decisão de apagá-lo. #}
+        <p class="text-[11px] text-slate-500">
+            <i class="fa-solid fa-code-compare mr-1"></i>
+            Comparação (só o admin vê): o validador antigo achou {{ linha.py_erros }} erro(s) e
+            {{ linha.py_advertencias or 0 }} advertência(s) neste arquivo; o PVA, {{ n_erros }} e {{ n_adv }}.
+            <a href="/api/validar-sped/{{ processo }}/csv?antigo=1" hx-boost="false" class="underline">Baixar o CSV do antigo</a>
+        </p>
         {% endif %}
 
         <p class="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3">
             <i class="fa-solid fa-circle-info mr-1"></i>
-            {% if r.total %}Corrija os itens acima e valide de novo.{% else %}Leiaute, cadastros e regras genéricas conferem.{% endif %}
-            As {{ nc | length }} regras específicas que valem neste arquivo ainda não são
-            conferidas aqui — o PVA continua sendo a palavra final antes da transmissão.
+            {% if aprovado %}O PVA validou o arquivo sem erros{% if n_adv %} (as advertências não impedem a entrega, mas vale conferir){% endif %}. Validar não assina nem transmite: isso continua no PVA.
+            {% else %}Corrija os erros e valide de novo. As mensagens são as do próprio PVA.{% endif %}
         </p>
     </div>
 </div>

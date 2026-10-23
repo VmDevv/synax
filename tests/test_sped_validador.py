@@ -19,8 +19,9 @@ O que esta suíte protege:
 4. **O que ficou de fora é contado.** As regras específicas do PVA não são
    conferidas na v1, e o resultado diz quantas — "sem inconsistência" não
    pode virar "o PVA vai aceitar".
-5. **A aba respeita empresa e papel.** Operador só valida empresa dele, e o
-   CNPJ do 0000 tem de ser o do cadastro; cliente não entra.
+5. **A aba não mora mais aqui.** Desde 23/10/2026 ela valida no PVA oficial
+   (tests/test_validar_sped_pva.py); este validador roda junto só para
+   comparar, até a decisão de apagá-lo.
 """
 import io
 import os
@@ -1362,250 +1363,11 @@ check("CT-e de saída de terceiros em regime especial sem a chave",
 
 
 # ============================================================================
-print("\n=== 13. A aba: empresa, papel e download ===")
-
-import json  # noqa: E402
-import re  # noqa: E402
-import types  # noqa: E402
-import uuid as _uuid  # noqa: E402
-
-import dotenv  # noqa: E402
-dotenv.load_dotenv = lambda *a, **k: False
-import dotenv.main  # noqa: E402
-dotenv.main.load_dotenv = lambda *a, **k: False
-
-os.environ["DATABASE_URL"] = "sqlite:///./_validar_sped_test.db"
-os.environ["SUPABASE_URL"] = "http://fake"
-os.environ["SUPABASE_KEY"] = "fake"
-os.environ["SUPABASE_SERVICE_KEY"] = "fake"
-os.environ["FERNET_SECRET_KEY"] = "hn5Ck1J8pVXHRV9V3Q6mYbXW4y2S1TqLpRZ0oN7dG8A="
-if os.path.exists("_validar_sped_test.db"):
-    os.remove("_validar_sped_test.db")
-
-from sqlalchemy import types as _satypes  # noqa: E402
-import sqlalchemy.dialects.postgresql as pg  # noqa: E402
-
-
-class _UUIDShim(_satypes.TypeDecorator):
-    impl = _satypes.Uuid
-    cache_ok = True
-
-    def __init__(self, *a, **kw):
-        kw.pop('as_uuid', None)
-        super().__init__()
-
-    def process_bind_param(self, value, dialect):
-        return _uuid.UUID(value) if isinstance(value, str) else value
-
-
-pg.UUID = _UUIDShim
-
-import backend.app.infrastructure.auth.supabase_client as sb  # noqa: E402
-TOKENS = {}
-
-
-class _Auth:
-    def get_user(self, token):
-        u = TOKENS.get(token.replace("Bearer ", "").strip())
-        if not u:
-            raise Exception("invalid")
-        return types.SimpleNamespace(user=u)
-
-
-class _Client:
-    auth = _Auth()
-
-
-sb.get_supabase_client = lambda: _Client()
-sb.get_supabase_admin_client = lambda: _Client()
-import backend.app.api.dependencies.auth as dep_auth  # noqa: E402
-dep_auth.get_supabase_client = lambda: _Client()
-
-from backend.app.infrastructure.database.session import engine as _eng  # noqa: E402
-if _eng.url.get_backend_name() != "sqlite":
-    raise SystemExit("ABORTADO: engine nao e SQLite")
-
-import backend.app.main as m  # noqa: E402
-from backend.app.infrastructure.database.session import SessionLocal  # noqa: E402
-from backend.app.domain.models.base import Base  # noqa: E402
-from backend.app.domain.models.auth_models import (  # noqa: E402
-    Tenant, UserProfile, UserTenant)
-from fastapi.testclient import TestClient  # noqa: E402
-
-Base.metadata.create_all(bind=_eng)
-db = SessionLocal()
-tA, tB, tC = _uuid.uuid4(), _uuid.uuid4(), _uuid.uuid4()
-db.add_all([
-    # O cadastro guarda com máscara: a comparação é só por letras e dígitos.
-    Tenant(id=tA, name="EMPRESA TESTE LTDA", cnpj="11.222.333/0001-81", uf="ES"),
-    Tenant(id=tB, name="OUTRA EMPRESA LTDA", cnpj="11444777000161", uf="ES"),
-    Tenant(id=tC, name="EMPRESA DE OUTRO OPERADOR", cnpj=EMPRESA[:-2] + "00", uf="ES"),
-])
-u_ope, u_ope2, u_cli = _uuid.uuid4(), _uuid.uuid4(), _uuid.uuid4()
-db.add_all([
-    UserProfile(id=u_ope, tenant_id=tA, role="operador", name="Operador"),
-    UserProfile(id=u_ope2, tenant_id=tC, role="operador", name="Operador 2"),
-    UserProfile(id=u_cli, tenant_id=tA, role="cliente", name="Cliente"),
-])
-db.add_all([UserTenant(user_id=u_ope, tenant_id=tA),
-            UserTenant(user_id=u_ope, tenant_id=tB),
-            UserTenant(user_id=u_ope2, tenant_id=tC)])
-db.commit()
-db.close()
-
-TOKENS["ope"] = types.SimpleNamespace(id=str(u_ope), email="oper@synax.com")
-TOKENS["ope2"] = types.SimpleNamespace(id=str(u_ope2), email="oper2@synax.com")
-TOKENS["cli"] = types.SimpleNamespace(id=str(u_cli), email="cli@synax.com")
-
-from backend.app.api.dependencies.db import get_rls_db as _real_rls  # noqa: E402
-
-
-def _fake_rls():
-    ss = SessionLocal()
-    try:
-        yield ss
-    finally:
-        ss.close()
-
-
-m.app.dependency_overrides[_real_rls] = _fake_rls
-c = TestClient(m.app, raise_server_exceptions=False)
-
-
-def as_(token):
-    c.cookies.clear()
-    if token:
-        c.cookies.set("access_token", f"Bearer {token}")
-    return c
-
-
-def enviar(token, tenant, conteudo, htmx=False):
-    return as_(token).post(
-        "/api/validar-sped", data={"tenant_id": str(tenant) if tenant else ""},
-        files={"sped_file": ("sped.txt", conteudo, "text/plain")},
-        headers={"HX-Request": "true"} if htmx else {})
-
-
-r = as_("ope").get("/validar-sped")
-check("operador abre a aba", r.status_code == 200, r.status_code)
-check("com o seletor de empresa", 'name="tenant_id"' in r.text)
-check("a aba aparece na navegação", 'href="/validar-sped"' in r.text)
-check("e a tela diz o que a v1 NÃO confere", "ainda não" in r.text)
-check("cliente não entra", as_("cli").get("/validar-sped").status_code == 403)
-check("anônimo também não",
-      as_(None).get("/validar-sped").status_code in (401, 403))
-check("e a aba não aparece para o cliente",
-      'href="/validar-sped"' not in as_("cli").get("/").text)
-
+# A aba (rotas, fila, histórico e painel) valida no PVA oficial desde 23/10/2026
+# e é conferida em tests/test_validar_sped_pva.py, com um motor falso. Este
+# validador em Python roda junto só para comparar, até o Sandro decidir apagá-lo.
 ARQ = certo.encode("latin-1")
-r = enviar("ope", tA, ARQ)
-check("API: arquivo certo responde 200 em JSON", r.status_code == 200, r.status_code)
-corpo = r.json() if r.status_code == 200 else {}
-check("com zero inconsistência e a conta do que ficou de fora",
-      corpo.get("total") == 0 and corpo.get("nao_conferidas", {}).get("aplicacoes", 0) > 0,
-      corpo.get("total"))
-check("e as seis chaves de cada inconsistência estão no contrato",
-      corpo.get("inconsistencias") == [])
-processo_limpo = corpo.get("processo", "")
-check("o SPED enviado não fica no servidor",
-      processo_limpo and not os.path.exists(os.path.join(
-          "temp_uploads", processo_limpo, "sped_validar.txt")))
-
-r = enviar("ope", tA, ARQ, htmx=True)
-check("htmx recebe a tela, sem prometer 'aprovado'",
-      r.status_code == 200 and "Nenhum erro nas regras conferidas" in r.text
-      and "aprovad" not in r.text.lower() and "palavra final" in r.text)
-
-errado = certo.replace("|C990|5|", "|C990|6|").encode("latin-1")
-r = enviar("ope", tA, errado)
-corpo = r.json()
-check("arquivo com erro: o item tem linha, registro, campo, regra, mensagem e gravidade",
-      corpo["total"] == 1 and set(corpo["inconsistencias"][0]) >=
-      {"linha", "registro", "campo", "regra", "mensagem", "gravidade"},
-      corpo.get("inconsistencias"))
-processo = corpo["processo"]
-r = as_("ope").get(f"/api/validar-sped/{processo}/csv")
-check("CSV baixa como arquivo, nunca renderizado",
-      r.status_code == 200
-      and r.headers.get("content-type") == "application/octet-stream"
-      and r.headers.get("content-disposition", "").startswith("attachment;"))
-texto_csv = r.content.decode("utf-8-sig")
-check("CSV com cabeçalho e a inconsistência",
-      texto_csv.startswith("linha;registro;campo") and "REGRA_QTD_LIN_BLOCOC" in texto_csv)
-check("operador de outra empresa não baixa o relatório",
-      as_("ope2").get(f"/api/validar-sped/{processo}/csv").status_code == 403)
-check("identificador que não é UUID não vira caminho",
-      as_("ope").get("/api/validar-sped/..%2F..%2Fmain/csv").status_code in (400, 404))
-
-r = enviar("ope", tB, ARQ)
-check("arquivo de OUTRA empresa é recusado (CNPJ do 0000 x cadastro)",
-      r.status_code == 422 and "outra empresa" in r.json().get("erro", ""), r.text[:200])
-r = enviar("ope", tB, ARQ, htmx=True)
-check("e na tela a recusa vem em 200, com o motivo visível",
-      r.status_code == 200 and "outra empresa" in r.text)
-r = enviar("ope", tC, ARQ)
-check("operador não valida empresa que não é dele", r.status_code == 403, r.status_code)
-r = enviar("ope", "", ARQ, htmx=True)
-check("sem empresa: 200 com aviso (htmx não troca o alvo em 4xx)",
-      r.status_code == 200 and "Escolha a empresa" in r.text)
-r = enviar("cli", tA, ARQ)
-check("cliente não usa a API", r.status_code == 403, r.status_code)
-r = enviar("ope", tA, contrib.encode("latin-1"))
-check("EFD Contribuições pela API: 422 com o motivo",
-      r.status_code == 422 and "Contribuições" in r.json().get("erro", ""))
-
-# ============================================================================
-print("\n=== 14. Histórico da validação e painel do mês ===")
-
-from backend.app.domain.models.audit import SpedValidacao  # noqa: E402
 from backend.app.services.sped_entregas import hash_do_corpo  # noqa: E402
-
-ss = SessionLocal()
-regs = (ss.query(SpedValidacao.tenant_id, SpedValidacao.competencia,
-                 SpedValidacao.cnpj, SpedValidacao.erros, SpedValidacao.hash_corpo,
-                 SpedValidacao.cod_fin, SpedValidacao.user_name)
-        .order_by(SpedValidacao.created_at).all())
-ss.close()
-check("cada validação aceita fica registrada (3 de A; as recusadas não)",
-      len(regs) == 3 and all(r.tenant_id == str(tA) for r in regs),
-      [(r.tenant_id, r.erros) for r in regs])
-check("com competência, CNPJ do 0000, original/substituta e quem validou",
-      regs and regs[0].competencia == "2026-04" and regs[0].cnpj == EMPRESA
-      and regs[0].cod_fin == "0" and regs[0].user_name == "Operador")
-check("e o hash do corpo é o do arquivo enviado",
-      regs and regs[0].hash_corpo == hash_do_corpo(ARQ))
-check("o arquivo com erro ficou com o número de erros",
-      regs and regs[-1].erros == 1)
-check("a API devolve o hash e diz que registrou",
-      corpo.get("registrada") is True and corpo.get("hash_corpo") == hash_do_corpo(errado))
-
-r = enviar("ope", tA, ARQ, htmx=True)
-check("validar de novo avisa que a competência já foi validada, com o MESMO arquivo",
-      "já tinha" in r.text and "MESMO arquivo já tinha sido validado" in r.text,
-      re.sub(r"\s+", " ", r.text)[:600])
-r = enviar("ope", tA, certo.replace("|1|\r\n|0001|", "|1|\r\n|0001|", 1)
-           .replace("RUA A", "RUA B").encode("latin-1"), htmx=True)
-check("e, com outro conteúdo, que o arquivo é DIFERENTE",
-      "DIFERENTE" in r.text, r.text[-400:])
-
-r = as_("ope").get("/api/validar-sped/painel?competencia=2026-04")
-check("painel do mês responde ao operador", r.status_code == 200, r.status_code)
-check("mostra as empresas dele: a validada e a que falta",
-      "EMPRESA TESTE LTDA" in r.text and "OUTRA EMPRESA LTDA" in r.text
-      and "não validada" in r.text)
-check("e não mostra empresa de outro operador",
-      "EMPRESA DE OUTRO OPERADOR" not in r.text)
-r = as_("ope2").get("/api/validar-sped/painel?competencia=2026-04")
-check("o outro operador só vê a dele, sem a validação de A",
-      "EMPRESA DE OUTRO OPERADOR" in r.text and "EMPRESA TESTE LTDA" not in r.text)
-r = as_("ope").get("/api/validar-sped/painel?competencia=2026-03")
-check("em outro mês, nada validado", "0</strong> de 2" in r.text, r.text[:300])
-r = as_("ope").get("/api/validar-sped/painel?competencia=lixo")
-check("competência inválida não derruba (vale a última fechada)", r.status_code == 200)
-check("cliente não vê o painel",
-      as_("cli").get("/api/validar-sped/painel").status_code == 403)
-check("a aba traz o painel do mês",
-      "/api/validar-sped/painel" in as_("ope").get("/validar-sped").text)
 
 
 # ============================================================================
@@ -1632,21 +1394,6 @@ from backend.app.services.sped_entregas import hash_do_corpo_arquivo  # noqa: E4
 check("lendo do disco em fluxo dá o mesmo hash",
       hash_do_corpo_arquivo(tmp.name) == h0)
 os.remove(tmp.name)
-
-import shutil as _shutil  # noqa: E402
-ss = SessionLocal()
-_processos = [r.id for r in ss.query(SpedValidacao.id).all()]
-ss.close()
-for p in _processos:
-    _shutil.rmtree(os.path.join(os.getcwd(), "temp_uploads", p), ignore_errors=True)
-for p in (processo, processo_limpo):
-    _shutil.rmtree(os.path.join(os.getcwd(), "temp_uploads", p), ignore_errors=True)
-_eng.dispose()
-if os.path.exists("_validar_sped_test.db"):
-    try:
-        os.remove("_validar_sped_test.db")
-    except OSError:
-        pass
 
 
 # ============================================================================

@@ -175,6 +175,12 @@ com ele.
 - **Auditoria de PDF de NFS-e** (`pdf_ia_auditor.py`, `claude-sonnet-5`, `effort: "low"`,
   `MAX_TOKENS = 128000`) manda o PDF cru, saída por `output_config.format`; truncado
   levanta erro; >20 MB pela Files API, apagado no `finally`.
+- **Validar SPED valida no PVA oficial** (`services/pva_motor.py`; motor em `Desktop\Projetos\pva-motor`, HTTP só
+  em 127.0.0.1, `PVA_MOTOR_URL`). O Synax só pede `/saude` e `/validar`: nunca liga, desliga, assina nem transmite
+  (a suíte confere a fonte). Fila de um por vez (`validar_sped_fila.py`), resultado em colunas de `sped_validacoes`
+  (`motor` NULO = validador antigo). Aprovado só com VALIDADA/GERADA_PARA_ENTREGA, sem erro e sem falha; motor fora
+  do ar e EFD-Contribuições respondem antes da fila. O `sped_validador` em Python roda junto só para comparar
+  (`py_erros`, CSV do admin) — apagar é decisão do Sandro.
 - **Radar/painel nunca abrem `result_data`** (`painel_atividade.py` nomeia coluna por
   coluna); ranking é a última auditoria, não a soma.
 - **Lucro Presumido (`/lucro-presumido`) e Domínio (`/dominio`): a tela é aqui, o motor é

@@ -9,7 +9,13 @@
             <i class="fa-solid fa-list-check text-base" style="color: var(--syn-700);"></i>
             Validar SPED (EFD ICMS IPI)
         </h2>
-        <p class="text-[13px] text-slate-500">Confere o arquivo do cliente pelo leiaute do PVA antes da transmissão.</p>
+        <p class="text-[13px] text-slate-500">Valida o arquivo do cliente no PVA oficial da Receita antes da transmissão.</p>
+    </div>
+
+    {# Conferido ao abrir: com o motor fora do ar, ninguém sobe arquivo à toa. Fora do form de propósito: o
+       htmx:afterRequest daqui subiria até o form e recarregaria o painel do mês. #}
+    <div id="motor-validar" class="mb-3" hx-get="/api/validar-sped/motor" hx-trigger="load" hx-swap="innerHTML">
+        <span class="text-[12px] text-slate-400">Conferindo o motor do PVA…</span>
     </div>
 
     <section class="syn-card syn-card-accent overflow-hidden">
@@ -46,18 +52,18 @@
                     <input type="file" name="sped_file" accept=".txt" required
                            class="file-input file-input-bordered w-full">
                     <p class="text-[11px] text-slate-500 mt-1">
-                        O arquivo não é alterado nem guardado — só o relatório, para baixar em CSV.
+                        O arquivo não é alterado e só fica no servidor até o PVA responder; fica o relatório, para baixar em CSV.
                     </p>
                 </div>
             </div>
 
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-3 flex-wrap">
                 <button type="submit" class="btn bg-syn-700 hover:bg-syn-800 text-white font-bold px-6 shadow-sm">
-                    <i class="fa-solid fa-magnifying-glass-chart mr-1"></i> Validar
+                    <i class="fa-solid fa-magnifying-glass-chart mr-1"></i> Validar no PVA
                 </button>
                 <span id="spinner-validar" class="htmx-indicator text-sm text-slate-500">
                     <span class="loading loading-spinner loading-sm"></span>
-                    Conferindo registro por registro…
+                    Enviando o arquivo…
                 </span>
             </div>
         </form>
@@ -71,10 +77,10 @@
                 <h3 class="font-bold text-sm text-slate-800">
                     <i class="fa-solid fa-calendar-check text-syn-600 mr-1"></i> Validações do mês
                 </h3>
-                {# Recarrega o quadro ao trocar o mês; `hx-boost="false"` porque o
-                   form é só do htmx. #}
+                {# Recarrega o quadro ao trocar o mês, ao enfileirar e quando uma
+                   validação termina; `hx-boost="false"` porque o form é só do htmx. #}
                 <form hx-get="/api/validar-sped/painel" hx-target="#painel-validar"
-                      hx-trigger="change, load, htmx:afterRequest from:#formValidarSped"
+                      hx-trigger="change, load, htmx:afterRequest from:#formValidarSped, validarSpedConcluida from:body"
                       hx-boost="false"
                       class="flex items-center gap-2">
                     <label class="text-[12px] text-slate-500" for="competencia-painel">Competência</label>
@@ -87,20 +93,17 @@
         </div>
     </section>
 
-    <section class="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-4">
-        <h3 class="font-bold text-sm text-amber-900 mb-1">
-            <i class="fa-solid fa-circle-info mr-1"></i> O que esta versão confere
+    <section class="mt-6 bg-sky-50 border border-sky-200 rounded-xl p-4">
+        <h3 class="font-bold text-sm text-sky-900 mb-1">
+            <i class="fa-solid fa-circle-info mr-1"></i> Como funciona
         </h3>
         <p class="text-xs text-slate-700 leading-relaxed">
-            O leiaute vem do próprio PVA instalado no escritório: registros conhecidos,
-            hierarquia e ordem, ocorrência, registros e campos obrigatórios, número de
-            campos, tipo, tamanho e casas decimais, valores válidos, Tabelas Externas
-            (por UF e vigência), duplicidade de chave, cadastros do Bloco 0 (participante,
-            item, unidade, observação), totalizadores do Bloco 9 e as regras genéricas mais
-            usadas (data, CNPJ/CPF, chave de acesso, maior que zero, alíquota).
-            <strong>As regras específicas do PVA — cruzamento de valores entre registros,
-            apuração, CST × campos — ainda não</strong>: a tela diz quantas ficaram de fora
-            em cada arquivo. Sem inconsistência aqui não significa que o PVA vai aceitar.
+            Quem valida é o próprio PVA da EFD ICMS/IPI, o programa oficial da Receita, rodando sem tela no
+            servidor do escritório: o resultado, as mensagens, a linha, o campo e o valor esperado são os mesmos
+            que a tela do PVA mostraria. O PVA valida um arquivo por vez — se outra pessoa estiver validando, o
+            seu entra na fila e esta página acompanha sozinha (cada arquivo leva de 10 a 40 segundos).
+            <strong>EFD-Contribuições ainda não</strong>: o PVA dela não está instalado no servidor. Validar não
+            assina nem transmite.
         </p>
     </section>
 
