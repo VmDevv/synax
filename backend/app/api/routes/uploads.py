@@ -23,7 +23,7 @@ from ...domain.models.rules import CfopClassification, CteCfopClassification, Ip
 from ...services.audit_engine.cross_checker import (
     execute_audit, levantar_nao_conferidos, chave_item_match)
 from ...services.audit_engine.sped_parser import (
-    CONTRIBUICOES, FISCAL, LeiauteInesperado, detectar_leiaute)
+    CONTRIBUICOES, FISCAL, LeiauteInesperado, detectar_leiaute, motivo_sem_leiaute)
 from ...services.audit_engine.ia_matcher import casar_nao_conferidos, ia_disponivel
 from ...services.audit_engine import email_catalog
 from ...services.audit_engine.resumo_financeiro import resumo_financeiro
@@ -167,6 +167,10 @@ async def upload_files(
             raise HTTPException(
                 status_code=400,
                 detail=LeiauteInesperado(esperado, leiaute_real).mensagem)
+        # Leiaute nenhum é o 0000 ilegível, e passava calado: auditoria inteira
+        # sem CNPJ da empresa, com todo item "sem regra" e o Aprovar recusado.
+        if not leiaute_real:
+            raise HTTPException(status_code=400, detail=motivo_sem_leiaute(sped_path))
 
         # 3. Salvar e extrair o ZIP de XMLs. Input de arquivo vazio chega como
         # UploadFile sem nome — não é pacote.
@@ -767,7 +771,16 @@ def map_cfop_inline(
         cnpj_emitente = (cnpj_emitente or "").strip()
         company_cnpj = (company_cnpj or "").strip()
         product_code = (product_code or "").strip()
-        if not (cnpj_emitente and company_cnpj and product_code) or "*" in (cnpj_emitente, company_cnpj, product_code):
+        faltam = [nome for nome, valor in (("o CNPJ da empresa", company_cnpj),
+                                           ("o CNPJ do fornecedor", cnpj_emitente),
+                                           ("o código do produto", product_code))
+                  if not valor or valor == "*"]
+        if faltam:
+            # Empresa vazia vem do SPED, não da linha: o 0000 não foi lido, e
+            # TODAS as linhas da auditoria dariam a mesma recusa.
+            causa = (" O registro 0000 do SPED desta auditoria não foi lido: corrija o"
+                     " arquivo e rode a auditoria de novo."
+                     if "o CNPJ da empresa" in faltam else "")
             # `cfop-row` + data-cfop/data-cnpj: sem isso a paginação da aba
             # "Novos CFOPs" (applyTableState, no template) para de enxergar
             # esta linha — ela some da contagem de páginas mas continua no
@@ -776,7 +789,7 @@ def map_cfop_inline(
             return HTMLResponse(f"""
                 <tr class='cfop-row bg-amber-50' data-cfop='{html.escape(cfop)}' data-cnpj='{html.escape(cnpj_emitente)}'><td colspan='3' class='text-amber-700 text-center py-3'>
                     <i class='fa-solid fa-triangle-exclamation mr-1'></i>
-                    Regra não gravada: falta CNPJ da empresa, CNPJ do fornecedor ou código do produto.
+                    Regra não gravada: falta {" e ".join(faltam)}.{causa}
                     A regra de CFOP exige os quatro campos — sem eles ela nunca casaria com uma nota.
                 </td></tr>
             """)
@@ -1213,6 +1226,8 @@ def map_cfop_bulk(
         new_rules_to_add = []
 
         filtro_cnpj = (cnpj_emitente or "").strip()
+        ignorados = 0
+        sem_empresa = 0
 
         for item in desconhecidos:
             if filtro_cnpj and not _cnpj_casa(item.get("cnpj_emitente"), filtro_cnpj):
@@ -1220,15 +1235,18 @@ def map_cfop_bulk(
             cfop = item.get("cfop")
             cfop_sugerido = item.get("cfop_sugerido")
             if cfop and cfop_sugerido:
-                company_cnpj = item.get("company_cnpj") or data.get("company_cnpj", "")
-                supplier_cnpj = item.get("cnpj_emitente") or item.get("supplier_cnpj", "")
-                # Regra unitária: o produto faz parte da chave. Gravar "*" aqui
-                # criaria uma regra genérica que o motor nunca encontra — a busca
-                # exige casamento exato dos 4 campos.
-                product_code = item.get("product_code") or ""
-                if not product_code or product_code == "*":
+                company_cnpj = (item.get("company_cnpj") or data.get("company_cnpj") or "").strip()
+                supplier_cnpj = (item.get("cnpj_emitente") or item.get("supplier_cnpj") or "").strip()
+                # A chave tem os 4 campos e o motor busca exato, sem curinga.
+                # Só o produto era conferido aqui: com o 0000 ilegível o lote
+                # gravava a auditoria inteira com empresa vazia, regra que nunca casa.
+                product_code = (item.get("product_code") or "").strip()
+                if not (company_cnpj and supplier_cnpj and product_code) \
+                        or "*" in (company_cnpj, supplier_cnpj, product_code):
+                    ignorados += 1
+                    sem_empresa += not company_cnpj
                     continue
-                    
+
                 rule_key = (company_cnpj, supplier_cnpj, cfop, product_code)
                 existing_rule = existing_rules_map.get(rule_key)
                 descricao = (item.get("descricao") or "").strip() or None
@@ -1262,15 +1280,31 @@ def map_cfop_bulk(
                 
         db_session.commit()
         
+        motivo_ignorados = ""
+        if ignorados:
+            motivo_ignorados = (
+                " %d item(ns) ignorados por nao terem empresa, fornecedor e produto"
+                " completos — regra incompleta nunca casa na auditoria." % ignorados)
+            if sem_empresa:
+                motivo_ignorados += (" O registro 0000 do SPED desta auditoria nao foi"
+                                     " lido: corrija o arquivo e rode a auditoria de novo.")
+
         if mapped_count == 0:
             return _aviso_lote(
                 "Nenhuma sugestao aplicavel encontrada"
                 + (" para o CNPJ %s" % filtro_cnpj if filtro_cnpj else "")
-                + ". Nada foi gravado."
+                + ". Nada foi gravado." + motivo_ignorados
             )
+
+        aviso_ignorados = ""
+        if ignorados:
+            aviso_ignorados = (
+                "<div class='bg-amber-50 text-amber-800 p-2 rounded mt-2 text-sm border border-amber-200'>"
+                + html.escape(motivo_ignorados.strip()) + "</div>")
 
         return HTMLResponse(f"""
         <div class='alert alert-success mt-4'>Sucesso! {mapped_count} regras mapeadas automaticamente.</div>
+        {aviso_ignorados}
         <script>
             setTimeout(() => {{
                 const cnpjFiltro = {_js(_so_digitos(filtro_cnpj))};

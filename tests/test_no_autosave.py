@@ -164,6 +164,37 @@ check("descricao vazia fica NULL", r_vazio is not None and not r_vazio.product_d
       f"desc={getattr(r_vazio,'product_description',None)}")
 db.close()
 
+print("\n=== 4a. Chave incompleta: recusa dizendo QUAL campo falta ===")
+# PERCAL, 23/10/2026: SPED com "F" antes do |0000| auditado sem o CNPJ da
+# empresa. Toda linha dava "falta CNPJ da empresa, CNPJ do fornecedor OU
+# codigo do produto" -- sem dizer qual, nem que a causa era o arquivo.
+r = as_("adm").post("/api/mapping/cfop", data={**payload, "cfop": "5101", "company_cnpj": ""})
+check("sem empresa: nomeia o CNPJ da empresa e aponta o 0000",
+      "falta o CNPJ da empresa." in r.text and "registro 0000" in r.text, r.text)
+r = as_("adm").post("/api/mapping/cfop", data={**payload, "cfop": "5101", "product_code": ""})
+check("sem produto: nomeia so o produto, sem culpar o 0000",
+      "falta o código do produto." in r.text and "0000" not in r.text, r.text)
+db = SessionLocal()
+check("nenhuma das duas grava regra",
+      db.query(CfopClassification).filter_by(tenant_id=t, supplier_cfop="5101").count() == 0)
+db.close()
+
+from backend.app.domain.models.audit import AuditTask
+db = SessionLocal()
+db.add(AuditTask(id="t-sem-0000", tenant_id=t, status="concluido", result_data=json.dumps({
+    "company_cnpj": "",
+    "cfops_desconhecidos": [{"company_cnpj": "", "cfop": "5101", "cfop_sugerido": "1101",
+                             "cnpj_emitente": "99999999999999", "product_code": "PROD-9",
+                             "descricao": "ITEM"}]})))
+db.commit(); db.close()
+r = as_("adm").post("/api/mapping/cfop/bulk", data={"task_id": "t-sem-0000", "tenant_id": t})
+db = SessionLocal()
+check("lote sem empresa: nao grava regra com company_cnpj vazio",
+      db.query(CfopClassification).filter_by(tenant_id=t, supplier_cfop="5101").count() == 0)
+db.close()
+check("e diz o que nao casou e por que, sem verde",
+      "1 item(ns) ignorados" in r.text and "registro 0000" in r.text and "Sucesso" not in r.text, r.text)
+
 print("=== 4b. As TRES respostas de /api/mapping/cfop preservam cfop-row ===")
 import backend.app.api.routes.uploads as uploads_mod
 fonte_map_cfop = inspect.getsource(uploads_mod.map_cfop_inline)

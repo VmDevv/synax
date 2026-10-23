@@ -45,7 +45,8 @@ O motor monta dicionários em RAM e faz `dict.get()` seco. Não há fallback, n�
 | `POST /api/mapping/ipi_rule` | CST de IPI vazio ou `*` |
 | `POST /admin/rules/cfop/add` | `*` ou `TODOS` nos três campos |
 | `POST /admin/rules/ipi/add` | CST vazio ou `*` |
-| Lote de CFOP (`/api/mapping/cfop/bulk`) | item sem `product_code` é pulado |
+| Lote de CFOP (`/api/mapping/cfop/bulk`) | item sem empresa, fornecedor ou `product_code` é pulado, e a resposta diz quantos |
+| `POST /api/upload` | SPED com o 0000 ilegível (ex.: texto sobrando antes do registro 0000): sem ele não há CNPJ da empresa e nenhuma regra casaria (`motivo_sem_leiaute`) |
 
 ### 1.3 Maker-checker: quem grava define o status.
 
@@ -586,7 +587,7 @@ Todas fazem **upsert** (atualiza se a chave já existe), regravam `created_by` e
 
 | Rota | O que faz |
 |---|---|
-| `POST /api/mapping/cfop/bulk` | aprova todas as sugestões da auditoria; filtro opcional por CNPJ (substring, sem pontuação — espelha a busca da tela); pula item sem `product_code` |
+| `POST /api/mapping/cfop/bulk` | aprova todas as sugestões da auditoria; filtro opcional por CNPJ (substring, sem pontuação — espelha a busca da tela); pula item sem empresa, fornecedor ou `product_code` |
 | `POST /api/mapping/cte_cfop/bulk` | idem para CT-e |
 | `POST /api/mapping/cfop/bulk_by_cfop` | aplica um CFOP de entrada a **todos os produtos** de um CFOP de origem |
 
