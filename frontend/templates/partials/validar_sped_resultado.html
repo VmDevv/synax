@@ -65,6 +65,9 @@
             <i class="fa-solid fa-circle-exclamation"></i> Reprovado pelo PVA: {{ n_erros }} erro(s)
             {% elif veredito == "nao_integrado" %}
             <i class="fa-solid fa-circle-exclamation"></i> O PVA não integrou a escrituração: {{ n_erros }} erro(s) de importação
+            {% elif falha_do_motor %}
+            {# O banco interno do PVA falhou em todas as tentativas: o arquivo não chegou a ser julgado. #}
+            <i class="fa-solid fa-triangle-exclamation"></i> O PVA não conseguiu validar: falha do motor, não do arquivo
             {% else %}
             <i class="fa-solid fa-ban"></i> O PVA recusou o arquivo antes de importar
             {% endif %}
@@ -265,7 +268,7 @@
         {% endif %}
         {% endif %}
 
-        {% if original_disponivel and r and (r.itens or r.falha) %}
+        {% if original_disponivel and r and (r.itens or r.falha) and not falha_do_motor %}
         {# Correção pelo Synax: só formato e contagens sozinho; o resto com o que fazer. A prévia vem antes de tudo. #}
         <div class="border border-emerald-200 rounded-lg overflow-hidden">
             <div class="flex items-center justify-between flex-wrap gap-2 bg-emerald-50 px-3 py-2">

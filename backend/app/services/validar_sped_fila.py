@@ -57,6 +57,13 @@ FALHOU = "falhou"
 INTERROMPIDA = "interrompida"     # só na tela: a linha ficou pendente e o pedido não está mais na memória
 PENDENTES = frozenset({NA_FILA, VALIDANDO})
 
+# O banco interno do PVA (o MySQL da cópia do motor) às vezes falha no meio de um lote e volta sozinho segundos
+# depois: em 23/10/2026, num lote de 40 arquivos da EFD-Contribuições, 6 seguidos voltaram ExcecaoAcessoBanco e
+# todos saíram VALIDADA na tentativa seguinte. É falha do motor, não do arquivo — a fila tenta de novo, com pausa,
+# antes de mostrar "falha". Só essas: arquivo recusado pelo PVA (quebra de linha, leiaute) nunca repete.
+FALHAS_DO_BANCO_DO_PVA = ("ExcecaoAcessoBanco", "Erro durante a validacao no banco")
+PAUSAS_BANCO_PVA = (3, 10)           # segundos antes da 2ª e da 3ª tentativa
+
 COLUNAS_CSV = ("tipo", "linha", "registro", "campo", "valor", "esperado", "mensagem", "codigo", "conteudo")
 COLUNAS_CSV_ANTIGO = ("linha", "registro", "campo", "valor", "regra", "gravidade", "mensagem")
 
@@ -303,6 +310,32 @@ def _validar_ou_assinar(caminho: str, pedido: Pedido):
                                                                                          motivo=exc.mensagem)
 
 
+def falha_do_banco_do_pva(resultado) -> bool:
+    return bool(resultado.falha) and any(marca in resultado.falha for marca in FALHAS_DO_BANCO_DO_PVA)
+
+
+def _com_novas_tentativas(caminho: str, pedido: Pedido):
+    """`_validar_ou_assinar`, de novo enquanto o banco interno do PVA falhar (até `len(PAUSAS_BANCO_PVA)` vezes a
+    mais). Chame com a trava do motor na mão: a pausa segura a fila, e é o que deixa o banco do PVA voltar."""
+    resultado, assinatura = _validar_ou_assinar(caminho, pedido)
+    tentativas = 1
+    for pausa in PAUSAS_BANCO_PVA:
+        if not falha_do_banco_do_pva(resultado):
+            break
+        logger.warning("Validar SPED: banco interno do PVA falhou no pedido %s (tentativa %d): %s",
+                       pedido.processo, tentativas, resultado.falha[:200])
+        time.sleep(pausa)
+        resultado, assinatura = _validar_ou_assinar(caminho, pedido)
+        tentativas += 1
+    if falha_do_banco_do_pva(resultado):
+        # Na frente, porque a coluna corta em 500 e a mensagem do PVA é longa.
+        resultado.falha = (f"O banco interno do PVA falhou nas {tentativas} tentativas — é falha do motor, não do "
+                           f"arquivo: envie de novo daqui a alguns minutos. PVA: {resultado.falha}")
+    elif tentativas > 1:
+        logger.info("Validar SPED: pedido %s passou na tentativa %d", pedido.processo, tentativas)
+    return resultado, assinatura
+
+
 def _um_arquivo(pedido: Pedido) -> dict:
     caminho = os.path.join(pasta(pedido.processo), ARQUIVO_SPED)
     _atualizar(pedido.processo, situacao=VALIDANDO)
@@ -310,7 +343,7 @@ def _um_arquivo(pedido: Pedido) -> dict:
     try:
         try:
             with pva_motor.uso_exclusivo(pedido.leiaute):
-                resultado, assinatura = _validar_ou_assinar(caminho, pedido)
+                resultado, assinatura = _com_novas_tentativas(caminho, pedido)
         except pva_motor.MotorIndisponivel as exc:
             logger.warning("Validar SPED: %s sem resposta do PVA: %s", pedido.processo, exc.mensagem)
             registrada = _atualizar(pedido.processo, situacao=FALHOU, falha=exc.mensagem[:500],

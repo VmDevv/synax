@@ -1377,6 +1377,69 @@ check("e a cópia corrigida foi ao PVA da EFD-Contribuições, sem o espaço",
 
 
 # ============================================================================
+print("\n=== 11. Banco interno do PVA que falha e volta: a fila tenta de novo ===")
+
+# 23/10/2026, motor da EFD-Contribuições: num lote de 40 arquivos, 6 seguidos voltaram ExcecaoAcessoBanco e todos
+# passaram na tentativa seguinte. Texto copiado da resposta real do motor.
+FALHA_BANCO = {**RECUSADO, "versaoPva": "6.2.0", "leiaute": "EFD-Contribuições", "mensagens": [],
+               "falha": "br.gov.serpro.sped.piscofinspva.infra.excecao.ExcecaoAcessoBanco: Houve um problema "
+                        "inesperado com o banco de dados do PVA, favor encaminhar a descrição completa da operação "
+                        "realizada, com cópias de tela, mensagens de erros e se possível com o arquivo de escrituração"}
+
+
+def enviar_contrib():
+    r = as_("ope").post("/api/validar-sped", data={"tenant_id": str(tA)},
+                        files={"sped_file": ("EFD_CONTRIB.txt", CONTRIB, "text/plain")})
+    processo = r.json()["processo"]
+    PROCESSOS.append(processo)
+    fila.esperar(10)
+    return processo
+
+
+check("a falha do banco do PVA é reconhecida; a recusa do arquivo, não",
+      fila.falha_do_banco_do_pva(pva_motor.ler_resposta(FALHA_BANCO))
+      and fila.falha_do_banco_do_pva(pva_motor.ler_resposta(
+          {**RECUSADO, "falha": "java.lang.RuntimeException: Erro durante a validacao no banco."}))
+      and not fila.falha_do_banco_do_pva(pva_motor.ler_resposta(RECUSADO))
+      and not fila.falha_do_banco_do_pva(pva_motor.ler_resposta(APROVADO)))
+check("pausas de verdade entre as tentativas (o banco do PVA leva segundos para voltar)",
+      len(fila.PAUSAS_BANCO_PVA) == 2 and all(p >= 3 for p in fila.PAUSAS_BANCO_PVA), fila.PAUSAS_BANCO_PVA)
+pausas = fila.PAUSAS_BANCO_PVA
+fila.PAUSAS_BANCO_PVA = (0, 0)
+try:
+    antes_c = len(MotorContribFake.pedidos)
+    MotorContribFake.respostas.extend([FALHA_BANCO, FALHA_BANCO])
+    p_banco = enviar_contrib()
+    ln = linha_de(p_banco)
+    check("banco do PVA que falha duas vezes e volta: aprovado na 3ª, sem falha, o arquivo foi 3 vezes ao PVA",
+          ln.situacao == "concluida" and ln.aprovado is True and not ln.falha
+          and len(MotorContribFake.pedidos) - antes_c == 3,
+          (ln.situacao, ln.aprovado, ln.falha, len(MotorContribFake.pedidos) - antes_c))
+
+    antes_c = len(MotorContribFake.pedidos)
+    MotorContribFake.respostas.extend([FALHA_BANCO] * 3)
+    p_banco3 = enviar_contrib()
+    ln = linha_de(p_banco3)
+    check("falha nas 3: não aprovado, e a falha diz, ANTES do texto do PVA, que é do motor e para enviar de novo",
+          ln.situacao == "concluida" and ln.aprovado is False and len(MotorContribFake.pedidos) - antes_c == 3
+          and ln.falha.startswith("O banco interno do PVA falhou nas 3 tentativas") and "ExcecaoAcessoBanco" in ln.falha,
+          (ln.aprovado, (ln.falha or "")[:120], len(MotorContribFake.pedidos) - antes_c))
+    t = texto(as_("ope").get(f"/api/validar-sped/{p_banco3}", headers=HX))
+    check("na tela: 'falha do motor, não do arquivo', sem 'recusou o arquivo' e sem oferta de correção",
+          "O PVA não conseguiu validar: falha do motor, não do arquivo" in t and "recusou o arquivo" not in t
+          and "Corrigir pelo Synax" not in t and "emerald" not in t, t[:500])
+
+    antes_c = len(MotorContribFake.pedidos)
+    MotorContribFake.respostas.append({**RECUSADO, "versaoPva": "6.2.0", "leiaute": "EFD-Contribuições"})
+    p_rec = enviar_contrib()
+    check("arquivo recusado pelo PVA (quebra de linha) vai uma vez só: repetir não muda o arquivo",
+          len(MotorContribFake.pedidos) - antes_c == 1 and "QUEBRA" in (linha_de(p_rec).falha or "")
+          and not (linha_de(p_rec).falha or "").startswith("O banco interno"), len(MotorContribFake.pedidos) - antes_c)
+finally:
+    fila.PAUSAS_BANCO_PVA = pausas
+
+
+# ============================================================================
 import shutil as _shutil  # noqa: E402
 
 fila.esperar(10)

@@ -457,6 +457,8 @@ def andamento(request: Request, processo: str,
         "registrada": registrada, "falha": falha, "na_frente": (mem or {}).get("na_frente", 0),
         "segundos": segundos, "cab": _meta(processo), "empresa": empresa, "br": br, "assinar": bool(linha.assinar),
         "original_disponivel": os.path.exists(os.path.join(fila.pasta(processo), fila.ARQUIVO_ORIGINAL)),
+        # Falha do banco do PVA não é do arquivo: nem "recusou o arquivo", nem oferta de correção.
+        "falha_do_motor": resultado is not None and fila.falha_do_banco_do_pva(resultado),
         "correcao_feita": _correcao_gravada(processo) if linha.corrige else None,
         "corrigida_de": _hora_da(db_session, linha.corrige) if linha.corrige else None,
         "assinado_disponivel": bool(linha.assinado) and os.path.exists(
