@@ -164,6 +164,45 @@ def detectar_leiaute(path) -> str:
     return ""
 
 
+def motivo_sem_leiaute(path) -> str:
+    """Por que `detectar_leiaute` não reconheceu o arquivo, dito para quem o enviou.
+
+    Sem o 0000 o percurso pula o cabeçalho calado, e a auditoria rodava inteira
+    com o CNPJ da empresa vazio: nenhuma regra de CFOP casa e nenhuma pode ser
+    gravada (a chave exige a empresa), e a competência sai nula. Foi assim em
+    23/10/2026 com um SPED da PERCAL salvo com um "F" antes do |0000|: 137 itens
+    "sem regra" numa empresa com 290 regras aprovadas, e cada "Aprovar" recusado.
+    """
+    try:
+        with open(path, "rb") as f:
+            bruto = f.read(4096)
+    except OSError:
+        return "Não foi possível ler o arquivo SPED enviado."
+    for linha in _decodificar(bruto).splitlines():
+        if "|0000|" not in linha:
+            continue
+        if linha.startswith("|0000|"):
+            return (
+                "O registro 0000 do SPED não traz as datas do período nas posições "
+                "do leiaute (campos 04 e 05 no SPED Fiscal, 06 e 07 no EFD "
+                "Contribuições). Sem ele não há CNPJ da empresa nem competência "
+                "para auditar.")
+        sobra = linha[:linha.index("|0000|")]
+        if "|" in sobra:
+            # É outro registro que cita o 0000 (o |9900|0000| do Bloco 9).
+            continue
+        trecho = f'"{sobra[:20]}"' if sobra.strip() else "espaços em branco"
+        return (
+            f"A linha do registro 0000 tem {trecho} antes do |0000|. Esse trecho "
+            "não faz parte do SPED (costuma ser uma tecla digitada sem querer ao "
+            "abrir o arquivo num editor de texto): apague-o, salve e envie de "
+            "novo. Sem o 0000 não há CNPJ da empresa nem competência, e nenhuma "
+            "regra de CFOP casaria.")
+    return (
+        "O arquivo não começa pelo registro |0000|, que traz o CNPJ da empresa e "
+        "o período. Confira se é mesmo um SPED (EFD ICMS/IPI ou EFD Contribuições).")
+
+
 def ler_sped(path, contribuicoes: bool = False):
     """Lê o SPED pelo leiaute escolhido na tela, conferindo o arquivo antes.
 

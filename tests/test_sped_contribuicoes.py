@@ -483,6 +483,36 @@ check("o par de sempre continua passando", r.status_code == 200, r.status_code)
 check("com a opcao desligada",
       chamadas[-1].get("sped_contribuicoes") is False, chamadas[-1:])
 
+# PERCAL, 23/10/2026: o arquivo foi salvo com um "F" antes do |0000|. Sem
+# leiaute nenhum o envio passava, e a auditoria rodava sem o CNPJ da empresa:
+# 137 itens "sem regra" numa empresa com 290 regras aprovadas.
+_antes_f = (len(chamadas), pastas_de_upload())
+r = enviar("F" + sped_fiscal(), marcada=False)
+check("0000 ilegivel: o envio e RECUSADO, nao auditado calado",
+      r.status_code == 400 and len(chamadas) == _antes_f[0], (r.status_code, len(chamadas)))
+check("e o motivo mostra o trecho que sobra antes do |0000|",
+      '"F" antes do |0000|' in r.json().get("detail", "") and "apague-o" in r.text, r.text[:200])
+check("sem pasta orfa em temp_uploads", pastas_de_upload() == _antes_f[1])
+
+from backend.app.services.audit_engine.sped_parser import motivo_sem_leiaute  # noqa: E402
+
+
+def _motivo(texto):
+    caminho = os.path.join(PASTA, "motivo.txt")
+    with open(caminho, "w", encoding="latin-1", newline="") as f:
+        f.write(texto)
+    return motivo_sem_leiaute(caminho)
+
+
+check("espaco antes do |0000| e dito como espaco",
+      "espaços em branco antes do |0000|" in _motivo("  " + sped_fiscal()))
+check("arquivo sem 0000: diz que nao e SPED",
+      "não começa pelo registro |0000|" in _motivo("|0001|0|\r\n"))
+check("o |9900|0000| do Bloco 9 nao passa por 0000 com sobra",
+      "não começa pelo registro |0000|" in _motivo("|0001|0|\r\n|9900|0000|1|\r\n"))
+check("0000 sem as datas: aponta os campos do leiaute",
+      "campos 04 e 05" in _motivo("|0000|020|0|||EMPRESA|41216114000312|\r\n"))
+
 import shutil  # noqa: E402
 for pasta in (os.listdir("temp_uploads") if os.path.isdir("temp_uploads") else []):
     caminho = os.path.join("temp_uploads", pasta)
